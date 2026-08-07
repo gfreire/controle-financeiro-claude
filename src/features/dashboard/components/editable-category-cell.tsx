@@ -16,7 +16,10 @@ export function EditableCategoryCell({ row, categories }: { row: TransactionView
 
   // Transfers and credit-card-payment account-side movements never carry a category
   // (see AI_CONTEXT.md "Money Reality Rules") — nothing to edit for these rows.
-  if (row.type === "TRANSFER" || row.type === "CREDIT_CARD_PAYMENT") {
+  if (row.type === "CREDIT_CARD_PAYMENT") {
+    return <span className="text-xs opacity-70">Pagamento de Cartão</span>;
+  }
+  if (row.type === "TRANSFER") {
     return <span className="text-xs opacity-40">—</span>;
   }
 

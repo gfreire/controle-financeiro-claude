@@ -2,9 +2,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { splitInstallments, sumMoney, subtractMoney } from "@/lib/utils/money";
 import { calculateInstallmentCompetences, calculateInstallmentCompetencesFromAnchorMonth } from "@/lib/utils/date";
-import { monthKey, endOfMonth } from "@/lib/utils/date";
+import { monthKey, startOfMonth, endOfMonth } from "@/lib/utils/date";
 import type { CardPurchaseInput, CardPaymentInput } from "@/lib/validations/cards";
-import type { CardInstallmentDTO, CardPurchaseDTO } from "@/types/dto";
+import type { CardInstallmentDTO, CardPurchaseDTO, CardSummaryDTO } from "@/types/dto";
 
 async function getCardCycle(supabase: Awaited<ReturnType<typeof createClient>>, creditCardId: string) {
   const { data, error } = await supabase.from("credit_cards").select("closing_day, due_day").eq("account_id", creditCardId).single();
@@ -229,6 +229,29 @@ export async function getCardBalanceThroughMonth(creditCardId: string, throughMo
   const totalInstallments = sumMoney((installments ?? []).map((i) => i.amount));
   const totalPayments = sumMoney((payments ?? []).map((p) => p.amount));
   return Math.max(0, subtractMoney(totalInstallments, totalPayments));
+}
+
+/**
+ * Cards page summary: `usedThroughCurrentMonth` is the existing "pay the bill" figure
+ * (installments due through the current month, minus payments already made).
+ * `currentMonthInvoice` isolates just this month's competence, and `overdueAmount` is
+ * whatever's left over from prior months still unpaid — the "you may be behind" signal.
+ */
+export async function getCardSummary(creditCardId: string, currentMonth: string, creditLimit: number | null): Promise<CardSummaryDTO> {
+  const supabase = await createClient();
+  const periodStart = startOfMonth(`${currentMonth}-01`);
+  const periodEnd = endOfMonth(`${currentMonth}-01`);
+
+  const [usedThroughCurrentMonth, { data: currentInstallments, error }] = await Promise.all([
+    getCardBalanceThroughMonth(creditCardId, currentMonth),
+    supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).gte("competence", periodStart).lte("competence", periodEnd),
+  ]);
+  if (error) throw new Error(error.message);
+
+  const currentMonthInvoice = sumMoney((currentInstallments ?? []).map((i) => i.amount));
+  const overdueAmount = Math.max(0, subtractMoney(usedThroughCurrentMonth, currentMonthInvoice));
+
+  return { accountId: creditCardId, creditLimit, usedThroughCurrentMonth, currentMonthInvoice, overdueAmount };
 }
 
 /** Pays the card bill: creates both a CREDIT_CARD_PAYMENT transaction and the linked card_payments metadata row. */

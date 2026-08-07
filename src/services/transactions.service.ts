@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import type { TransactionInput } from "@/lib/validations/transactions";
 import type { TransactionViewDTO } from "@/types/dto";
-import type { TransactionRow } from "@/types/database";
+import type { TransactionRow, AccountType } from "@/types/database";
 
 export type TransactionFilters = {
   periodStart?: string;
@@ -66,7 +66,7 @@ export async function getTransactions(filters: TransactionFilters = {}): Promise
   let query = supabase
     .from("transactions")
     .select(
-      "id, date, description, type, amount, category_id, subcategory_id, origin_account_id, destination_account_id, categories(name), subcategories(name), origin:accounts!transactions_origin_account_id_fkey(name), destination:accounts!transactions_destination_account_id_fkey(name)"
+      "id, date, description, type, amount, category_id, subcategory_id, origin_account_id, destination_account_id, categories(name), subcategories(name), origin:accounts!transactions_origin_account_id_fkey(name, type), destination:accounts!transactions_destination_account_id_fkey(name, type)"
     )
     .eq("user_id", user.id)
     .order("date", { ascending: false });
@@ -92,8 +92,8 @@ export async function getTransactions(filters: TransactionFilters = {}): Promise
     destination_account_id: string | null;
     categories: { name: string } | null;
     subcategories: { name: string } | null;
-    origin: { name: string } | null;
-    destination: { name: string } | null;
+    origin: { name: string; type: AccountType } | null;
+    destination: { name: string; type: AccountType } | null;
   }>;
 
   return data.map((row) => ({
@@ -107,6 +107,7 @@ export async function getTransactions(filters: TransactionFilters = {}): Promise
     subcategory: row.subcategories?.name ?? "",
     accountId: row.origin_account_id ?? row.destination_account_id,
     account: row.origin?.name ?? row.destination?.name ?? "",
+    accountType: row.origin?.type ?? row.destination?.type ?? null,
     amount: row.amount,
     source: "transaction" as const,
   }));

@@ -5,34 +5,35 @@ import { useRouter } from "next/navigation";
 import { Card, CardKicker, CardTitle, CardMeta } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { BalanceAdjustDialog } from "./balance-adjust-dialog";
+import { LimitAdjustDialog } from "./limit-adjust-dialog";
 import { formatCurrency } from "@/lib/utils/currency";
 import { deactivateAccountAction } from "../actions";
-import { MoreVertical, Wallet, Landmark, CreditCard } from "lucide-react";
+import { MoreVertical } from "lucide-react";
+import { AccountTypeIcon, ACCOUNT_TYPE_LABEL } from "@/components/ui/account-type-icon";
 import type { AccountDTO } from "@/types/dto";
-
-const TYPE_ICON = { CASH: Wallet, BANK: Landmark, CREDIT_CARD: CreditCard };
-const TYPE_LABEL = { CASH: "Dinheiro", BANK: "Conta bancária", CREDIT_CARD: "Cartão de crédito" };
 
 export function AccountCard({ account }: { account: AccountDTO }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const Icon = TYPE_ICON[account.type];
 
   return (
     <Card elevation="sm">
       <div className="flex items-start justify-between">
         <CardKicker className="flex items-center gap-1">
-          <Icon className="size-3" strokeWidth={1.5} />
-          {TYPE_LABEL[account.type]}
+          <AccountTypeIcon type={account.type} className="size-3" />
+          {ACCOUNT_TYPE_LABEL[account.type]}
         </CardKicker>
         <DropdownMenu>
           <DropdownMenuTrigger className="text-text/50 hover:text-text"><MoreVertical className="size-4" /></DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {account.type === "BANK" && (
+              <BalanceAdjustDialog account={account} mode="yield" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Informar Rendimento</DropdownMenuItem>} />
+            )}
             {account.type !== "CREDIT_CARD" && (
-              <>
-                <BalanceAdjustDialog account={account} mode="yield" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Informar Rendimento</DropdownMenuItem>} />
-                <BalanceAdjustDialog account={account} mode="reconcile" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Ajustar Saldo</DropdownMenuItem>} />
-              </>
+              <BalanceAdjustDialog account={account} mode="reconcile" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Ajustar Saldo</DropdownMenuItem>} />
+            )}
+            {(account.type === "BANK" || account.type === "CREDIT_CARD") && (
+              <LimitAdjustDialog account={account} trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Ajustar Limite</DropdownMenuItem>} />
             )}
             <DropdownMenuItem
               disabled={pending}

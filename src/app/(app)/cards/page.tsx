@@ -1,10 +1,12 @@
 import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
-import { getCardInstallments, getCardPurchases, getCardBalanceThroughMonth } from "@/services/cards.service";
+import { getCardInstallments, getCardPurchases, getCardSummary } from "@/services/cards.service";
 import { Card, CardKicker, CardTitle } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils/currency";
 import { startOfMonth, endOfMonth, monthKey, todayIso } from "@/lib/utils/date";
+import { toPercentage } from "@/lib/utils/number";
 import { PurchaseFormDialog } from "@/features/cards/components/purchase-form-dialog";
 import { PaymentFormDialog } from "@/features/cards/components/payment-form-dialog";
 import { DeletePurchaseButton } from "@/features/cards/components/delete-purchase-button";
@@ -39,12 +41,14 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
         <div className="flex flex-col gap-4">
           {await Promise.all(
             cards.map(async (card) => {
-              const [installments, purchases, statementBalance] = await Promise.all([
+              const currentMonth = monthKey(todayIso());
+              const [installments, purchases, summary] = await Promise.all([
                 getCardInstallments(card.id, { periodStart, periodEnd }),
                 getCardPurchases(card.id),
-                getCardBalanceThroughMonth(card.id, monthKey(todayIso())),
+                getCardSummary(card.id, currentMonth, card.creditLimit ?? null),
               ]);
               const purchaseById = new Map(purchases.map((p) => [p.id, p]));
+              const usagePercent = summary.creditLimit ? toPercentage(summary.usedThroughCurrentMonth, summary.creditLimit) : null;
 
               return (
                 <Card key={card.id} elevation="sm" className="gap-3">
@@ -53,15 +57,32 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
                       <CardKicker className="flex items-center gap-1">
                         <CreditCard className="size-3" strokeWidth={1.5} />
                         Fecha dia {card.closingDay} · vence dia {card.dueDay}
-                        {card.creditLimit ? ` · limite ${formatCurrency(card.creditLimit)}` : ""}
                       </CardKicker>
                       <CardTitle>{card.name}</CardTitle>
-                      <div className={`text-xl font-semibold tabular-nums ${card.balance < 0 ? "text-danger-600" : ""}`}>{formatCurrency(-card.balance)}</div>
+                      <div className="flex items-baseline gap-1">
+                        <span className={`text-xl font-semibold tabular-nums ${usagePercent !== null && usagePercent >= 90 ? "text-danger-600" : ""}`}>
+                          {formatCurrency(summary.usedThroughCurrentMonth)}
+                        </span>
+                        {summary.creditLimit !== null && (
+                          <span className="text-sm opacity-60 tabular-nums">/ {formatCurrency(summary.creditLimit)}</span>
+                        )}
+                      </div>
+                      {summary.creditLimit !== null && (
+                        <div className="mt-1 h-1.5 w-40 bg-neutral-200">
+                          <div className={usagePercent !== null && usagePercent >= 90 ? "h-full bg-danger-500" : "h-full bg-accent"} style={{ width: `${usagePercent ?? 0}%` }} />
+                        </div>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                        <span>Fatura deste mês: <strong className="tabular-nums">{formatCurrency(summary.currentMonthInvoice)}</strong></span>
+                        {summary.overdueAmount > 0 && (
+                          <Badge variant="danger">Em atraso: {formatCurrency(summary.overdueAmount)}</Badge>
+                        )}
+                      </div>
                     </div>
                     <PaymentFormDialog
                       card={card}
                       payerAccounts={payerAccounts}
-                      statementBalance={statementBalance}
+                      statementBalance={summary.usedThroughCurrentMonth}
                       trigger={<Button size="sm" variant="secondary"><Receipt className="size-3.5" strokeWidth={1.5} /> Pagar fatura</Button>}
                     />
                   </div>

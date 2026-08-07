@@ -28,6 +28,11 @@ export function AccountFormDialog({ institutions }: { institutions: FinancialIns
   const [dueDay, setDueDay] = useState("12");
   const [creditLimit, setCreditLimit] = useState("");
 
+  function handleTypeChange(value: typeof type) {
+    setType(value);
+    if (value === "CASH") setInstitutionId(NONE);
+  }
+
   function handleInstitutionChange(value: string) {
     setInstitutionId(value);
     if (!nameManuallyEdited) {
@@ -87,7 +92,7 @@ export function AccountFormDialog({ institutions }: { institutions: FinancialIns
         <DialogTitle>Nova conta</DialogTitle>
         <Field>
           <Label>Tipo</Label>
-          <Select value={type} onValueChange={(v) => setType(v as typeof type)}>
+          <Select value={type} onValueChange={(v) => handleTypeChange(v as typeof type)}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="CASH">Dinheiro</SelectItem>
@@ -97,18 +102,20 @@ export function AccountFormDialog({ institutions }: { institutions: FinancialIns
           </Select>
         </Field>
 
-        <Field>
-          <Label>Instituição</Label>
-          <Select value={institutionId} onValueChange={handleInstitutionChange}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>Nenhuma</SelectItem>
-              {institutions.map((i) => (
-                <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
+        {type !== "CASH" && (
+          <Field>
+            <Label>Instituição</Label>
+            <Select value={institutionId} onValueChange={handleInstitutionChange}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Nenhuma</SelectItem>
+                {institutions.map((i) => (
+                  <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
 
         <Field>
           <Label>Nome da conta</Label>

@@ -10,8 +10,11 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils/currency";
 import { toPercentage } from "@/lib/utils/number";
 import { BudgetFormDialog } from "@/features/budgets/components/budget-form-dialog";
+import { BudgetTreeEditor } from "@/features/budgets/components/budget-tree-editor";
 import { FixedExpenseFormDialog } from "@/features/budgets/components/fixed-expense-form-dialog";
 import { PayFixedExpenseDialog } from "@/features/budgets/components/pay-fixed-expense-dialog";
+import { DeactivateBudgetButton } from "@/features/budgets/components/deactivate-budget-button";
+import { DeactivateFixedExpenseButton } from "@/features/budgets/components/deactivate-fixed-expense-button";
 import { CircleCheck, CreditCard } from "lucide-react";
 
 export default async function BudgetsPage() {
@@ -35,14 +38,23 @@ export default async function BudgetsPage() {
         </TabsList>
 
         <TabsContent value="budgets" className="flex flex-col gap-3">
-          <div className="flex justify-end"><BudgetFormDialog categories={categories} /></div>
+          <div className="flex justify-end gap-2">
+            <BudgetTreeEditor categories={categories} budgets={budgets} />
+            <BudgetFormDialog categories={categories} />
+          </div>
           {budgets.length === 0 ? (
             <p className="text-sm opacity-60">Nenhum orçamento definido ainda.</p>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {budgets.map((b) => (
                 <Card key={b.id} elevation="sm">
-                  <CardTitle>{b.categoryName}{b.subcategoryName ? ` · ${b.subcategoryName}` : ""}</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>{b.categoryName}{b.subcategoryName ? ` · ${b.subcategoryName}` : ""}</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <BudgetFormDialog categories={categories} budget={b} />
+                      <DeactivateBudgetButton budgetId={b.id} label={`${b.categoryName}${b.subcategoryName ? ` · ${b.subcategoryName}` : ""}`} />
+                    </div>
+                  </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="tabular-nums opacity-80">{formatCurrency(b.actualAmount)} / {formatCurrency(b.plannedAmount)}</span>
                     {b.status === "EXCEEDED" && <Badge variant="danger">Estourou</Badge>}
@@ -66,11 +78,15 @@ export default async function BudgetsPage() {
                 <Card key={f.id} elevation="sm" className="gap-2">
                   <div className="flex items-center justify-between">
                     <CardTitle>{f.name}</CardTitle>
-                    {f.isPaidThisMonth ? (
-                      <Badge variant="success" className="gap-1"><CircleCheck className="size-3" strokeWidth={1.5} /> Pago</Badge>
-                    ) : (
-                      <Badge variant="neutral">Vence dia {f.dueDay}</Badge>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {f.isPaidThisMonth ? (
+                        <Badge variant="success" className="gap-1"><CircleCheck className="size-3" strokeWidth={1.5} /> Pago</Badge>
+                      ) : (
+                        <Badge variant="neutral">Vence dia {f.dueDay}</Badge>
+                      )}
+                      <FixedExpenseFormDialog categories={categories} accounts={liquidAccounts} expense={f} />
+                      <DeactivateFixedExpenseButton fixedExpenseId={f.id} name={f.name} />
+                    </div>
                   </div>
                   <div className="text-lg font-semibold tabular-nums">{formatCurrency(f.projectedAmount)}</div>
                   {f.status === "EXCEEDED" && <Badge variant="danger" className="w-fit">Acima do planejado</Badge>}

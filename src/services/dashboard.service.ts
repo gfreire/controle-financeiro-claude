@@ -11,6 +11,7 @@ import type {
   CategoryComparisonDTO,
   TransactionViewDTO,
 } from "@/types/dto";
+import type { AccountType } from "@/types/database";
 
 type Entry = {
   amount: number;
@@ -205,7 +206,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
   let txQuery = supabase
     .from("transactions")
     .select(
-      "id, date, description, type, amount, category_id, subcategory_id, origin_account_id, destination_account_id, categories(name), subcategories(name), origin:accounts!transactions_origin_account_id_fkey(name), destination:accounts!transactions_destination_account_id_fkey(name)"
+      "id, date, description, type, amount, category_id, subcategory_id, origin_account_id, destination_account_id, categories(name), subcategories(name), origin:accounts!transactions_origin_account_id_fkey(name, type), destination:accounts!transactions_destination_account_id_fkey(name, type)"
     )
     .eq("user_id", user.id)
     .in("type", ["INCOME", "EXPENSE"])
@@ -236,8 +237,8 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
     destination_account_id: string | null;
     categories: { name: string } | null;
     subcategories: { name: string } | null;
-    origin: { name: string } | null;
-    destination: { name: string } | null;
+    origin: { name: string; type: AccountType } | null;
+    destination: { name: string; type: AccountType } | null;
   }>;
 
   const results: TransactionViewDTO[] = transactions.map((row) => ({
@@ -251,6 +252,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
     subcategory: row.subcategories?.name ?? "",
     accountId: row.origin_account_id ?? row.destination_account_id,
     account: row.origin?.name ?? row.destination?.name ?? "",
+    accountType: row.origin?.type ?? row.destination?.type ?? null,
     amount: row.amount,
     source: "transaction" as const,
   }));
@@ -305,6 +307,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
       subcategory: purchase.subcategories?.name ?? "",
       accountId: purchase.credit_card_id,
       account: purchase.accounts?.name ?? "",
+      accountType: "CREDIT_CARD" as const,
       amount: row.amount,
       source: "installment" as const,
     });

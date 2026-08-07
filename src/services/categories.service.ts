@@ -252,6 +252,7 @@ async function previewTransactions(supabase: Awaited<ReturnType<typeof createCli
     subcategory: "",
     accountId: row.origin_account_id ?? row.destination_account_id,
     account: "",
+    accountType: null,
     amount: row.amount,
     source: "transaction" as const,
   }));

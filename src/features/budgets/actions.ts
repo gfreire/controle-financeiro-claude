@@ -3,20 +3,50 @@
 import { revalidatePath } from "next/cache";
 import * as budgetsService from "@/services/budgets.service";
 import * as fixedExpensesService from "@/services/fixed-expenses.service";
-import { budgetSchema, type BudgetInput } from "@/lib/validations/budgets";
-import { fixedExpenseSchema, type FixedExpenseInput } from "@/lib/validations/fixed-expenses";
+import { budgetSchema, updateBudgetSchema, type BudgetInput } from "@/lib/validations/budgets";
+import { fixedExpenseSchema, updateFixedExpenseSchema, type FixedExpenseInput } from "@/lib/validations/fixed-expenses";
 import { createTransaction } from "@/services/transactions.service";
 
 export async function createBudgetAction(input: BudgetInput) {
   const parsed = budgetSchema.parse(input);
-  await budgetsService.createBudget(parsed);
+  const result = await budgetsService.createBudget(parsed);
   revalidatePath("/budgets");
   revalidatePath("/dashboard");
+  return result;
+}
+
+export async function updateBudgetAction(input: { id: string } & Partial<BudgetInput>) {
+  const { id, ...rest } = updateBudgetSchema.parse(input);
+  const result = await budgetsService.updateBudget(id, rest);
+  revalidatePath("/budgets");
+  revalidatePath("/dashboard");
+  return result;
 }
 
 export async function createFixedExpenseAction(input: FixedExpenseInput) {
   const parsed = fixedExpenseSchema.parse(input);
-  await fixedExpensesService.createFixedExpense(parsed);
+  const result = await fixedExpensesService.createFixedExpense(parsed);
+  revalidatePath("/budgets");
+  revalidatePath("/dashboard");
+  return result;
+}
+
+export async function updateFixedExpenseAction(input: { id: string } & Partial<FixedExpenseInput>) {
+  const { id, ...rest } = updateFixedExpenseSchema.parse(input);
+  const result = await fixedExpensesService.updateFixedExpense(id, rest);
+  revalidatePath("/budgets");
+  revalidatePath("/dashboard");
+  return result;
+}
+
+export async function deactivateBudgetAction(id: string) {
+  await budgetsService.deactivateBudget(id);
+  revalidatePath("/budgets");
+  revalidatePath("/dashboard");
+}
+
+export async function deactivateFixedExpenseAction(id: string) {
+  await fixedExpensesService.deactivateFixedExpense(id);
   revalidatePath("/budgets");
   revalidatePath("/dashboard");
 }

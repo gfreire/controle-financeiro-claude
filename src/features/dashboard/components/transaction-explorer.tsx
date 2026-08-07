@@ -11,6 +11,7 @@ import { textIncludes } from "@/lib/utils/normalize";
 import { EditableCategoryCell } from "./editable-category-cell";
 import { BatchReassignDialog } from "./batch-reassign-dialog";
 import { DeleteTransactionButton } from "@/features/transactions/components/delete-transaction-button";
+import { AccountTypeIcon } from "@/components/ui/account-type-icon";
 import type { CategoryDTO, TransactionViewDTO } from "@/types/dto";
 
 export function TransactionExplorer({ transactions, categories }: { transactions: TransactionViewDTO[]; categories: CategoryDTO[] }) {
@@ -49,7 +50,14 @@ export function TransactionExplorer({ transactions, categories }: { transactions
                 )}
               </TableCell>
               <TableCell><EditableCategoryCell row={t} categories={categories} /></TableCell>
-              <TableCell className="whitespace-nowrap text-xs opacity-70">{t.account}</TableCell>
+              <TableCell className="whitespace-nowrap text-xs opacity-70">
+                {t.account && (
+                  <span className="inline-flex items-center gap-1">
+                    {t.accountType && <AccountTypeIcon type={t.accountType} className="size-3" />}
+                    {t.account}
+                  </span>
+                )}
+              </TableCell>
               <TableCell className={`text-right tabular-nums font-medium ${t.type === "INCOME" ? "text-success-600" : "text-danger-600"}`}>
                 {t.type === "INCOME" ? "+" : "-"}
                 {formatCurrency(t.amount)}

@@ -47,6 +47,7 @@ export type TransactionViewDTO = {
   subcategory: string;
   accountId: string | null;
   account: string;
+  accountType: AccountType | null;
   amount: number;
   source: "transaction" | "installment";
 };
@@ -97,6 +98,14 @@ export type CardPurchaseDTO = {
   subcategoryName: string | null;
 };
 
+export type CardSummaryDTO = {
+  accountId: string;
+  creditLimit: number | null;
+  usedThroughCurrentMonth: number; // = getCardBalanceThroughMonth(cardId, currentMonth) — installments due through this month minus payments, floored at 0
+  currentMonthInvoice: number; // sum of card_installments.amount where competence falls in the current month only
+  overdueAmount: number; // = usedThroughCurrentMonth - currentMonthInvoice, floored at 0 — unpaid balance from prior months
+};
+
 export type CardInstallmentDTO = {
   id: string;
   purchaseId: string;
@@ -123,6 +132,8 @@ export type FixedExpenseDTO = {
   name: string;
   categoryId: string;
   categoryName: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
   plannedAmount: number;
   dueDay: number;
   defaultAccountId?: string;

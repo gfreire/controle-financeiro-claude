@@ -36,6 +36,10 @@ Real money locations. `type`: `CASH`, `BANK`, `CREDIT_CARD`. Each type has a 1:1
 
 `credit_limit` (migration `0007`) is optional and **soft-enforced only** — a purchase that would push the card's outstanding balance past it doesn't get blocked; the UI shows a warning ("you may have forgotten to log the invoice payment, or made a mistake in this entry") and requires an explicit "insert anyway" acknowledgment before it proceeds. This is deliberate: a real payment not yet logged, or a genuine data-entry mistake, are both things the user needs to see and decide about, not be locked out of correcting.
 
+**`credit_limit` and `bank_accounts.overdraft_limit` are both user-editable at any time**, via a dedicated quick action ("Ajustar Limite") mirroring the existing "Ajustar Saldo" pattern (a small dialog off the account, not a full account-edit form) — decided and implemented 2026-08-07 (`src/features/accounts/components/limit-adjust-dialog.tsx`). Banks routinely raise or cut these limits outside the user's control (temporary increase, revolving-credit renegotiation, etc.), so locking either value to account-creation time drifts from reality almost immediately. Same soft-enforce philosophy carries over: changing the limit never rewrites past purchases or warnings already shown, it only changes the threshold used for *future* soft-limit checks.
+
+**CASH accounts never show an institution selector in the account form** — decided and implemented 2026-08-07: cash in hand isn't tied to a bank, so offering the picker was confusing. `institution_id` stays a valid nullable column for `CASH` rows at the schema level (no constraint added — a user could theoretically still set it via direct DB access), the change is UI-only: `account-form-dialog.tsx` conditionally hides the field once `type === 'CASH'` (and clears any previously-picked institution on switching a form to CASH).
+
 Accounts may reference a `financial_institutions` catalog entry (global, no `user_id`) for branding — e.g. Banco do Brasil, Mercado Pago, Santander, Nubank. This is a plain lookup table, not a limiter: a user can have **any number** of accounts and credit cards, including several pointing at the same institution (e.g. a checking account plus multiple "cofrinhos"/poupanças at the same bank, or several credit cards).
 
 `categories` carries a `color` and an `icon` field (emoji, same convention as the rest of the seed). `financial_institutions` carries only `color` — no `icon`, by choice: there's no emoji that meaningfully tells one bank apart from another, and reproducing real bank logos raises brand/IP concerns, so it was dropped rather than faked. Both fields are purely presentational — no business logic depends on them.
@@ -149,7 +153,9 @@ Example: a R$1.000 cofrinho that somehow became R$2.500 after weeks of untracked
 
 - Difference zero on either action → nothing is created.
 
-No new table — both are a normal `createTransaction` call under the hood. Scope: primarily `BANK` accounts; confirm before extending to `CREDIT_CARD` (revolving interest interacts with installments differently and isn't speced yet).
+No new table — both are a normal `createTransaction` call under the hood.
+
+**`registerYield` ("Informar Rendimento") is `BANK`-only — decided and implemented 2026-08-07, `CASH` is explicitly excluded.** Physical cash in hand does not yield on its own; offering the action on a `CASH` account implied a behavior that can never actually happen. `reconcileAccountBalance` ("Ajustar Saldo") stays available for **both** `CASH` and `BANK` — miscounting cash in a wallet, or losing track of a drawer, is a legitimate reconciliation case, just never one attributable to yield. `CREDIT_CARD` remains out of scope for either action (revolving interest interacts with installments differently and isn't speced yet).
 
 **Dashboard signal**: because a high `Ajuste` share is itself useful information (it means the user isn't logging carefully), the dashboard should surface how much of the period's total sits under `Ajuste` — not as a hard rule, but as a visible warning so the user notices their own bookkeeping is getting loose.
 
@@ -209,14 +215,32 @@ A **standing target** per category/subcategory (`budgets.amount`) — not a per-
 - `status = EXCEEDED` whenever `actualAmount > plannedAmount`. Does not block anything, only alerts.
 - Example: Mercado (groceries) budget of R$800/month — dashboard shows real progress (e.g. "600/800") as the month goes on; exceeding it only triggers an alert, spending isn't capped.
 
+## Budget hierarchy — category vs. subcategory, and the fixed-expense floor
+
+**Decided and implemented 2026-08-07** (`src/services/_shared.ts#reconcileBudgetFloors`/`getCategoryBudgetFloor`/`getSubcategoryBudgetFloor`, called from `budgets.service.ts` and `fixed-expenses.service.ts`). This section is the reasoning behind that implementation, not a spec still waiting to be built.
+
+Fixed Expenses are, functionally, a special case of Budget: a fixed expense is a *committed, non-negotiable slice* of whatever a category is allowed to spend. It makes no sense for a category's budget to be smaller than the fixed expenses already registered under it — that would mean the "plan" contradicts a bill the user has already committed to. This motivated folding Fixed Expenses and Budgets into one coherent hierarchy instead of two disconnected entities that happen to share a category:
+
+- A budget can be set at the **category** level (`subcategory_id IS NULL`) or at the **subcategory** level (`subcategory_id` set). This was already possible in the schema (`BudgetDTO.subcategoryId` is optional) — what's new is treating the two levels as *nested*, not independent.
+- **Nesting invariant**: a category's budget amount must always be `>=` the sum of (a) every subcategory budget under that category, and (b) every fixed expense attached directly to that category (no subcategory). Symmetrically, a subcategory's budget must be `>=` the sum of fixed expenses attached to that specific subcategory. The gap between a category's budget and the sum of its subcategory budgets is *unallocated* headroom — spending trackable to the category but not to any specific subcategory.
+  - Example (user-supplied): category "Alimentação" budget = R$1200. User sets subcategory "Restaurante" = R$600 and "Delivery" = R$400. That leaves R$200 of "Alimentação" unallocated to any subcategory — still valid spending room, just not earmarked. If the user then sets "Mercado" = R$600, the subcategory sum (600+400+600=1600) exceeds the category budget (1200) — see the auto-raise rule below.
+- **Editing a budget downward is a hard block, not a warning** (deliberately inconsistent with the credit-limit soft-enforce pattern — this one is a hard constraint because a budget number that contradicts its own committed children is simply wrong, not a "maybe forgot something" judgment call). If the user tries to save a category or subcategory budget below the sum of its children (fixed expenses + subcategory budgets, per the invariant above), the save must fail with a clear validation error naming the floor amount — never silently clamp or partially apply.
+- **Registering or editing a fixed expense auto-reconciles the relevant budget upward, with a notification, never a block**:
+  1. If the fixed expense's category (or subcategory, if set) has no budget yet, create one with `amount` = the sum of all active fixed expenses now attached to that category/subcategory.
+  2. If a budget already exists and is `>=` that sum, leave it untouched.
+  3. If a budget already exists and is `<` that sum, raise it to match the new sum and surface a notification to the user (e.g. "Orçamento de Moradia foi aumentado para R$1.600 para acomodar a despesa fixa 'Aluguel do carro'"). This is the same "Alimentação" example from above, generalized: the category ceiling stretches to keep containing its committed children, it never shrinks on their account.
+- **Paying a fixed expense already reflects in its budget's `actualAmount` today, with no extra plumbing needed** — a fixed-expense payment is just a normal `transactions` row tagged with the fixed expense's `category_id`/`subcategory_id` via `fixed_expense_id`, and `BudgetDTO.actualAmount` already sums *all* transactions/installments in that category for the month, fixed or not. The only genuinely new behavior here is the floor/auto-raise mechanics above.
+- **Tree-based budget-entry screen**: `src/features/budgets/components/budget-tree-editor.tsx` ("Planejar orçamentos", on `/budgets`), structurally reusing the onboarding category-tree-picker's visual pattern — instead of checkboxes selecting which categories to import, each category/subcategory row gets an amount input, so a user can plan "Alimentação: 1200, ↳ Restaurante: 600, ↳ Delivery: 400" in one screen instead of one dialog per row. Sits alongside the single-row `budget-form-dialog.tsx` (used for one-off edits), not a replacement for it — both call the same `createBudgetAction`/`updateBudgetAction`, so the floor validation runs identically either way.
+- This rule applies identically to subcategory budgets — a subcategory is just one level further down the same nesting invariant, not a special case.
+
 ---
 
 # Fixed Expenses (recurring)
 
-A **separate entity** from Budgets, for genuinely fixed recurring bills (rent, streaming, subscriptions) — `fixed_expenses.amount`, `due_day`, optional `default_account_id`.
+Functionally a **specialized, committed slice of a Budget** for genuinely fixed recurring bills (rent, streaming, subscriptions) — `fixed_expenses.amount`, `due_day`, optional `default_account_id`. See "Budget hierarchy" above for how the two interact: a fixed expense's amount is always a floor on its category/subcategory's budget, auto-raised on registration, never silently allowed to exceed the budget without reconciling it.
 
 - Before the real payment is registered this month, the dashboard shows the **planned amount as a placeholder** (`projectedAmount = plannedAmount`) so the monthly total reflects the expected expense even before the due day.
-- Once a real `transactions` row is registered and linked via `fixed_expense_id`, the dashboard switches to showing that **real value** (`projectedAmount = actualAmount`) — this avoids ever double-counting the placeholder and the real transaction together.
+- Once a real `transactions` row is registered and linked via `fixed_expense_id`, the dashboard switches to showing that **real value** (`projectedAmount = actualAmount`) — this avoids ever double-counting the placeholder and the real transaction together. This same transaction is what feeds the parent budget's `actualAmount`, since both aggregate from the same `transactions`/`card_installments` rows for the category/subcategory/month.
 - If the real value ends up higher than planned, it shows the real (larger) number plus an `EXCEEDED` alert.
 - **Long-term unpaid/overdue fixed expenses are out of automatic scope.** If a bill goes unpaid across months, the intended path is a manual `Debt` entry — the system does not attempt to auto-roll an unpaid fixed expense forward.
 - Never generates a transaction on its own; the user (or, in the future, an import) always creates the real `transactions` row.

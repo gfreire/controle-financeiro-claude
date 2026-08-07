@@ -33,13 +33,22 @@ export interface ButtonProps
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild, frame, children, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
-    const showFrame = !asChild && (frame ?? variant === "primary");
+    // asChild renders via Radix Slot, which requires exactly one element child —
+    // it must never receive the `showFrame && <CornerMarks />` sibling below, even
+    // though that expression evaluates to `false` (still a second child in the array).
+    if (asChild) {
+      return (
+        <Slot className={cn(buttonVariants({ variant, size }), className)} ref={ref} {...props}>
+          {children}
+        </Slot>
+      );
+    }
+    const showFrame = frame ?? variant === "primary";
     return (
-      <Comp className={cn(buttonVariants({ variant, size }), className)} ref={ref} {...props}>
+      <button className={cn(buttonVariants({ variant, size }), className)} ref={ref} {...props}>
         {showFrame && <CornerMarks />}
         {children}
-      </Comp>
+      </button>
     );
   }
 );
