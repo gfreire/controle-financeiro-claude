@@ -1,0 +1,28 @@
+import { redirect } from "next/navigation";
+import { getUser } from "@/lib/auth/getUser";
+import { getProfile } from "@/services/profile.service";
+import { Sidebar } from "@/components/layout/sidebar";
+import { Header } from "@/components/layout/header";
+import { BottomNavigation } from "@/components/layout/bottom-navigation";
+
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const user = await getUser();
+
+  // Covers every path into the app, not just the signup->session-established happy path
+  // (e.g. logging in later after confirming email) — see profiles.onboarding_completed.
+  const profile = await getProfile();
+  if (!profile.onboardingCompleted) {
+    redirect("/onboarding");
+  }
+
+  return (
+    <div className="flex min-h-svh">
+      <Sidebar />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Header userEmail={user.email ?? null} />
+        <main className="flex-1 overflow-x-hidden p-4 pb-20 md:p-6 md:pb-6">{children}</main>
+      </div>
+      <BottomNavigation />
+    </div>
+  );
+}

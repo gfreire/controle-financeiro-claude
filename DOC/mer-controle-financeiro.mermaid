@@ -1,0 +1,198 @@
+erDiagram
+    PROFILES ||--o{ ACCOUNTS : possui
+    PROFILES ||--o{ CATEGORIES : cria
+    PROFILES ||--o{ TRANSACTIONS : lanca
+    PROFILES ||--o{ CARD_PURCHASES : lanca
+    PROFILES ||--o{ DEBTS : registra
+    PROFILES ||--o{ RESERVOIRS : mantem
+    PROFILES ||--o{ BUDGETS : define
+    PROFILES ||--o{ FIXED_EXPENSES : define
+
+    FINANCIAL_INSTITUTIONS ||--o{ ACCOUNTS : referenciada_por
+
+    ACCOUNTS ||--o| CASH_ACCOUNTS : extende
+    ACCOUNTS ||--o| BANK_ACCOUNTS : extende
+    ACCOUNTS ||--o| CREDIT_CARDS : extende
+    ACCOUNTS ||--o{ TRANSACTIONS : origem_ou_destino
+    ACCOUNTS ||--o{ CARD_PURCHASES : cartao_da_compra
+    ACCOUNTS ||--o{ CARD_PAYMENTS : conta_pagadora_ou_cartao
+    ACCOUNTS ||--o{ FIXED_EXPENSES : conta_padrao
+
+    CATEGORIES ||--o{ SUBCATEGORIES : possui
+    CATEGORIES ||--o{ TRANSACTIONS : classifica
+    CATEGORIES ||--o{ CARD_PURCHASES : classifica
+    CATEGORIES ||--o{ RESERVOIRS : sugere
+    CATEGORIES ||--o{ BUDGETS : alvo
+    CATEGORIES ||--o{ FIXED_EXPENSES : classifica
+
+    SUBCATEGORIES ||--o{ TRANSACTIONS : classifica
+    SUBCATEGORIES ||--o{ CARD_PURCHASES : classifica
+    SUBCATEGORIES ||--o{ BUDGETS : alvo
+    SUBCATEGORIES ||--o{ FIXED_EXPENSES : classifica
+
+    FIXED_EXPENSES ||--o{ TRANSACTIONS : quitada_por
+
+    CARD_PURCHASES ||--|{ CARD_INSTALLMENTS : gera
+    ACCOUNTS ||--o{ CARD_INSTALLMENTS : cartao
+
+    TRANSACTIONS ||--o| CARD_PAYMENTS : registra_pagamento
+
+    DEBTS ||--o{ DEBT_TRANSACTIONS : lancamentos
+    TRANSACTIONS ||--o| DEBT_TRANSACTIONS : vincula_quando_ha_dinheiro_real
+
+    RESERVOIRS ||--o{ RESERVOIR_TRANSACTIONS : lancamentos
+    TRANSACTIONS ||--o| RESERVOIR_TRANSACTIONS : vincula_no_saque
+    CARD_PURCHASES ||--o| RESERVOIR_TRANSACTIONS : vincula_no_saque
+
+    PROFILES {
+        uuid user_id PK
+        text name
+        text email
+        text phone
+        boolean onboarding_completed
+    }
+
+    ACCOUNTS {
+        uuid id PK
+        uuid user_id FK
+        enum type
+        text name
+        uuid institution_id FK
+        boolean active
+    }
+
+    CASH_ACCOUNTS {
+        uuid account_id PK_FK
+        numeric initial_balance
+    }
+
+    BANK_ACCOUNTS {
+        uuid account_id PK_FK
+        numeric initial_balance
+        numeric overdraft_limit
+    }
+
+    CREDIT_CARDS {
+        uuid account_id PK_FK
+        int closing_day
+        int due_day
+        numeric credit_limit "opcional, soft-enforced na UI"
+    }
+
+    CATEGORIES {
+        uuid id PK
+        uuid user_id FK "NULL = catalogo do sistema"
+        text name
+        enum type "INCOME | EXPENSE"
+        boolean is_system
+        boolean is_default
+    }
+
+    SUBCATEGORIES {
+        uuid id PK
+        uuid user_id FK
+        uuid category_id FK
+        text name
+    }
+
+    TRANSACTIONS {
+        uuid id PK
+        uuid user_id FK
+        enum type "INCOME EXPENSE TRANSFER CREDIT_CARD_PAYMENT"
+        uuid origin_account_id FK
+        uuid destination_account_id FK
+        numeric amount
+        date date
+        uuid category_id FK
+        uuid subcategory_id FK
+        boolean is_reservoir
+        uuid fixed_expense_id FK
+    }
+
+    CARD_PURCHASES {
+        uuid id PK
+        uuid user_id FK
+        uuid credit_card_id FK
+        numeric amount
+        date purchase_date
+        int installments
+        boolean is_reservoir
+    }
+
+    CARD_INSTALLMENTS {
+        uuid id PK
+        uuid purchase_id FK
+        uuid credit_card_id FK
+        date competence
+        numeric amount
+    }
+
+    CARD_PAYMENTS {
+        uuid id PK
+        uuid user_id FK
+        uuid credit_card_id FK
+        uuid account_id FK
+        uuid transaction_id FK
+        numeric amount
+    }
+
+    DEBTS {
+        uuid id PK
+        uuid user_id FK
+        text agent
+        enum side "PAYABLE | RECEIVABLE"
+        numeric initial_balance
+    }
+
+    DEBT_TRANSACTIONS {
+        uuid id PK
+        uuid debt_id FK
+        numeric amount "positivo=aumento negativo=pagamento"
+        uuid linked_transaction_id FK "opcional"
+    }
+
+    RESERVOIRS {
+        uuid id PK
+        uuid user_id FK
+        text name
+        uuid category_id FK
+        uuid subcategory_id FK
+        boolean active
+    }
+
+    RESERVOIR_TRANSACTIONS {
+        uuid id PK
+        uuid reservoir_id FK
+        numeric amount "positivo=acumulo negativo=saque"
+        numeric gross_amount "opcional, so acumulo"
+        numeric percentage "opcional, 0-100"
+        uuid linked_transaction_id FK "opcional"
+        uuid linked_card_purchase_id FK "opcional"
+    }
+
+    BUDGETS {
+        uuid id PK
+        uuid user_id FK
+        uuid category_id FK
+        uuid subcategory_id FK
+        numeric amount "alvo permanente, sem coluna de mes"
+        boolean active
+    }
+
+    FIXED_EXPENSES {
+        uuid id PK
+        uuid user_id FK
+        text name
+        numeric amount
+        uuid category_id FK
+        uuid subcategory_id FK
+        uuid default_account_id FK
+        int due_day
+        boolean active
+    }
+
+    FINANCIAL_INSTITUTIONS {
+        uuid id PK
+        text name
+        text color
+    }

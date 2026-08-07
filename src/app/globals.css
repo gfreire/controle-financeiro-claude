@@ -1,0 +1,229 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Design tokens — adapted from the "Industry" Claude Design
+   system (steel-blue blueprint aesthetic) into Tailwind v4's
+   CSS-first theme. Two additions beyond Industry's mono palette:
+   --color-success / --color-danger / --color-warning — Industry
+   is deliberately mono (no decorative color beyond the accent),
+   but a finance dashboard functionally needs income vs. expense
+   and budget-exceeded signal colors, so these are added as a
+   minimal, muted, desaturated extension that stays in the same
+   tonal register as the rest of the palette.
+   ============================================================ */
+
+:root {
+  --color-bg: #f2f2f3;
+  --color-surface: #e9e9ea;
+  --color-surface-2: #dedee0;
+  --color-text: #1d1f20;
+  --color-accent: #5980a6;
+  --color-accent-2: #728fab;
+  --color-divider: color-mix(in srgb, #1d1f20 16%, transparent);
+
+  --color-neutral-100: #f5f5f8;
+  --color-neutral-200: #e7e7ea;
+  --color-neutral-300: #d4d4d7;
+  --color-neutral-400: #b7b7ba;
+  --color-neutral-500: #98989b;
+  --color-neutral-600: #7a7a7d;
+  --color-neutral-700: #5d5d60;
+  --color-neutral-800: #424244;
+  --color-neutral-900: #2b2b2d;
+
+  --color-accent-100: #eef6ff;
+  --color-accent-200: #d6ebff;
+  --color-accent-300: #b5d9fd;
+  --color-accent-400: #94bce3;
+  --color-accent-500: #749dc4;
+  --color-accent-600: #597ea3;
+  --color-accent-700: #416180;
+  --color-accent-800: #2c455d;
+  --color-accent-900: #1d2d3d;
+
+  /* Extension: income / positive */
+  --color-success-100: #eaf4ee;
+  --color-success-300: #a9cdb4;
+  --color-success-500: #5e9270;
+  --color-success-600: #4a7a5c;
+  --color-success-700: #3a6148;
+  --color-success-800: #2b4936;
+
+  /* Extension: expense / negative */
+  --color-danger-100: #f7ece9;
+  --color-danger-300: #dba895;
+  --color-danger-500: #b5654a;
+  --color-danger-600: #9a4f37;
+  --color-danger-700: #7a3d2b;
+  --color-danger-800: #5c2e21;
+
+  /* Extension: budget-exceeded / caution */
+  --color-warning-100: #f8f0e0;
+  --color-warning-300: #e2c384;
+  --color-warning-500: #c99a3d;
+  --color-warning-600: #a87e2e;
+  --color-warning-700: #866323;
+
+  --font-heading: var(--font-heading-family), system-ui, sans-serif;
+  --font-heading-weight: 600;
+  --font-body: var(--font-body-family), system-ui, sans-serif;
+
+  --space-1: 3.4px;
+  --space-2: 6.8px;
+  --space-3: 10.2px;
+  --space-4: 13.6px;
+  --space-6: 20.4px;
+  --space-8: 27.2px;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 7px;
+
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2b2b2d 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2b2b2d 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2b2b2d 22%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #17191b;
+    --color-surface: #1f2225;
+    --color-surface-2: #282b2f;
+    --color-text: #eceef0;
+    --color-accent: #7fa3c9;
+    --color-accent-2: #93aecb;
+    --color-divider: color-mix(in srgb, #eceef0 16%, transparent);
+
+    --color-neutral-100: #2b2d30;
+    --color-neutral-200: #34373a;
+    --color-neutral-300: #414447;
+    --color-neutral-400: #55585c;
+    --color-neutral-500: #6c6f73;
+    --color-neutral-600: #86898d;
+    --color-neutral-700: #a3a6aa;
+    --color-neutral-800: #c4c6c9;
+    --color-neutral-900: #e6e7e9;
+
+    --color-accent-100: #1d2d3d;
+    --color-accent-800: #d6ebff;
+
+    --color-success-100: #203028;
+    --color-success-800: #cfe8d8;
+    --color-danger-100: #332420;
+    --color-danger-800: #f0d5cb;
+    --color-warning-100: #2f2818;
+    --color-warning-700: #e2c384;
+
+    --shadow-sm: 0 1px 2px color-mix(in srgb, #000 30%, transparent);
+    --shadow-md: 0 3px 10px color-mix(in srgb, #000 34%, transparent);
+    --shadow-lg: 0 12px 32px color-mix(in srgb, #000 42%, transparent);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-text: var(--color-text);
+  --color-accent: var(--color-accent);
+  --color-accent-2: var(--color-accent-2);
+  --color-divider: var(--color-divider);
+
+  --color-neutral-100: var(--color-neutral-100);
+  --color-neutral-200: var(--color-neutral-200);
+  --color-neutral-300: var(--color-neutral-300);
+  --color-neutral-400: var(--color-neutral-400);
+  --color-neutral-500: var(--color-neutral-500);
+  --color-neutral-600: var(--color-neutral-600);
+  --color-neutral-700: var(--color-neutral-700);
+  --color-neutral-800: var(--color-neutral-800);
+  --color-neutral-900: var(--color-neutral-900);
+
+  --color-accent-100: var(--color-accent-100);
+  --color-accent-200: var(--color-accent-200);
+  --color-accent-300: var(--color-accent-300);
+  --color-accent-400: var(--color-accent-400);
+  --color-accent-500: var(--color-accent-500);
+  --color-accent-600: var(--color-accent-600);
+  --color-accent-700: var(--color-accent-700);
+  --color-accent-800: var(--color-accent-800);
+  --color-accent-900: var(--color-accent-900);
+
+  --color-success-100: var(--color-success-100);
+  --color-success-300: var(--color-success-300);
+  --color-success-500: var(--color-success-500);
+  --color-success-600: var(--color-success-600);
+  --color-success-700: var(--color-success-700);
+  --color-success-800: var(--color-success-800);
+
+  --color-danger-100: var(--color-danger-100);
+  --color-danger-300: var(--color-danger-300);
+  --color-danger-500: var(--color-danger-500);
+  --color-danger-600: var(--color-danger-600);
+  --color-danger-700: var(--color-danger-700);
+  --color-danger-800: var(--color-danger-800);
+
+  --color-warning-100: var(--color-warning-100);
+  --color-warning-300: var(--color-warning-300);
+  --color-warning-500: var(--color-warning-500);
+  --color-warning-600: var(--color-warning-600);
+  --color-warning-700: var(--color-warning-700);
+
+  --font-heading: var(--font-heading);
+  --font-body: var(--font-body);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+
+  --shadow-xs: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+}
+
+* {
+  border-color: var(--color-divider);
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  letter-spacing: -0.015em;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Blueprint frame: the "+" registration marks used on cards, dialogs
+   and the primary button, per the Industry design system. */
+.corner {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  pointer-events: none;
+}
+.corner::before,
+.corner::after {
+  content: "";
+  position: absolute;
+  background: currentColor;
+}
+.corner::before { left: 5px; top: 0; width: 1px; height: 100%; }
+.corner::after { top: 5px; left: 0; width: 100%; height: 1px; }
+.corner-tl { top: -6px; left: -6px; }
+.corner-tr { top: -6px; right: -6px; }
+.corner-bl { bottom: -6px; left: -6px; }
+.corner-br { bottom: -6px; right: -6px; }

@@ -1,0 +1,323 @@
+import { createClient } from "@/lib/supabase/server";
+import { getUser } from "@/lib/auth/getUser";
+import type { CategoryRow, SubcategoryRow, CategoryType } from "@/types/database";
+import type { CategoryDTO, CategoryUsageDTO, SubcategoryDTO, TransactionViewDTO } from "@/types/dto";
+import type { CategoryInput, SubcategoryInput, ReassignCategoryInput } from "@/lib/validations/categories";
+
+function toSubcategoryDTO(row: SubcategoryRow): SubcategoryDTO {
+  return { id: row.id, categoryId: row.category_id, name: row.name, active: row.active };
+}
+
+function toCategoryDTO(row: CategoryRow, subcategories: SubcategoryRow[]): CategoryDTO {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    color: row.color,
+    icon: row.icon,
+    isSystem: row.is_system,
+    isDefault: row.is_default,
+    active: row.active,
+    subcategories: subcategories.filter((s) => s.category_id === row.id).map(toSubcategoryDTO),
+  };
+}
+
+/** Own categories + the permanent is_system catalog (Juros/Rendimentos/Ajuste), never the is_default starter pack. */
+export async function getCategories(type?: CategoryType): Promise<CategoryDTO[]> {
+  const supabase = await createClient();
+  const user = await getUser();
+
+  let query = supabase
+    .from("categories")
+    .select("*")
+    .or(`user_id.eq.${user.id},is_system.eq.true`)
+    .eq("active", true)
+    .order("name");
+  if (type) query = query.eq("type", type);
+
+  const { data: categories, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const categoryIds = (categories ?? []).map((c) => c.id);
+  const { data: subcategories, error: subError } = await supabase
+    .from("subcategories")
+    .select("*")
+    .in("category_id", categoryIds.length ? categoryIds : ["00000000-0000-0000-0000-000000000000"])
+    .eq("active", true)
+    .order("name");
+  if (subError) throw new Error(subError.message);
+
+  return (categories ?? []).map((row) => toCategoryDTO(row, subcategories ?? []));
+}
+
+export async function getSubcategories(categoryId: string): Promise<SubcategoryDTO[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("subcategories")
+    .select("*")
+    .eq("category_id", categoryId)
+    .eq("active", true)
+    .order("name");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(toSubcategoryDTO);
+}
+
+/** Onboarding: the starter pack (is_default rows, user_id IS NULL) is COPIED into the user's own user_id. No FK back to the source. */
+export async function getDefaultCategoryOptions(): Promise<CategoryDTO[]> {
+  const supabase = await createClient();
+  const { data: categories, error } = await supabase
+    .from("categories")
+    .select("*")
+    .eq("is_default", true)
+    .order("type")
+    .order("name");
+  if (error) throw new Error(error.message);
+
+  const categoryIds = (categories ?? []).map((c) => c.id);
+  const { data: subcategories, error: subError } = await supabase
+    .from("subcategories")
+    .select("*")
+    .in("category_id", categoryIds.length ? categoryIds : ["00000000-0000-0000-0000-000000000000"])
+    .order("name");
+  if (subError) throw new Error(subError.message);
+
+  return (categories ?? []).map((row) => toCategoryDTO(row, subcategories ?? []));
+}
+
+/**
+ * Same starter pack as `getDefaultCategoryOptions`, minus whatever the user already imported.
+ * There's no FK linking a copy back to its `is_default` source (see AI_CONTEXT.md), so "already
+ * imported" is judged the same way the copy itself is informal about: matching (type, name). This
+ * is what lets onboarding be safely re-opened later from Settings to import categories the user
+ * skipped the first time (e.g. "Transporte" once they buy a car) — only genuinely new ones show up.
+ */
+export async function getAvailableDefaultCategories(): Promise<CategoryDTO[]> {
+  const supabase = await createClient();
+  const user = await getUser();
+
+  const [allDefaults, ownCategories] = await Promise.all([
+    getDefaultCategoryOptions(),
+    supabase.from("categories").select("name, type").eq("user_id", user.id),
+  ]);
+  if (ownCategories.error) throw new Error(ownCategories.error.message);
+
+  const ownKeys = new Set((ownCategories.data ?? []).map((c) => `${c.type}:${c.name}`));
+  return allDefaults.filter((c) => !ownKeys.has(`${c.type}:${c.name}`));
+}
+
+/**
+ * `selectedSubcategoryIds` lets the tree-picker (onboarding, or the Settings re-import) select a
+ * category while excluding specific subcategories — e.g. keep "Moradia" but only "Aluguel", skip
+ * "IPTU". Only subcategories under a category that's also in `selectedCategoryIds` are copied;
+ * anything else is silently ignored (defends against a stale/tampered form).
+ */
+export async function copyDefaultCategories(selectedCategoryIds: string[], selectedSubcategoryIds: string[] = []): Promise<void> {
+  const supabase = await createClient();
+  const user = await getUser();
+
+  const { data: sourceCategories, error } = await supabase
+    .from("categories")
+    .select("*")
+    .in("id", selectedCategoryIds)
+    .eq("is_default", true);
+  if (error) throw new Error(error.message);
+  if (!sourceCategories?.length) return;
+
+  const { data: sourceSubcategories, error: subError } = selectedSubcategoryIds.length
+    ? await supabase.from("subcategories").select("*").in("id", selectedSubcategoryIds)
+    : { data: [] as SubcategoryRow[], error: null };
+  if (subError) throw new Error(subError.message);
+
+  const categoryIdMap = new Map<string, string>();
+  const newCategories = sourceCategories.map((source) => {
+    const newId = crypto.randomUUID();
+    categoryIdMap.set(source.id, newId);
+    return {
+      id: newId,
+      user_id: user.id,
+      name: source.name,
+      type: source.type,
+      color: source.color,
+      icon: source.icon,
+      is_system: false,
+      is_default: false,
+    };
+  });
+
+  const { error: insertCategoriesError } = await supabase.from("categories").insert(newCategories);
+  if (insertCategoriesError) throw new Error(insertCategoriesError.message);
+
+  const newSubcategories = (sourceSubcategories ?? [])
+    .filter((source) => categoryIdMap.has(source.category_id))
+    .map((source) => ({
+      id: crypto.randomUUID(),
+      user_id: user.id,
+      category_id: categoryIdMap.get(source.category_id)!,
+      name: source.name,
+    }));
+
+  if (newSubcategories.length) {
+    const { error: insertSubcategoriesError } = await supabase.from("subcategories").insert(newSubcategories);
+    if (insertSubcategoriesError) throw new Error(insertSubcategoriesError.message);
+  }
+}
+
+export async function createCategory(input: CategoryInput): Promise<CategoryDTO> {
+  const supabase = await createClient();
+  const user = await getUser();
+
+  const { data, error } = await supabase
+    .from("categories")
+    .insert({
+      user_id: user.id,
+      name: input.name,
+      type: input.type,
+      color: input.color,
+      icon: input.icon ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return toCategoryDTO(data, []);
+}
+
+export async function updateCategory(id: string, input: Partial<CategoryInput>): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("categories")
+    .update({
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.color !== undefined ? { color: input.color } : {}),
+      ...(input.icon !== undefined ? { icon: input.icon } : {}),
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function createSubcategory(input: SubcategoryInput): Promise<SubcategoryDTO> {
+  const supabase = await createClient();
+  const user = await getUser();
+
+  const { data, error } = await supabase
+    .from("subcategories")
+    .insert({ user_id: user.id, category_id: input.categoryId, name: input.name })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return toSubcategoryDTO(data);
+}
+
+export async function updateSubcategory(id: string, input: Partial<SubcategoryInput>): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("subcategories")
+    .update({ ...(input.name !== undefined ? { name: input.name } : {}) })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+async function countReferences(supabase: Awaited<ReturnType<typeof createClient>>, column: "category_id" | "subcategory_id", id: string) {
+  const [transactions, cardPurchases, budgets, fixedExpenses, reservoirs] = await Promise.all([
+    supabase.from("transactions").select("id", { count: "exact", head: true }).eq(column, id),
+    supabase.from("card_purchases").select("id", { count: "exact", head: true }).eq(column, id),
+    supabase.from("budgets").select("id", { count: "exact", head: true }).eq(column, id),
+    supabase.from("fixed_expenses").select("id", { count: "exact", head: true }).eq(column, id),
+    supabase.from("reservoirs").select("id", { count: "exact", head: true }).eq(column, id),
+  ]);
+  return {
+    transactions: transactions.count ?? 0,
+    cardPurchases: cardPurchases.count ?? 0,
+    budgets: budgets.count ?? 0,
+    fixedExpenses: fixedExpenses.count ?? 0,
+    reservoirs: reservoirs.count ?? 0,
+  };
+}
+
+async function previewTransactions(supabase: Awaited<ReturnType<typeof createClient>>, column: "category_id" | "subcategory_id", id: string): Promise<TransactionViewDTO[]> {
+  const { data } = await supabase
+    .from("transactions")
+    .select("id, date, description, type, amount, category_id, subcategory_id, origin_account_id, destination_account_id")
+    .eq(column, id)
+    .order("date", { ascending: false })
+    .limit(10);
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    date: row.date,
+    description: row.description ?? "",
+    type: row.type,
+    categoryId: row.category_id,
+    category: "",
+    subcategoryId: row.subcategory_id,
+    subcategory: "",
+    accountId: row.origin_account_id ?? row.destination_account_id,
+    account: "",
+    amount: row.amount,
+    source: "transaction" as const,
+  }));
+}
+
+export async function getCategoryUsage(categoryId: string): Promise<CategoryUsageDTO> {
+  const supabase = await createClient();
+  const counts = await countReferences(supabase, "category_id", categoryId);
+  const preview = await previewTransactions(supabase, "category_id", categoryId);
+  return {
+    count: counts.transactions + counts.cardPurchases,
+    preview,
+    budgetsCount: counts.budgets,
+    fixedExpensesCount: counts.fixedExpenses,
+    reservoirsCount: counts.reservoirs,
+  };
+}
+
+export async function getSubcategoryUsage(subcategoryId: string): Promise<CategoryUsageDTO> {
+  const supabase = await createClient();
+  const counts = await countReferences(supabase, "subcategory_id", subcategoryId);
+  const preview = await previewTransactions(supabase, "subcategory_id", subcategoryId);
+  return {
+    count: counts.transactions + counts.cardPurchases,
+    preview,
+    budgetsCount: counts.budgets,
+    fixedExpensesCount: counts.fixedExpenses,
+    reservoirsCount: counts.reservoirs,
+  };
+}
+
+/**
+ * Batch UPDATE of every row still referencing fromCategoryId/fromSubcategoryId — the only
+ * path a category/subcategory delete may follow, since the FKs are RESTRICT by design.
+ * `toCategoryId: null` clears both category_id and subcategory_id ("leave uncategorized").
+ * `toSubcategoryId: undefined` with a `toCategoryId` set means "fall back to parent category".
+ */
+export async function reassignCategory(input: ReassignCategoryInput): Promise<void> {
+  const supabase = await createClient();
+  const column = input.fromSubcategoryId ? "subcategory_id" : "category_id";
+  const fromId = input.fromSubcategoryId ?? input.fromCategoryId;
+  if (!fromId && !input.fromUncategorized) throw new Error("fromCategoryId, fromSubcategoryId or fromUncategorized is required");
+
+  const patch =
+    input.toCategoryId === null
+      ? { category_id: null, subcategory_id: null }
+      : column === "subcategory_id"
+        ? { subcategory_id: input.toSubcategoryId ?? null }
+        : { category_id: input.toCategoryId, subcategory_id: input.toSubcategoryId ?? null };
+
+  const tables = ["transactions", "card_purchases", "budgets", "fixed_expenses", "reservoirs"] as const;
+  for (const table of tables) {
+    const query = supabase.from(table).update(patch);
+    const { error } = fromId ? await query.eq(column, fromId) : await query.is(column, null);
+    if (error) throw new Error(error.message);
+  }
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("categories").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteSubcategory(id: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("subcategories").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
