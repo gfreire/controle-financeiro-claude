@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { splitInstallments, sumMoney, subtractMoney } from "@/lib/utils/money";
 import { calculateInstallmentCompetences, calculateInstallmentCompetencesFromAnchorMonth } from "@/lib/utils/date";
-import { monthKey, startOfMonth, endOfMonth } from "@/lib/utils/date";
+import { monthKey, startOfMonth, endOfMonth, todayIso } from "@/lib/utils/date";
 import type { CardPurchaseInput, CardPaymentInput } from "@/lib/validations/cards";
 import type { CardInstallmentDTO, CardPurchaseDTO, CardSummaryDTO } from "@/types/dto";
 
@@ -231,33 +231,73 @@ export async function getCardBalanceThroughMonth(creditCardId: string, throughMo
   return Math.max(0, subtractMoney(totalInstallments, totalPayments));
 }
 
-/**
- * Cards page summary: `usedThroughCurrentMonth` is the existing "pay the bill" figure
- * (installments due through the current month, minus payments already made).
- * `currentMonthInvoice` isolates just this month's competence, and `overdueAmount` is
- * whatever's left over from prior months still unpaid — the "you may be behind" signal.
+/** Every installment ever generated for the card (past, current, and future not-yet-due) minus every
+ * payment ever made — the true "against the limit" figure. Deliberately different from
+ * `getCardBalanceThroughMonth`, which excludes future installments not yet due (see AI_CONTEXT.md
+ * "CREDIT_CARD_PAYMENT" — that one drives the "Pagar fatura" suggestion, not the limit-usage display).
  */
-export async function getCardSummary(creditCardId: string, currentMonth: string, creditLimit: number | null): Promise<CardSummaryDTO> {
+export async function getCardTotalCommitted(creditCardId: string): Promise<number> {
   const supabase = await createClient();
-  const periodStart = startOfMonth(`${currentMonth}-01`);
-  const periodEnd = endOfMonth(`${currentMonth}-01`);
-
-  const [usedThroughCurrentMonth, { data: currentInstallments, error }] = await Promise.all([
-    getCardBalanceThroughMonth(creditCardId, currentMonth),
-    supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).gte("competence", periodStart).lte("competence", periodEnd),
+  const [{ data: installments }, { data: payments }] = await Promise.all([
+    supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId),
+    supabase.from("card_payments").select("amount").eq("credit_card_id", creditCardId),
   ]);
-  if (error) throw new Error(error.message);
-
-  const currentMonthInvoice = sumMoney((currentInstallments ?? []).map((i) => i.amount));
-  const overdueAmount = Math.max(0, subtractMoney(usedThroughCurrentMonth, currentMonthInvoice));
-
-  return { accountId: creditCardId, creditLimit, usedThroughCurrentMonth, currentMonthInvoice, overdueAmount };
+  const totalInstallments = sumMoney((installments ?? []).map((i) => i.amount));
+  const totalPayments = sumMoney((payments ?? []).map((p) => p.amount));
+  return Math.max(0, subtractMoney(totalInstallments, totalPayments));
 }
 
-/** Pays the card bill: creates both a CREDIT_CARD_PAYMENT transaction and the linked card_payments metadata row. */
+/**
+ * Cards page summary. Two independent month concepts, deliberately not the same parameter:
+ * - `usedThroughCurrentMonth`/`overdueAmount` are always anchored to TODAY's real month — "how
+ *   much do I actually owe right now," which is what "Pagar fatura" suggests as the payment
+ *   amount. This must stay real-time even while the page is browsing a past/future month via
+ *   the month filter — paging through history shouldn't change what a real payment today should be.
+ * - `currentMonthInvoice` reflects `viewedMonth` (the page's month filter) — "what does this
+ *   invoice look like for the month being viewed," which changes as the user pages through it.
+ * - `totalCommitted` (see `getCardTotalCommitted`) is the full outstanding balance including
+ *   future not-yet-due installments — the correct figure for "used against the limit," since
+ *   `usedThroughCurrentMonth` alone would undercount scheduled-but-not-yet-billed installments.
+ */
+export async function getCardSummary(creditCardId: string, viewedMonth: string, creditLimit: number | null): Promise<CardSummaryDTO> {
+  const supabase = await createClient();
+  const todayMonth = monthKey(todayIso());
+  const viewedStart = startOfMonth(`${viewedMonth}-01`);
+  const viewedEnd = endOfMonth(`${viewedMonth}-01`);
+  const todayStart = startOfMonth(`${todayMonth}-01`);
+  const todayEnd = endOfMonth(`${todayMonth}-01`);
+  const viewingCurrentMonth = viewedMonth === todayMonth;
+
+  const [usedThroughCurrentMonth, totalCommitted, { data: viewedInstallments, error: viewedError }, todayInstallmentsResult] = await Promise.all([
+    getCardBalanceThroughMonth(creditCardId, todayMonth),
+    getCardTotalCommitted(creditCardId),
+    supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).gte("competence", viewedStart).lte("competence", viewedEnd),
+    viewingCurrentMonth
+      ? Promise.resolve(null)
+      : supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).gte("competence", todayStart).lte("competence", todayEnd),
+  ]);
+  if (viewedError) throw new Error(viewedError.message);
+  if (todayInstallmentsResult?.error) throw new Error(todayInstallmentsResult.error.message);
+
+  const currentMonthInvoice = sumMoney((viewedInstallments ?? []).map((i) => i.amount));
+  const todayInvoice = viewingCurrentMonth ? currentMonthInvoice : sumMoney((todayInstallmentsResult?.data ?? []).map((i) => i.amount));
+  const overdueAmount = Math.max(0, subtractMoney(usedThroughCurrentMonth, todayInvoice));
+
+  return { accountId: creditCardId, creditLimit, usedThroughCurrentMonth, currentMonthInvoice, overdueAmount, totalCommitted };
+}
+
+/**
+ * Pays the card bill: creates both a CREDIT_CARD_PAYMENT transaction and the linked card_payments
+ * metadata row. `transactions.description` defaults to naming the card ("Pagamento da fatura do
+ * cartão {name}") since the payment form itself has no description field (see AI_CONTEXT.md
+ * "CREDIT_CARD_PAYMENT") — without this the row showed up blank ("Sem descrição") everywhere the
+ * description column is displayed or searched (Transaction Explorer, Lançamentos).
+ */
 export async function registerCardPayment(input: CardPaymentInput): Promise<void> {
   const supabase = await createClient();
   const user = await getUser();
+
+  const { data: card } = await supabase.from("accounts").select("name").eq("id", input.creditCardId).single();
 
   const { data: transaction, error: txError } = await supabase
     .from("transactions")
@@ -268,6 +308,7 @@ export async function registerCardPayment(input: CardPaymentInput): Promise<void
       destination_account_id: input.creditCardId,
       amount: input.amount,
       date: input.paymentDate,
+      description: `Pagamento da fatura do cartão ${card?.name ?? ""}`.trim(),
     })
     .select("id")
     .single();

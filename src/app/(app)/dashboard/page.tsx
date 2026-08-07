@@ -10,7 +10,6 @@ import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
 import { getBudgets } from "@/services/budgets.service";
 import { getFixedExpenses } from "@/services/fixed-expenses.service";
-import { todayIso } from "@/lib/utils/date";
 
 import { DashboardFilters } from "@/features/dashboard/components/dashboard-filters";
 import { SummaryCards } from "@/features/dashboard/components/summary-cards";
@@ -38,8 +37,10 @@ export default async function DashboardPage({
       getTransactionsFiltered(filters),
       getAccounts(),
       getCategories(),
-      getBudgets(todayIso()),
-      getFixedExpenses(todayIso()),
+      // Reflects the filtered period, not always "today" — a user browsing a past/future
+      // month via the filters expects the budgets/fixed-expenses panel to follow along.
+      getBudgets(filters.periodEnd),
+      getFixedExpenses(filters.periodEnd),
     ]);
 
   return (

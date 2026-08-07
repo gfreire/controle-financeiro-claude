@@ -28,7 +28,14 @@ export function PayFixedExpenseDialog({ expense, accounts, trigger }: { expense:
     }
     startTransition(async () => {
       try {
-        await payFixedExpenseAction({ fixedExpenseId: expense.id, originAccountId: accountId, amount: value, date, categoryId: expense.categoryId });
+        await payFixedExpenseAction({
+          fixedExpenseId: expense.id,
+          originAccountId: accountId,
+          amount: value,
+          date,
+          description: `Pagamento — ${expense.name}`,
+          categoryId: expense.categoryId,
+        });
         router.refresh();
         setOpen(false);
       } catch (e) {

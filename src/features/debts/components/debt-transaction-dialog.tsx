@@ -10,15 +10,21 @@ import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { addDebtTransactionAction } from "../actions";
 import { debtTransactionSchema } from "@/lib/validations/debts";
 import { todayIso } from "@/lib/utils/date";
+import { formatCurrency } from "@/lib/utils/currency";
+import { addMoney } from "@/lib/utils/money";
 import type { AccountDTO } from "@/types/dto";
 
 export function DebtTransactionDialog({
   debtId,
+  debtName,
+  currentBalance,
   mode,
   accounts,
   trigger,
 }: {
   debtId: string;
+  debtName: string;
+  currentBalance: number;
   mode: "increase" | "payment";
   accounts: AccountDTO[];
   trigger: React.ReactNode;
@@ -29,13 +35,35 @@ export function DebtTransactionDialog({
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState(todayIso());
   const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState(`Movimentação da dívida ${debtName}`);
   const [createLinkedTransaction, setCreateLinkedTransaction] = useState(true);
   const [linkedAccountId, setLinkedAccountId] = useState(accounts[0]?.id ?? "");
+  const [confirmingSettle, setConfirmingSettle] = useState(false);
+
+  const numericAmount = Number(amount);
+  const signedAmount = mode === "payment" ? -Math.abs(numericAmount) : Math.abs(numericAmount);
+  const projectedBalance = Number.isFinite(numericAmount) && amount ? addMoney(currentBalance, signedAmount) : currentBalance;
+  const willSettle = mode === "payment" && amount !== "" && projectedBalance <= 0;
+  const isOverpayment = willSettle && projectedBalance < 0;
+
+  function resetAndClose() {
+    setOpen(false);
+    setAmount("");
+    setDescription(`Movimentação da dívida ${debtName}`);
+    setConfirmingSettle(false);
+  }
 
   function handleSubmit() {
     setError(null);
-    const signedAmount = mode === "payment" ? -Math.abs(Number(amount)) : Math.abs(Number(amount));
+
+    // Paying off (or overpaying) a debt fully settles it — see AI_CONTEXT.md "Dívidas": the
+    // debt gets soft-deleted server-side once its balance reaches zero, so we warn before
+    // submitting instead of surprising the user when it silently disappears from the list.
+    if (willSettle && !confirmingSettle) {
+      setConfirmingSettle(true);
+      return;
+    }
+
     const parsed = debtTransactionSchema.safeParse({
       debtId,
       date,
@@ -52,8 +80,7 @@ export function DebtTransactionDialog({
       try {
         await addDebtTransactionAction(parsed.data);
         router.refresh();
-        setOpen(false);
-        setAmount(""); setDescription("");
+        resetAndClose();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao lançar");
       }
@@ -61,14 +88,20 @@ export function DebtTransactionDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) resetAndClose(); }}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogTitle>{mode === "payment" ? "Registrar pagamento" : "Registrar novo valor"}</DialogTitle>
         <div className="grid grid-cols-2 gap-2">
           <Field>
             <Label>Valor</Label>
-            <Input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={amount}
+              onChange={(e) => { setAmount(e.target.value); setConfirmingSettle(false); }}
+            />
           </Field>
           <Field>
             <Label>Data</Label>
@@ -94,10 +127,19 @@ export function DebtTransactionDialog({
             </Select>
           </Field>
         )}
+        {willSettle && confirmingSettle && (
+          <p className="border border-warning-500 bg-warning-100 p-2 text-xs text-warning-700">
+            {isOverpayment
+              ? `Você está pagando ${formatCurrency(Math.abs(projectedBalance))} a mais que o saldo devido (${formatCurrency(currentBalance)}) — pode ser juros ou um acerto intencional. Confirmando, o pagamento é registrado e a dívida com ${debtName} é quitada e sai da listagem.`
+              : `Este pagamento quita a dívida com ${debtName} — ela será marcada como quitada e removida da listagem.`}
+          </p>
+        )}
         <FieldError>{error}</FieldError>
         <DialogActions>
           <DialogClose asChild><Button variant="secondary" size="sm">Cancelar</Button></DialogClose>
-          <Button size="sm" disabled={pending || !amount} onClick={handleSubmit}>{pending ? "Salvando..." : "Confirmar"}</Button>
+          <Button size="sm" disabled={pending || !amount} onClick={handleSubmit}>
+            {pending ? "Salvando..." : willSettle && confirmingSettle ? "Confirmar quitação" : "Confirmar"}
+          </Button>
         </DialogActions>
       </DialogContent>
     </Dialog>

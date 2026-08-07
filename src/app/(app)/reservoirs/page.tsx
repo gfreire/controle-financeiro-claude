@@ -5,7 +5,7 @@ import { Card, CardKicker, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDate } from "@/lib/utils/date";
-import { Droplets, Plus, ArrowDownToLine } from "lucide-react";
+import { Vault, Plus, ArrowDownToLine } from "lucide-react";
 import { ReservoirFormDialog } from "@/features/reservoirs/components/reservoir-form-dialog";
 import { AccrualDialog } from "@/features/reservoirs/components/accrual-dialog";
 import { WithdrawalDialog } from "@/features/reservoirs/components/withdrawal-dialog";
@@ -16,7 +16,7 @@ export default async function ReservoirsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="font-heading text-2xl font-semibold">Reservatórios</h1>
+        <h1 className="font-heading text-2xl font-semibold">Receita Programada</h1>
         <ReservoirFormDialog categories={categories} />
       </div>
       <p className="text-sm opacity-70">
@@ -25,7 +25,7 @@ export default async function ReservoirsPage() {
       </p>
 
       {reservoirs.length === 0 ? (
-        <p className="text-sm opacity-60">Nenhum reservatório criado ainda.</p>
+        <p className="text-sm opacity-60">Nenhuma receita programada criada ainda.</p>
       ) : (
         <div className="flex flex-col gap-4">
           {await Promise.all(
@@ -35,12 +35,12 @@ export default async function ReservoirsPage() {
                 <Card key={reservoir.id} elevation="sm" className="gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <CardKicker className="flex items-center gap-1"><Droplets className="size-3" strokeWidth={1.5} /> {reservoir.categoryName ?? "Sem categoria padrão"}</CardKicker>
+                      <CardKicker className="flex items-center gap-1"><Vault className="size-3" strokeWidth={1.5} /> {reservoir.categoryName ?? "Sem categoria padrão"}</CardKicker>
                       <CardTitle>{reservoir.name}</CardTitle>
                       <div className="text-xl font-semibold tabular-nums">{formatCurrency(reservoir.balance)}</div>
                     </div>
                     <div className="flex gap-2">
-                      <AccrualDialog reservoirId={reservoir.id} trigger={<Button size="sm" variant="secondary"><Plus className="size-3.5" strokeWidth={1.5} /> Acúmulo</Button>} />
+                      <AccrualDialog reservoirId={reservoir.id} reservoirName={reservoir.name} trigger={<Button size="sm" variant="secondary"><Plus className="size-3.5" strokeWidth={1.5} /> Acúmulo</Button>} />
                       <WithdrawalDialog
                         reservoirId={reservoir.id}
                         accounts={accounts.filter((a) => a.type !== "CREDIT_CARD")}

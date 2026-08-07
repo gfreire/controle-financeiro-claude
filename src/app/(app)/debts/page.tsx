@@ -8,6 +8,7 @@ import { formatDate } from "@/lib/utils/date";
 import { HandCoins, Plus, Minus } from "lucide-react";
 import { DebtFormDialog } from "@/features/debts/components/debt-form-dialog";
 import { DebtTransactionDialog } from "@/features/debts/components/debt-transaction-dialog";
+import { DebtsCharts } from "@/features/debts/components/debts-charts";
 
 export default async function DebtsPage() {
   const [debts, accounts] = await Promise.all([getDebts(), getAccounts()]);
@@ -19,6 +20,8 @@ export default async function DebtsPage() {
         <h1 className="font-heading text-2xl font-semibold">Dívidas</h1>
         <DebtFormDialog />
       </div>
+
+      <DebtsCharts debts={debts} />
 
       {debts.length === 0 ? (
         <p className="text-sm opacity-60">Nenhuma dívida registrada.</p>
@@ -39,8 +42,22 @@ export default async function DebtsPage() {
                       <div className="text-xl font-semibold tabular-nums">{formatCurrency(debt.remainingBalance)}</div>
                     </div>
                     <div className="flex gap-2">
-                      <DebtTransactionDialog debtId={debt.id} mode="increase" accounts={liquidAccounts} trigger={<Button size="sm" variant="secondary"><Plus className="size-3.5" strokeWidth={1.5} /> Novo valor</Button>} />
-                      <DebtTransactionDialog debtId={debt.id} mode="payment" accounts={liquidAccounts} trigger={<Button size="sm"><Minus className="size-3.5" strokeWidth={1.5} /> Pagamento</Button>} />
+                      <DebtTransactionDialog
+                        debtId={debt.id}
+                        debtName={debt.agent}
+                        currentBalance={debt.remainingBalance}
+                        mode="increase"
+                        accounts={liquidAccounts}
+                        trigger={<Button size="sm" variant="secondary"><Plus className="size-3.5" strokeWidth={1.5} /> Novo valor</Button>}
+                      />
+                      <DebtTransactionDialog
+                        debtId={debt.id}
+                        debtName={debt.agent}
+                        currentBalance={debt.remainingBalance}
+                        mode="payment"
+                        accounts={liquidAccounts}
+                        trigger={<Button size="sm"><Minus className="size-3.5" strokeWidth={1.5} /> Pagamento</Button>}
+                      />
                     </div>
                   </div>
                   {entries.length > 0 && (

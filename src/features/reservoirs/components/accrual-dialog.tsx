@@ -10,14 +10,14 @@ import { reservoirAccrualSchema } from "@/lib/validations/reservoirs";
 import { calculateGrossNetSplit } from "@/lib/utils/money";
 import { todayIso } from "@/lib/utils/date";
 
-export function AccrualDialog({ reservoirId, trigger }: { reservoirId: string; trigger: React.ReactNode }) {
+export function AccrualDialog({ reservoirId, reservoirName, trigger }: { reservoirId: string; reservoirName: string; trigger: React.ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const [date, setDate] = useState(todayIso());
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState(`Movimentação da receita programada ${reservoirName}`);
   const [grossAmount, setGrossAmount] = useState("");
   const [percentage, setPercentage] = useState("");
   const [amount, setAmount] = useState("");
@@ -59,7 +59,8 @@ export function AccrualDialog({ reservoirId, trigger }: { reservoirId: string; t
         await addReservoirAccrualAction(parsed.data);
         router.refresh();
         setOpen(false);
-        setGrossAmount(""); setPercentage(""); setAmount(""); setDescription("");
+        setGrossAmount(""); setPercentage(""); setAmount("");
+        setDescription(`Movimentação da receita programada ${reservoirName}`);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao lançar acúmulo");
       }

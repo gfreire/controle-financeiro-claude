@@ -38,6 +38,8 @@ Real money locations. `type`: `CASH`, `BANK`, `CREDIT_CARD`. Each type has a 1:1
 
 **`credit_limit` and `bank_accounts.overdraft_limit` are both user-editable at any time**, via a dedicated quick action ("Ajustar Limite") mirroring the existing "Ajustar Saldo" pattern (a small dialog off the account, not a full account-edit form) — decided and implemented 2026-08-07 (`src/features/accounts/components/limit-adjust-dialog.tsx`). Banks routinely raise or cut these limits outside the user's control (temporary increase, revolving-credit renegotiation, etc.), so locking either value to account-creation time drifts from reality almost immediately. Same soft-enforce philosophy carries over: changing the limit never rewrites past purchases or warnings already shown, it only changes the threshold used for *future* soft-limit checks.
 
+**For `CREDIT_CARD` accounts, this same dialog also edits `closing_day`/`due_day`** — decided and implemented 2026-08-07, at the user's request ("pode ser o mesmo menu ou um diferente do editar limite... só mudar o label"). The invoice closing/due dates are just as subject to change by the bank as the limit is, and both live on the same `credit_cards` extension row, so one quick-action dialog (labeled "Ajustar Cartão" for cards, still "Ajustar Limite" for banks) covers all three fields in a single save instead of needing a separate flow per field.
+
 **CASH accounts never show an institution selector in the account form** — decided and implemented 2026-08-07: cash in hand isn't tied to a bank, so offering the picker was confusing. `institution_id` stays a valid nullable column for `CASH` rows at the schema level (no constraint added — a user could theoretically still set it via direct DB access), the change is UI-only: `account-form-dialog.tsx` conditionally hides the field once `type === 'CASH'` (and clears any previously-picked institution on switching a form to CASH).
 
 Accounts may reference a `financial_institutions` catalog entry (global, no `user_id`) for branding — e.g. Banco do Brasil, Mercado Pago, Santander, Nubank. This is a plain lookup table, not a limiter: a user can have **any number** of accounts and credit cards, including several pointing at the same institution (e.g. a checking account plus multiple "cofrinhos"/poupanças at the same bank, or several credit cards).
@@ -61,6 +63,8 @@ Dashboard analytics only ever read from: `transactions` (INCOME/EXPENSE) and `ca
 
 **`CREDIT_CARD_PAYMENT` has exactly one entry point**: the Cards page's "Pagar fatura" action (`cards.service.ts#registerCardPayment`), which creates the `transactions` row and the linked `card_payments` metadata row together. The manual transaction form (`/transactions`, and the Dashboard's "Novo lançamento") deliberately does **not** offer this type — only `EXPENSE`/`INCOME`/`TRANSFER` — so there's a single path to it instead of two UIs racing to do the same thing slightly differently. It also suggests the statement balance due through the current month (`getCardBalanceThroughMonth`), not the full lifetime balance including future installments not yet due.
 
+The payment form has no description field (it's a fixed action: card, paying account, amount, date), so `registerCardPayment` defaults the transaction's `description` to `"Pagamento da fatura do cartão {nome do cartão}"` server-side (fixed 2026-08-07) — previously it stayed `null`, showing as blank/"Sem descrição" everywhere the column is displayed or searched.
+
 ---
 
 # Credit Card Purchases / Installments / Payments
@@ -78,6 +82,12 @@ The purchase form defaults the first installment's competence month to this auto
 Rounding: any remainder from dividing the purchase value into installments goes to the **first** installment, so the sum always matches the original amount exactly (e.g. 100 ÷ 3 = 33.34 / 33.33 / 33.33).
 
 Paying the card bill (`card_payments`) creates both a `transactions` row (`type = CREDIT_CARD_PAYMENT`) and a `card_payments` metadata row linked to it via `transaction_id`.
+
+**Two different "how much is used" figures, on purpose (decided and implemented 2026-08-07).** The Cards page shows a card's usage two ways, and they must not be conflated:
+- **Against the credit limit** (`CardSummaryDTO.totalCommitted`, `cards.service.ts#getCardTotalCommitted`): every installment ever generated for the card — past, current, *and future not-yet-due* — minus every payment ever made. This is the correct figure for "how much of my limit is used," because a real card issuer counts an installment plan against the limit the moment it's committed, not only once each installment individually comes due.
+- **What to actually pay right now** (`CardSummaryDTO.usedThroughCurrentMonth`, `getCardBalanceThroughMonth`): installments with competence through *today's real month* minus payments — deliberately excludes future installments not yet due. This is what "Pagar fatura" suggests, and it stays anchored to today's real month even while the Cards page is browsing a different month via its `MonthNav` filter — paging through history to look at a past invoice must never change what a real payment made today should be.
+
+`currentMonthInvoice` is a third, separate figure: the sum of installments whose competence falls in whichever month the page's `MonthNav` is currently viewing — this one *does* follow the filter (fixed 2026-08-07; it used to silently ignore the filter and always show today's real month regardless of what the user was browsing).
 
 ---
 
@@ -153,7 +163,7 @@ Example: a R$1.000 cofrinho that somehow became R$2.500 after weeks of untracked
 
 - Difference zero on either action → nothing is created.
 
-No new table — both are a normal `createTransaction` call under the hood.
+No new table — both are a normal `createTransaction` call under the hood. Both actions default the transaction's `description` to `"Informar Rendimento — {conta}"`/`"Ajustar Saldo — {conta}"` (fixed 2026-08-07) — previously the account name wasn't included, so two "Ajustar Saldo" rows on different accounts in the same list read identically until clicked into.
 
 **`registerYield` ("Informar Rendimento") is `BANK`-only — decided and implemented 2026-08-07, `CASH` is explicitly excluded.** Physical cash in hand does not yield on its own; offering the action on a `CASH` account implied a behavior that can never actually happen. `reconcileAccountBalance` ("Ajustar Saldo") stays available for **both** `CASH` and `BANK` — miscounting cash in a wallet, or losing track of a drawer, is a legitimate reconciliation case, just never one attributable to yield. `CREDIT_CARD` remains out of scope for either action (revolving interest interacts with installments differently and isn't speced yet).
 
@@ -161,9 +171,11 @@ No new table — both are a normal `createTransaction` call under the hood.
 
 ---
 
-# Reservoir (Cofre)
+# Reservoir (Cofre) — displayed as "Receita Programada"
 
 Represents accumulated value that is **not yet real money** — projected or already-earned-but-not-yet-received income. Originated from the owner's own work pattern (freelance/session-based income: poker cash game and tournament earnings, but the model is generic — applies equally to e.g. a weekly-paid freelancer).
+
+**Renamed in the UI to "Receita Programada" — decided and implemented 2026-08-07, at the user's request.** "Reservatórios" with a water-droplet icon didn't read as what the feature actually is (nothing to do with water/liquid volume), and the mismatch was confusing even though the underlying feature itself was considered good as-is. This was a **display-only** rename: the route (`/reservoirs`), table names (`reservoirs`, `reservoir_transactions`), service (`reservoirs.service.ts`), DTOs (`ReservoirDTO`, `ReservoirTransactionDTO`), and all internal identifiers are unchanged by design — only user-facing Portuguese strings and the nav icon changed (`Droplets` → `Vault`, chosen over reusing `PiggyBank`/`HandCoins` since those are already Orçamentos/Dívidas' icons and reusing one would hurt nav scannability). If a future session needs to touch this feature, search the codebase for `reservoir`, not `receita programada` — the display name is a label, not a rename of the domain concept.
 
 `reservoirs` is the header (name + an optional default `category_id`/`subcategory_id`, used to pre-fill the category when the money is withdrawn). `reservoir_transactions` is the ledger:
 
@@ -171,6 +183,8 @@ Represents accumulated value that is **not yet real money** — projected or alr
 - **Withdrawal entries** (`amount` negative): logged when money is actually received, moved to a real account. Creates a linked `transactions` (or `card_purchases`) row via `linked_transaction_id`/`linked_card_purchase_id`.
 
 **The withdrawal amount does not need to match the accumulated total exactly.** Real-world payouts can differ slightly from what was projected (e.g. cash rounding). The reservoir balance (`SUM(reservoir_transactions.amount)`) simply carries the difference forward — no reconciliation step is required.
+
+**Default description names the reservoir (decided and implemented 2026-08-07, same convention as Dívidas' "Movimentação da dívida {agent}").** When left blank, both accrual and withdrawal entries — and the linked `transactions` row a withdrawal creates — default to `"Movimentação da receita programada {nome}"` instead of a generic/unattributed message (previously a withdrawal without an explicit description fell back to the bare "Saque de reservatório", with no way to tell which one from the transaction list alone). `reservoirs.service.ts#addReservoirTransaction`/`withdrawReservoir` apply this server-side; the accrual dialog also pre-fills the same text into its description field so the user sees and can edit it before saving (the withdrawal dialog has no description field of its own, so it always relies on the server-side default, same as `CREDIT_CARD_PAYMENT` below).
 
 **Gross/percentage/net split (accrual entries only)**: three optional, related fields on an accrual entry — `grossAmount`, `percentage`, and `amount` (the net, the field that already exists and always drives the reservoir balance). The relationship: `amount = grossAmount × (percentage / 100)`.
 
@@ -203,6 +217,12 @@ Types: `PAYABLE` (owed by the user) and `RECEIVABLE` (owed to the user). `debts.
 Paying down a debt with the user's own money **always** creates a linked transaction (real money genuinely leaves a tracked account, so it must be reflected).
 
 Debts never affect dashboard totals directly — only the linked transactions they may generate do.
+
+**Default description names the debt (decided and implemented 2026-08-07).** When the user leaves a debt transaction's description blank, both the ledger row and its linked `transactions` row (if any) default to `"Movimentação da dívida {agent}"` instead of a generic, unattributed message — `debts.service.ts#addDebtTransaction` fills this in server-side, and `DebtTransactionDialog` also pre-fills the same text into the form field so the user sees (and can edit) it before submitting, rather than it only appearing after the fact.
+
+**Settling a debt to zero is a soft delete, decided and implemented 2026-08-07.** `addDebtTransaction` recomputes the debt's real remaining balance immediately after inserting the ledger entry; if it's `<= 0`, the debt is deactivated (`active = false`) and drops out of `getDebts()` — the same `active` convention used everywhere else in the schema, not a new mechanism. Overpaying is deliberately not an error: a debt of R$1.000 settled with a R$1.100 payment is treated as intentional (e.g. interest the payer/creditor decided to fold in) — it still zeroes the debt out, just leaving that extra R$100 as the transaction's real recorded value. What matters is that the user isn't surprised: `DebtTransactionDialog` predicts, from the debt's current balance, whether the payment being entered would settle or overpay it, and if so shows a warning *before* submitting (exact settlement: "this payment quits this debt, it'll leave the list"; overpayment: names the excess and asks whether that's intentional) and requires a second, explicit "Confirmar quitação" click — never a silent disappearance. The actual deactivation decision is still made server-side from the real post-insert balance, not the client's prediction, so it stays correct even if they ever disagree (e.g. a concurrent entry).
+
+**The Dívidas page opens with two simple pie charts** ("Dívidas a pagar", "Dívidas a receber" — one per `side`), each showing the active debts of that side by remaining balance. Either pie is omitted entirely when its side has no debts with a positive balance to show — there is no empty/placeholder chart. Purely a visual summary; no new aggregation beyond what `getDebts()` already computes per debt.
 
 ---
 
@@ -244,6 +264,7 @@ Functionally a **specialized, committed slice of a Budget** for genuinely fixed 
 - If the real value ends up higher than planned, it shows the real (larger) number plus an `EXCEEDED` alert.
 - **Long-term unpaid/overdue fixed expenses are out of automatic scope.** If a bill goes unpaid across months, the intended path is a manual `Debt` entry — the system does not attempt to auto-roll an unpaid fixed expense forward.
 - Never generates a transaction on its own; the user (or, in the future, an import) always creates the real `transactions` row.
+- The "Registrar pagamento" dialog (`pay-fixed-expense-dialog.tsx`) has no free-text description field — it passes `"Pagamento — {nome da despesa fixa}"` as the transaction's description by default (fixed 2026-08-07), so the row reads clearly in Lançamentos/Dashboard instead of showing blank.
 
 ---
 

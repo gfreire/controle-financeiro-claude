@@ -5,7 +5,7 @@ import { Card, CardKicker, CardTitle } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils/currency";
-import { startOfMonth, endOfMonth, monthKey, todayIso } from "@/lib/utils/date";
+import { startOfMonth, endOfMonth, monthKey, todayIso, formatMonthLabel } from "@/lib/utils/date";
 import { toPercentage } from "@/lib/utils/number";
 import { PurchaseFormDialog } from "@/features/cards/components/purchase-form-dialog";
 import { PaymentFormDialog } from "@/features/cards/components/payment-form-dialog";
@@ -41,14 +41,17 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
         <div className="flex flex-col gap-4">
           {await Promise.all(
             cards.map(async (card) => {
-              const currentMonth = monthKey(todayIso());
               const [installments, purchases, summary] = await Promise.all([
                 getCardInstallments(card.id, { periodStart, periodEnd }),
                 getCardPurchases(card.id),
-                getCardSummary(card.id, currentMonth, card.creditLimit ?? null),
+                // `month` here is the page's viewed/filtered month — drives `currentMonthInvoice`.
+                // `usedThroughCurrentMonth`/`overdueAmount` inside stay anchored to today regardless.
+                getCardSummary(card.id, month, card.creditLimit ?? null),
               ]);
               const purchaseById = new Map(purchases.map((p) => [p.id, p]));
-              const usagePercent = summary.creditLimit ? toPercentage(summary.usedThroughCurrentMonth, summary.creditLimit) : null;
+              // Against-the-limit usage must include future not-yet-due installments too — see
+              // `getCardTotalCommitted`'s comment for why `usedThroughCurrentMonth` alone undercounts it.
+              const usagePercent = summary.creditLimit ? toPercentage(summary.totalCommitted, summary.creditLimit) : null;
 
               return (
                 <Card key={card.id} elevation="sm" className="gap-3">
@@ -61,7 +64,7 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
                       <CardTitle>{card.name}</CardTitle>
                       <div className="flex items-baseline gap-1">
                         <span className={`text-xl font-semibold tabular-nums ${usagePercent !== null && usagePercent >= 90 ? "text-danger-600" : ""}`}>
-                          {formatCurrency(summary.usedThroughCurrentMonth)}
+                          {formatCurrency(summary.totalCommitted)}
                         </span>
                         {summary.creditLimit !== null && (
                           <span className="text-sm opacity-60 tabular-nums">/ {formatCurrency(summary.creditLimit)}</span>
@@ -73,7 +76,7 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
                         </div>
                       )}
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                        <span>Fatura deste mês: <strong className="tabular-nums">{formatCurrency(summary.currentMonthInvoice)}</strong></span>
+                        <span>Fatura de {formatMonthLabel(month)}: <strong className="tabular-nums">{formatCurrency(summary.currentMonthInvoice)}</strong></span>
                         {summary.overdueAmount > 0 && (
                           <Badge variant="danger">Em atraso: {formatCurrency(summary.overdueAmount)}</Badge>
                         )}

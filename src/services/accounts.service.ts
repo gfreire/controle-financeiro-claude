@@ -201,7 +201,10 @@ export async function registerYield(accountId: string, realBalance: number): Pro
   const supabase = await createClient();
   const user = await getUser();
 
-  const calculated = await getAccountBalance(accountId);
+  const [calculated, { data: account }] = await Promise.all([
+    getAccountBalance(accountId),
+    supabase.from("accounts").select("name").eq("id", accountId).single(),
+  ]);
   const delta = subtractMoney(realBalance, calculated);
   if (delta === 0) return;
 
@@ -213,7 +216,7 @@ export async function registerYield(accountId: string, realBalance: number): Pro
     amount: Math.abs(delta),
     date: new Date().toISOString().slice(0, 10),
     category_id: categoryId,
-    description: "Informar Rendimento",
+    description: `Informar Rendimento — ${account?.name ?? ""}`.trim(),
   });
   if (error) throw new Error(error.message);
 }
@@ -223,7 +226,10 @@ export async function reconcileAccountBalance(accountId: string, realBalance: nu
   const supabase = await createClient();
   const user = await getUser();
 
-  const calculated = await getAccountBalance(accountId);
+  const [calculated, { data: account }] = await Promise.all([
+    getAccountBalance(accountId),
+    supabase.from("accounts").select("name").eq("id", accountId).single(),
+  ]);
   const delta = subtractMoney(realBalance, calculated);
   if (delta === 0) return;
 
@@ -237,7 +243,7 @@ export async function reconcileAccountBalance(accountId: string, realBalance: nu
     amount: Math.abs(delta),
     date: new Date().toISOString().slice(0, 10),
     category_id: categoryId,
-    description: "Ajustar Saldo",
+    description: `Ajustar Saldo — ${account?.name ?? ""}`.trim(),
   });
   if (error) throw new Error(error.message);
 }

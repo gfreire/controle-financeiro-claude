@@ -14,6 +14,11 @@ import type { AccountDTO } from "@/types/dto";
  * routinely raise or cut these outside the user's control (see AI_CONTEXT.md "Accounts").
  * Soft-enforced only: changing the limit never rewrites past purchases/warnings, only the
  * threshold used for future soft-limit checks.
+ *
+ * For CREDIT_CARD accounts this same dialog also edits closing_day/due_day — the invoice
+ * closing/due dates are just as subject to change by the bank as the limit is, and both
+ * live on the same `credit_cards` extension row, so a single quick-action dialog (mirroring
+ * "Ajustar Saldo") covers all three instead of needing a separate flow per field.
  */
 export function LimitAdjustDialog({ account, trigger }: { account: AccountDTO; trigger: React.ReactNode }) {
   const router = useRouter();
@@ -23,6 +28,8 @@ export function LimitAdjustDialog({ account, trigger }: { account: AccountDTO; t
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [limit, setLimit] = useState(currentLimit === null ? "" : String(currentLimit));
+  const [closingDay, setClosingDay] = useState(String(account.closingDay ?? ""));
+  const [dueDay, setDueDay] = useState(String(account.dueDay ?? ""));
 
   function handleSubmit() {
     setError(null);
@@ -39,9 +46,28 @@ export function LimitAdjustDialog({ account, trigger }: { account: AccountDTO; t
       setError("Informe um valor válido");
       return;
     }
+
+    let closingDayValue: number | undefined;
+    let dueDayValue: number | undefined;
+    if (isCard) {
+      closingDayValue = Number(closingDay);
+      dueDayValue = Number(dueDay);
+      if (!Number.isInteger(closingDayValue) || closingDayValue < 1 || closingDayValue > 31) {
+        setError("Dia de fechamento deve ser entre 1 e 31");
+        return;
+      }
+      if (!Number.isInteger(dueDayValue) || dueDayValue < 1 || dueDayValue > 31) {
+        setError("Dia de vencimento deve ser entre 1 e 31");
+        return;
+      }
+    }
+
     startTransition(async () => {
       try {
-        await updateAccountAction(account.id, isCard ? { creditLimit: value } : { overdraftLimit: value ?? 0 });
+        await updateAccountAction(
+          account.id,
+          isCard ? { creditLimit: value, closingDay: closingDayValue, dueDay: dueDayValue } : { overdraftLimit: value ?? 0 }
+        );
         router.refresh();
         setOpen(false);
       } catch (e) {
@@ -54,10 +80,10 @@ export function LimitAdjustDialog({ account, trigger }: { account: AccountDTO; t
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
-        <DialogTitle>Ajustar Limite</DialogTitle>
+        <DialogTitle>{isCard ? "Ajustar Cartão" : "Ajustar Limite"}</DialogTitle>
         <DialogDescription>
           {isCard
-            ? "Limite do cartão — opcional, apenas gera um aviso soft ao ultrapassar, nunca bloqueia um lançamento."
+            ? "Limite, fechamento e vencimento da fatura — o banco pode alterar qualquer um deles a qualquer momento."
             : "Limite de cheque especial da conta."}
         </DialogDescription>
         <Field>
@@ -73,6 +99,18 @@ export function LimitAdjustDialog({ account, trigger }: { account: AccountDTO; t
         </Field>
         {currentLimit !== null && (
           <p className="text-xs opacity-70">Limite atual: <strong>{formatCurrency(currentLimit)}</strong></p>
+        )}
+        {isCard && (
+          <div className="flex gap-3">
+            <Field className="flex-1">
+              <Label>Dia de fechamento</Label>
+              <Input type="number" min="1" max="31" value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />
+            </Field>
+            <Field className="flex-1">
+              <Label>Dia de vencimento</Label>
+              <Input type="number" min="1" max="31" value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
+            </Field>
+          </div>
         )}
         <FieldError>{error}</FieldError>
         <DialogActions>

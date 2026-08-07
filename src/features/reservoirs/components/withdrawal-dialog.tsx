@@ -43,7 +43,7 @@ export function WithdrawalDialog({ reservoirId, accounts, trigger }: { reservoir
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
-        <DialogTitle>Sacar do reservatório</DialogTitle>
+        <DialogTitle>Sacar da receita programada</DialogTitle>
         <p className="text-xs opacity-70">O valor sacado não precisa bater exatamente com o acumulado — a diferença fica no saldo.</p>
         <Field>
           <Label>Conta de destino</Label>

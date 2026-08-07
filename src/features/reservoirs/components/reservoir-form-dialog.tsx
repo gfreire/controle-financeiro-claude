@@ -36,7 +36,7 @@ export function ReservoirFormDialog({ categories }: { categories: CategoryDTO[] 
         setOpen(false);
         setName("");
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Erro ao criar reservatório");
+        setError(e instanceof Error ? e.message : "Erro ao criar receita programada");
       }
     });
   }
@@ -44,10 +44,10 @@ export function ReservoirFormDialog({ categories }: { categories: CategoryDTO[] 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Novo reservatório</Button>
+        <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova receita programada</Button>
       </DialogTrigger>
       <DialogContent>
-        <DialogTitle>Novo reservatório</DialogTitle>
+        <DialogTitle>Nova receita programada</DialogTitle>
         <Field>
           <Label>Nome</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Poker, Freelance..." />

@@ -33,7 +33,14 @@ export function AccountCard({ account }: { account: AccountDTO }) {
               <BalanceAdjustDialog account={account} mode="reconcile" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Ajustar Saldo</DropdownMenuItem>} />
             )}
             {(account.type === "BANK" || account.type === "CREDIT_CARD") && (
-              <LimitAdjustDialog account={account} trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Ajustar Limite</DropdownMenuItem>} />
+              <LimitAdjustDialog
+                account={account}
+                trigger={
+                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                    {account.type === "CREDIT_CARD" ? "Ajustar Cartão" : "Ajustar Limite"}
+                  </DropdownMenuItem>
+                }
+              />
             )}
             <DropdownMenuItem
               disabled={pending}

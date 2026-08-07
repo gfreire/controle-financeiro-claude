@@ -2,17 +2,20 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { AccountDTO, CategoryDTO } from "@/types/dto";
-import { addMonthsToIsoDate, formatMonthLabel, monthKey, todayIso, type DashboardPeriodPreset } from "@/lib/utils/date";
+import { monthKey, todayIso, type DashboardPeriodPreset } from "@/lib/utils/date";
 import { cn } from "@/lib/utils/cn";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MonthPicker } from "@/components/ui/month-picker";
+import { AccountTypeIcon } from "@/components/ui/account-type-icon";
 
 const PRESETS: { value: DashboardPeriodPreset; label: string }[] = [
   { value: "month", label: "Mês" },
@@ -52,7 +55,6 @@ export function DashboardFilters({
   const customStart = searchParams.get("periodStart") ?? "";
   const customEnd = searchParams.get("periodEnd") ?? "";
   const currentMonth = searchParams.get("month") ?? monthKey(todayIso());
-  const isCurrentMonth = currentMonth === monthKey(todayIso());
 
   function setCustomRange(nextStart: string, nextEnd: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -62,22 +64,7 @@ export function DashboardFilters({
     router.push(`${pathname}?${params.toString()}`);
   }
 
-  function navigateMonth(delta: number) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("period", "month");
-    params.set("month", monthKey(addMonthsToIsoDate(`${currentMonth}-01`, delta)));
-    router.push(`${pathname}?${params.toString()}`);
-  }
-
-  function goToCurrentMonth() {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("period", "month");
-    params.set("month", monthKey(todayIso()));
-    router.push(`${pathname}?${params.toString()}`);
-  }
-
-  function jumpToMonth(value: string) {
-    if (!value) return;
+  function setMonth(value: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("period", "month");
     params.set("month", value);
@@ -88,30 +75,7 @@ export function DashboardFilters({
     <div className="flex flex-wrap items-center gap-2">
       {/* Month-by-month browser — quicker than the preset buttons for paging through history
           (or upcoming card installments already scheduled) one month at a time. */}
-      <div className="flex items-center border border-divider">
-        <button onClick={() => navigateMonth(-1)} className="p-1.5 hover:bg-text/[0.06]" aria-label="Mês anterior">
-          <ChevronLeft className="size-4" strokeWidth={1.5} />
-        </button>
-        <span className="relative flex min-w-[9rem] cursor-pointer items-center justify-center px-1 text-center text-[13px] font-medium capitalize hover:bg-text/[0.06]">
-          {formatMonthLabel(currentMonth)}
-          <input
-            type="month"
-            value={currentMonth}
-            onChange={(e) => jumpToMonth(e.target.value)}
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-            aria-label="Escolher mês"
-            title="Escolher mês"
-          />
-        </span>
-        <button onClick={() => navigateMonth(1)} className="p-1.5 hover:bg-text/[0.06]" aria-label="Próximo mês">
-          <ChevronRight className="size-4" strokeWidth={1.5} />
-        </button>
-      </div>
-      {!isCurrentMonth && (
-        <button onClick={goToCurrentMonth} className="text-xs text-accent hover:underline">
-          Hoje
-        </button>
-      )}
+      <MonthPicker month={currentMonth} onChange={setMonth} />
 
       <div className="inline-flex overflow-hidden border border-divider">
         {PRESETS.map((p) => (
@@ -160,7 +124,12 @@ export function DashboardFilters({
         <SelectContent>
           <SelectItem value="ALL">Todas as contas</SelectItem>
           {accounts.map((a) => (
-            <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+            <SelectItem key={a.id} value={a.id}>
+              <span className="inline-flex items-center gap-1.5">
+                <AccountTypeIcon type={a.type} className="size-3.5 opacity-70" />
+                {a.name}
+              </span>
+            </SelectItem>
           ))}
         </SelectContent>
       </Select>
@@ -169,9 +138,18 @@ export function DashboardFilters({
         <SelectTrigger className="w-44"><SelectValue placeholder="Categoria" /></SelectTrigger>
         <SelectContent>
           <SelectItem value="ALL">Todas as categorias</SelectItem>
-          {categories.map((c) => (
-            <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>
-          ))}
+          <SelectGroup>
+            <SelectLabel>Receitas</SelectLabel>
+            {categories.filter((c) => c.type === "INCOME").map((c) => (
+              <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>
+            ))}
+          </SelectGroup>
+          <SelectGroup>
+            <SelectLabel>Despesas</SelectLabel>
+            {categories.filter((c) => c.type === "EXPENSE").map((c) => (
+              <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
 

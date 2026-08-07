@@ -67,12 +67,15 @@ export async function getReservoirTransactions(reservoirId: string): Promise<Res
 /** Accumulation entry — logged as soon as a value is known/estimated. amount is always positive. */
 export async function addReservoirTransaction(input: ReservoirAccrualInput): Promise<void> {
   const supabase = await createClient();
+  const { data: reservoir } = await supabase.from("reservoirs").select("name").eq("id", input.reservoirId).single();
+  const description = input.description ?? `Movimentação da receita programada ${reservoir?.name ?? ""}`.trim();
+
   const { error } = await supabase.from("reservoir_transactions").insert({
     reservoir_id: input.reservoirId,
     amount: input.amount,
     gross_amount: input.grossAmount ?? null,
     percentage: input.percentage ?? null,
-    description: input.description ?? null,
+    description,
   });
   if (error) throw new Error(error.message);
 }
@@ -86,7 +89,8 @@ export async function withdrawReservoir(input: ReservoirWithdrawalInput): Promis
   const supabase = await createClient();
   const user = await getUser();
 
-  const { data: reservoir } = await supabase.from("reservoirs").select("category_id, subcategory_id").eq("id", input.reservoirId).single();
+  const { data: reservoir } = await supabase.from("reservoirs").select("name, category_id, subcategory_id").eq("id", input.reservoirId).single();
+  const description = input.description ?? `Movimentação da receita programada ${reservoir?.name ?? ""}`.trim();
 
   const { data: transaction, error: txError } = await supabase
     .from("transactions")
@@ -96,7 +100,7 @@ export async function withdrawReservoir(input: ReservoirWithdrawalInput): Promis
       destination_account_id: input.destinationAccountId,
       amount: input.amount,
       date: input.date,
-      description: input.description ?? "Saque de reservatório",
+      description,
       category_id: input.categoryId ?? reservoir?.category_id ?? null,
       subcategory_id: input.subcategoryId ?? reservoir?.subcategory_id ?? null,
       is_reservoir: true,
@@ -108,7 +112,7 @@ export async function withdrawReservoir(input: ReservoirWithdrawalInput): Promis
   const { error } = await supabase.from("reservoir_transactions").insert({
     reservoir_id: input.reservoirId,
     amount: -input.amount,
-    description: input.description ?? null,
+    description,
     linked_transaction_id: transaction.id,
   });
   if (error) throw new Error(error.message);

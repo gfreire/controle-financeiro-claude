@@ -9,7 +9,6 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { formatDate } from "@/lib/utils/date";
 import { textIncludes } from "@/lib/utils/normalize";
 import { EditableCategoryCell } from "./editable-category-cell";
-import { BatchReassignDialog } from "./batch-reassign-dialog";
 import { DeleteTransactionButton } from "@/features/transactions/components/delete-transaction-button";
 import { AccountTypeIcon } from "@/components/ui/account-type-icon";
 import type { CategoryDTO, TransactionViewDTO } from "@/types/dto";
@@ -22,10 +21,7 @@ export function TransactionExplorer({ transactions, categories }: { transactions
     <Card elevation="sm" className="gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <CardTitle>Lançamentos ({filtered.length})</CardTitle>
-        <div className="flex items-center gap-2">
-          <Input placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-40" />
-          <BatchReassignDialog categories={categories} />
-        </div>
+        <Input placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-40" />
       </div>
 
       <Table>

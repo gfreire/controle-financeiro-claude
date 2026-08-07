@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { updateTransaction } from "@/services/transactions.service";
 import { updateCardPurchase } from "@/services/cards.service";
-import { reassignCategory } from "@/services/categories.service";
 
 type InlineEditInput = {
   id: string;
@@ -33,17 +32,6 @@ export async function inlineEditTransaction(input: InlineEditInput) {
       ...(input.description !== undefined ? { description: input.description } : {}),
     });
   }
-  revalidatePath("/dashboard");
-  revalidatePath("/transactions");
-}
-
-export async function bulkReassignTransactions(input: {
-  fromCategoryId?: string;
-  fromSubcategoryId?: string;
-  toCategoryId: string | null;
-  toSubcategoryId?: string | null;
-}) {
-  await reassignCategory(input);
   revalidatePath("/dashboard");
   revalidatePath("/transactions");
 }

@@ -57,6 +57,7 @@ export async function payFixedExpenseAction(input: {
   originAccountId: string;
   amount: number;
   date: string;
+  description: string;
   categoryId?: string | null;
   subcategoryId?: string | null;
 }) {
@@ -65,6 +66,7 @@ export async function payFixedExpenseAction(input: {
     originAccountId: input.originAccountId,
     amount: input.amount,
     date: input.date,
+    description: input.description,
     categoryId: input.categoryId ?? undefined,
     subcategoryId: input.subcategoryId ?? undefined,
     fixedExpenseId: input.fixedExpenseId,

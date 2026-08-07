@@ -101,9 +101,10 @@ export type CardPurchaseDTO = {
 export type CardSummaryDTO = {
   accountId: string;
   creditLimit: number | null;
-  usedThroughCurrentMonth: number; // = getCardBalanceThroughMonth(cardId, currentMonth) — installments due through this month minus payments, floored at 0
-  currentMonthInvoice: number; // sum of card_installments.amount where competence falls in the current month only
-  overdueAmount: number; // = usedThroughCurrentMonth - currentMonthInvoice, floored at 0 — unpaid balance from prior months
+  usedThroughCurrentMonth: number; // = getCardBalanceThroughMonth(cardId, todayMonth) — installments due through TODAY's real month minus payments, floored at 0. Drives the "Pagar fatura" suggested amount; always today-anchored, independent of the page's month filter.
+  currentMonthInvoice: number; // sum of card_installments.amount where competence falls in the page's VIEWED month (the month filter), not necessarily today's month
+  overdueAmount: number; // = usedThroughCurrentMonth - (today's month invoice), floored at 0 — unpaid balance from prior months, always today-anchored
+  totalCommitted: number; // = getCardTotalCommitted — ALL installments ever generated (incl. future not-yet-due) minus all payments, floored at 0. The correct "used against the limit" figure.
 };
 
 export type CardInstallmentDTO = {

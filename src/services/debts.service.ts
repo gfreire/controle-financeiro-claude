@@ -66,23 +66,37 @@ export async function getDebtTransactions(debtId: string): Promise<DebtTransacti
  * amount positive = debt increased; negative = a payment reduced it. linked_transaction_id is
  * only created when real money moved through a tracked account (createLinkedTransaction) — a
  * third party paying a bill directly leaves no `transactions` row, only this ledger entry.
+ *
+ * After the ledger entry lands, the debt's remaining balance is recomputed; if it reached zero
+ * (or went negative — an intentional overpayment, e.g. interest the payer/creditor decided to
+ * settle) the debt is soft-deleted (`active = false`) so it drops out of `getDebts()`. The UI
+ * warns the user *before* submitting a payment that would do this (see `DebtTransactionDialog`),
+ * but the actual deactivation is decided here, from the real post-insert balance, so it stays
+ * correct even if the client's prediction and the database ever disagree.
  */
-export async function addDebtTransaction(input: DebtTransactionInput): Promise<void> {
+export async function addDebtTransaction(input: DebtTransactionInput): Promise<{ settled: boolean }> {
   const supabase = await createClient();
   const user = await getUser();
 
+  const { data: debt, error: debtError } = await supabase
+    .from("debts")
+    .select("side, agent, initial_balance")
+    .eq("id", input.debtId)
+    .single();
+  if (debtError) throw new Error(debtError.message);
+
+  const description = input.description ?? `Movimentação da dívida ${debt.agent}`;
   let linkedTransactionId: string | null = null;
 
   if (input.createLinkedTransaction) {
     if (!input.linkedAccountId) throw new Error("linkedAccountId is required when creating a linked transaction");
-    const { data: debt } = await supabase.from("debts").select("side").eq("id", input.debtId).single();
 
     // A payment (negative amount) reducing a PAYABLE debt: money leaves the account (EXPENSE).
     // A payment reducing a RECEIVABLE debt: money enters the account (INCOME).
     // An increase (positive amount) on a RECEIVABLE (lending more): money leaves (EXPENSE).
     // An increase on a PAYABLE (borrowing more): money enters (INCOME).
     const isReduction = input.amount < 0;
-    const type = (debt?.side === "PAYABLE") === isReduction ? "EXPENSE" : "INCOME";
+    const type = (debt.side === "PAYABLE") === isReduction ? "EXPENSE" : "INCOME";
 
     const { data: transaction, error: txError } = await supabase
       .from("transactions")
@@ -92,7 +106,7 @@ export async function addDebtTransaction(input: DebtTransactionInput): Promise<v
         ...(type === "EXPENSE" ? { origin_account_id: input.linkedAccountId } : { destination_account_id: input.linkedAccountId }),
         amount: Math.abs(input.amount),
         date: input.date,
-        description: input.description ?? "Movimentação de dívida",
+        description,
       })
       .select("id")
       .single();
@@ -103,10 +117,17 @@ export async function addDebtTransaction(input: DebtTransactionInput): Promise<v
   const { error } = await supabase.from("debt_transactions").insert({
     debt_id: input.debtId,
     amount: input.amount,
-    description: input.description ?? null,
+    description,
     linked_transaction_id: linkedTransactionId,
   });
   if (error) throw new Error(error.message);
+
+  const { data: entries } = await supabase.from("debt_transactions").select("amount").eq("debt_id", input.debtId);
+  const remainingBalance = addMoney(debt.initial_balance, sumMoney((entries ?? []).map((e) => e.amount)));
+  const settled = remainingBalance <= 0;
+  if (settled) await deactivateDebt(input.debtId);
+
+  return { settled };
 }
 
 export async function deactivateDebt(id: string): Promise<void> {

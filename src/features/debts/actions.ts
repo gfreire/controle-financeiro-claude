@@ -12,8 +12,9 @@ export async function createDebtAction(input: DebtInput) {
 
 export async function addDebtTransactionAction(input: DebtTransactionInput) {
   const parsed = debtTransactionSchema.parse(input);
-  await debtsService.addDebtTransaction(parsed);
+  const result = await debtsService.addDebtTransaction(parsed);
   revalidatePath("/debts");
   revalidatePath("/dashboard");
   revalidatePath("/accounts");
+  return result;
 }
