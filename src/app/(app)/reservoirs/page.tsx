@@ -12,12 +12,13 @@ import { WithdrawalDialog } from "@/features/reservoirs/components/withdrawal-di
 
 export default async function ReservoirsPage() {
   const [reservoirs, accounts, categories] = await Promise.all([getReservoirs(), getAccounts(), getCategories()]);
+  const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="font-heading text-2xl font-semibold">Receita Programada</h1>
-        <ReservoirFormDialog categories={categories} />
+        <ReservoirFormDialog categories={categories} accounts={liquidAccounts} />
       </div>
       <p className="text-sm opacity-70">
         Valor acumulado que ainda não é dinheiro real — projeções ou ganhos já sabidos mas ainda não recebidos.
@@ -40,10 +41,16 @@ export default async function ReservoirsPage() {
                       <div className="text-xl font-semibold tabular-nums">{formatCurrency(reservoir.balance)}</div>
                     </div>
                     <div className="flex gap-2">
-                      <AccrualDialog reservoirId={reservoir.id} reservoirName={reservoir.name} trigger={<Button size="sm" variant="secondary"><Plus className="size-3.5" strokeWidth={1.5} /> Acúmulo</Button>} />
+                      <AccrualDialog
+                        reservoirId={reservoir.id}
+                        reservoirName={reservoir.name}
+                        defaultPercentage={reservoir.defaultPercentage}
+                        trigger={<Button size="sm" variant="secondary"><Plus className="size-3.5" strokeWidth={1.5} /> Acúmulo</Button>}
+                      />
                       <WithdrawalDialog
                         reservoirId={reservoir.id}
-                        accounts={accounts.filter((a) => a.type !== "CREDIT_CARD")}
+                        accounts={liquidAccounts}
+                        defaultDestinationAccountId={reservoir.defaultDestinationAccountId}
                         trigger={<Button size="sm"><ArrowDownToLine className="size-3.5" strokeWidth={1.5} /> Sacar</Button>}
                       />
                     </div>

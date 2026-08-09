@@ -13,7 +13,6 @@ import { PayFixedExpenseDialog } from "@/features/budgets/components/pay-fixed-e
 import { DeactivateBudgetButton } from "@/features/budgets/components/deactivate-budget-button";
 import { DeactivateFixedExpenseButton } from "@/features/budgets/components/deactivate-fixed-expense-button";
 import { MonthNav } from "@/features/cards/components/month-nav";
-import { TransactionExplorer } from "@/features/dashboard/components/transaction-explorer";
 import { CreditCard } from "lucide-react";
 
 export default async function BudgetsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
@@ -64,13 +63,14 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
           aparece aninhada dentro da categoria/subcategoria dela, decidido 2026-08-08. */}
       <div className="flex flex-wrap justify-end gap-2">
         {isEditableMonth && canClone && <CloneBudgetButton fromMonth={monthWindow.lastRegisteredMonth!} toMonth={monthDate} />}
-        {isEditableMonth && <BudgetTreeEditor categories={categories} budgets={budgets} month={monthDate} />}
+        {isEditableMonth && <BudgetTreeEditor categories={categories} budgets={budgets} fixedExpenses={fixedExpenses} month={monthDate} />}
         <FixedExpenseFormDialog categories={categories} accounts={liquidAccounts} />
         {isEditableMonth && <BudgetFormDialog categories={categories} month={monthDate} />}
       </div>
 
       <BudgetTree
         categories={tree}
+        transactions={transactions}
         renderCategoryActions={
           isEditableMonth
             ? (c) => (
@@ -118,8 +118,6 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
           </div>
         )}
       />
-
-      <TransactionExplorer transactions={transactions} categories={categories} />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { startOfMonth, endOfMonth } from "@/lib/utils/date";
 import { reconcileFixedExpenseFloors } from "./_shared";
+import { createTransaction } from "./transactions.service";
 import type { FixedExpenseInput } from "@/lib/validations/fixed-expenses";
 import type { FixedExpenseDTO } from "@/types/dto";
 
@@ -113,6 +114,36 @@ export async function updateFixedExpense(id: string, input: Partial<FixedExpense
   const subcategoryId = input.subcategoryId !== undefined ? input.subcategoryId : existing.subcategory_id;
   const notices = await reconcileFixedExpenseFloors(supabase, user.id, categoryId, subcategoryId);
   return { notices };
+}
+
+/**
+ * Registers the real payment for a fixed expense, linked via fixed_expense_id — switches its
+ * projectedAmount from planned to actual (see getFixedExpenses above). Defaults the description
+ * server-side when left blank, same pattern as registerCardPayment/addDebtTransaction.
+ */
+export async function payFixedExpense(input: {
+  fixedExpenseId: string;
+  originAccountId: string;
+  amount: number;
+  date: string;
+  description?: string;
+  categoryId?: string | null;
+  subcategoryId?: string | null;
+}): Promise<void> {
+  const supabase = await createClient();
+  const { data: expense } = await supabase.from("fixed_expenses").select("name").eq("id", input.fixedExpenseId).single();
+  const description = input.description || `Pagamento — ${expense?.name ?? ""}`.trim();
+
+  await createTransaction({
+    type: "EXPENSE",
+    originAccountId: input.originAccountId,
+    amount: input.amount,
+    date: input.date,
+    description,
+    categoryId: input.categoryId ?? undefined,
+    subcategoryId: input.subcategoryId ?? undefined,
+    fixedExpenseId: input.fixedExpenseId,
+  });
 }
 
 export async function deactivateFixedExpense(id: string): Promise<void> {

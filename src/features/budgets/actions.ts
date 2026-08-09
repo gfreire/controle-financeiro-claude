@@ -5,7 +5,10 @@ import * as budgetsService from "@/services/budgets.service";
 import * as fixedExpensesService from "@/services/fixed-expenses.service";
 import { budgetSchema, updateBudgetSchema, type BudgetInput } from "@/lib/validations/budgets";
 import { fixedExpenseSchema, updateFixedExpenseSchema, type FixedExpenseInput } from "@/lib/validations/fixed-expenses";
-import { createTransaction } from "@/services/transactions.service";
+
+export async function getBudgetFloorAction(categoryId: string, subcategoryId: string | undefined, month: string) {
+  return budgetsService.getBudgetFloor(categoryId, subcategoryId ?? null, month);
+}
 
 export async function createBudgetAction(input: BudgetInput) {
   const parsed = budgetSchema.parse(input);
@@ -58,26 +61,16 @@ export async function deactivateFixedExpenseAction(id: string) {
   revalidatePath("/dashboard");
 }
 
-/** Registers the real payment for a fixed expense, linked via fixed_expense_id — switches its projectedAmount from planned to actual. */
 export async function payFixedExpenseAction(input: {
   fixedExpenseId: string;
   originAccountId: string;
   amount: number;
   date: string;
-  description: string;
+  description?: string;
   categoryId?: string | null;
   subcategoryId?: string | null;
 }) {
-  await createTransaction({
-    type: "EXPENSE",
-    originAccountId: input.originAccountId,
-    amount: input.amount,
-    date: input.date,
-    description: input.description,
-    categoryId: input.categoryId ?? undefined,
-    subcategoryId: input.subcategoryId ?? undefined,
-    fixedExpenseId: input.fixedExpenseId,
-  });
+  await fixedExpensesService.payFixedExpense(input);
   revalidatePath("/budgets");
   revalidatePath("/dashboard");
   revalidatePath("/accounts");

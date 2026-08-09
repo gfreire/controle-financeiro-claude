@@ -4,6 +4,9 @@ export const reservoirSchema = z.object({
   name: z.string().min(1, "Nome é obrigatório").max(120),
   categoryId: z.string().uuid().optional().nullable(),
   subcategoryId: z.string().uuid().optional().nullable(),
+  // Pré-preenchem AccrualDialog/WithdrawalDialog — ver AI_CONTEXT.md "Reservoir (Cofre)".
+  defaultPercentage: z.number().min(0).max(100).optional().nullable(),
+  defaultDestinationAccountId: z.string().uuid().optional().nullable(),
 });
 export type ReservoirInput = z.infer<typeof reservoirSchema>;
 

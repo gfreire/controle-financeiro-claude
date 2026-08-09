@@ -1,36 +1,56 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
+import { CategorySelect, SubcategorySelect } from "@/features/categories/components/category-select";
 import { Plus, Pencil } from "lucide-react";
-import { createBudgetAction, updateBudgetAction } from "../actions";
+import { createBudgetAction, updateBudgetAction, getBudgetFloorAction } from "../actions";
 import { budgetSchema } from "@/lib/validations/budgets";
+import { formatCurrency } from "@/lib/utils/currency";
 import type { BudgetDTO, CategoryDTO } from "@/types/dto";
 
 const NONE = "NONE";
 
 type EditableBudget = Pick<BudgetDTO, "id" | "categoryId" | "subcategoryId" | "plannedAmount">;
 
-export function BudgetFormDialog({ categories, budget, month }: { categories: CategoryDTO[]; budget?: EditableBudget; month: string }) {
+export function BudgetFormDialog({ categories: initialCategories, budget, month }: { categories: CategoryDTO[]; budget?: EditableBudget; month: string }) {
   const isEdit = !!budget;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
+  const [categories, setCategories] = useState(initialCategories);
   const [categoryId, setCategoryId] = useState(budget?.categoryId ?? "");
   const [subcategoryId, setSubcategoryId] = useState(budget?.subcategoryId ?? NONE);
   const [amount, setAmount] = useState(budget ? String(budget.plannedAmount) : "");
+  const [fetchedFloor, setFetchedFloor] = useState(0);
 
   const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
   const selectedCategory = expenseCategories.find((c) => c.id === categoryId);
+  const floor = categoryId ? fetchedFloor : 0;
+
+  // Mirrors the server-side floor (AI_CONTEXT.md "Budget hierarchy") so the input rejects a
+  // too-low value up front instead of only after a round trip — the server check stays the
+  // real source of truth either way.
+  useEffect(() => {
+    if (!open || !categoryId) return;
+    let cancelled = false;
+    getBudgetFloorAction(categoryId, subcategoryId === NONE ? undefined : subcategoryId, month).then((f) => {
+      if (!cancelled) setFetchedFloor(f);
+    });
+    return () => { cancelled = true; };
+  }, [open, categoryId, subcategoryId, month]);
 
   function handleSubmit() {
     setError(null);
+    if (Number(amount) < floor) {
+      setError(`O orçamento não pode ser menor que ${formatCurrency(floor)}.`);
+      return;
+    }
     const parsed = budgetSchema.safeParse({ categoryId, subcategoryId: subcategoryId === NONE ? undefined : subcategoryId, amount: Number(amount), month });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
@@ -83,28 +103,36 @@ export function BudgetFormDialog({ categories, budget, month }: { categories: Ca
           <>
             <Field>
               <Label>Categoria</Label>
-              <Select value={categoryId} onValueChange={(v) => { setCategoryId(v); setSubcategoryId(NONE); }} disabled={isEdit}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>
-                  {expenseCategories.map((c) => <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <CategorySelect
+                categories={categories}
+                type="EXPENSE"
+                value={categoryId}
+                onChange={(v) => { setCategoryId(v); setSubcategoryId(NONE); }}
+                onCategoryCreated={(created) => setCategories((prev) => [...prev, created])}
+                disabled={isEdit}
+              />
             </Field>
-            {selectedCategory && selectedCategory.subcategories.length > 0 && (
+            {selectedCategory && (
               <Field>
                 <Label>Subcategoria (opcional)</Label>
-                <Select value={subcategoryId} onValueChange={setSubcategoryId} disabled={isEdit}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>Categoria inteira</SelectItem>
-                    {selectedCategory.subcategories.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SubcategorySelect
+                  subcategories={selectedCategory.subcategories}
+                  categoryId={selectedCategory.id}
+                  value={subcategoryId}
+                  onChange={setSubcategoryId}
+                  onSubcategoryCreated={(created) =>
+                    setCategories((prev) => prev.map((c) => (c.id === selectedCategory.id ? { ...c, subcategories: [...c.subcategories, created] } : c)))
+                  }
+                  noneValue={NONE}
+                  noneLabel="Categoria inteira"
+                  disabled={isEdit}
+                />
               </Field>
             )}
             <Field>
               <Label>Valor planejado / mês</Label>
-              <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+              <Input type="number" step="0.01" min={floor > 0 ? floor : "0.01"} value={amount} onChange={(e) => setAmount(e.target.value)} />
+              {floor > 0 && <p className="mt-1 text-[11px] opacity-60">Mínimo: {formatCurrency(floor)} (já comprometido em despesas fixas/subcategorias)</p>}
             </Field>
             <FieldError>{error}</FieldError>
             <DialogActions>

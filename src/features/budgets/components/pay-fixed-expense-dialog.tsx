@@ -35,6 +35,7 @@ export function PayFixedExpenseDialog({ expense, accounts, trigger }: { expense:
           date,
           description: `Pagamento — ${expense.name}`,
           categoryId: expense.categoryId,
+          subcategoryId: expense.subcategoryId,
         });
         router.refresh();
         setOpen(false);
@@ -61,7 +62,7 @@ export function PayFixedExpenseDialog({ expense, accounts, trigger }: { expense:
         <div className="grid grid-cols-2 gap-2">
           <Field>
             <Label>Valor</Label>
-            <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </Field>
           <Field>
             <Label>Data</Label>

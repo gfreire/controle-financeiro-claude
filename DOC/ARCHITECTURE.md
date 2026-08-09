@@ -53,7 +53,9 @@ Full app is built and running (Next.js 16, App Router, Turbopack) — this isn't
 - Cards page installment rows now support inline category/subcategory editing (fixed 2026-08-08, at the user's request — "igual temos no sistema inteiro"), reusing `EditableCategoryCell` from the dashboard rather than requiring the full `PurchaseFormDialog` edit flow just to fix a category. Fixing this also surfaced a real, pre-existing bug: `TransactionViewDTO` rows with `source: "installment"` were passing the *installment's* id to `inlineEditTransaction`, which forwards it to `updateCardPurchase` — a `card_purchases` update keyed on an installment id, silently matching zero rows and throwing (`Cannot coerce the result to a single JSON object`). This affected the Dashboard's Transaction Explorer too, for any card-purchase row's category edit. Fixed by adding `TransactionViewDTO.purchaseId` (set only for `source: "installment"` rows) and using that instead of `id` when the edit lands on `card_purchases`.
 - Found live during Budgets verification (fixed 2026-08-08): `cards.service.ts#updateCardPurchase` merged `categoryId`/`subcategoryId` with `input.categoryId ?? current.category_id` — since `??` treats an explicit `null` (meaning "clear this field") the same as `undefined` (meaning "not part of this update"), clearing a card purchase's category to "Sem categoria" via inline edit silently never persisted; the UI showed the change optimistically but a fresh page load always reverted to the old category. Fixed by switching to `input.categoryId !== undefined ? input.categoryId : current.category_id`, the same pattern already used elsewhere (e.g. `updateBudget`) for partial updates where `null` is a meaningful value. Also added the missing `revalidatePath("/budgets")` to `inlineEditTransaction` — editing a transaction/purchase's category can change what a budget's `actualAmount` sums, and that path wasn't being invalidated alongside `/dashboard`, `/transactions`, `/cards`.
 
-**Known gaps** (not started, don't assume otherwise): no automated tests yet (see "Testing & Migrations" in `AI_GENERATION_RULES.md` for the intended scope); still no *general* account-level edit dialog (name/institution) — only the type-specific actions (balance, yield/reconcile, limit) exist, by design; OFX import remains out of scope per `AI_CONTEXT.md`.
+- Validation/UX pass (2026-08-09): credit card `closing_day`/`due_day` tightened from 1-31 to 1-28 everywhere (schema, zod, HTML) — see `AI_CONTEXT.md` "Accounts". Every monetary `<input type="number">` across the app now carries a `min` matching its zod rule (mostly `0.01` for `positive()` fields, `0` for `overdraftLimit`) — previously several had no HTML min at all, or `min="0"` next to a zod `positive()` rule that actually rejects zero. Budget amount inputs (`BudgetFormDialog`, `BudgetTreeFields`/`BudgetTreeEditor`, the onboarding budget step) now fetch/compute the same hierarchy floor the server already enforced (`AI_CONTEXT.md` "Budget hierarchy") and apply it as the input's `min` plus a pre-submit check, instead of the floor only surfacing as a post-submit error. The category/subcategory picker was unified into a single `CategorySelect`/`SubcategorySelect` component (`src/features/categories/components/category-select.tsx`) used by every form that assigns a category — including ones that had no create-inline affordance before (Budget, Fixed Expense, Receita Programada, and the dashboard/Cards inline table-cell editor) — replacing the old `InlineCategoryCreate` Popover-button pattern (which only existed in Lançamentos/Compra no Cartão) with a "Nova categoria/subcategoria" item at the end of the dropdown itself. The dashboard's category pie chart gained an explicit "voltar" button next to its title (visible only when a category filter is active) alongside the existing click-the-same-slice-again toggle.
+
+**Known gaps** (not started, don't assume otherwise): no automated tests yet (see "Testing & Migrations" in `AI_GENERATION_RULES.md` for the intended scope); still no *general* account-level edit dialog (name/institution) — only the type-specific actions (balance, yield/reconcile, limit) exist, by design; OFX import remains out of scope per `AI_CONTEXT.md`; no reservoir-edit flow yet — `default_percentage`/`default_destination_account_id` are only settable at creation time.
 
 ## Migrations changelog (`supabase/migrations/`)
 
@@ -68,6 +70,7 @@ Applied in order; each is additive (no destructive rewrites of an already-shippe
 7. `0007_credit_card_limit.sql` — `credit_cards.credit_limit`.
 8. `0008_credit_card_limit_required.sql` — makes `credit_cards.credit_limit` `NOT NULL` + `CHECK (> 0)`.
 9. `0009_monthly_budgets.sql` — `budgets.month`, `NOT NULL` + a **partial** unique index `NULLS NOT DISTINCT (user_id, category_id, subcategory_id, month) WHERE active = true` (not a plain constraint — must coexist with the `active` soft-delete convention) + a `(user_id, month)` index.
+10. `0010_reservoir_defaults.sql` — `reservoirs.default_percentage`, `reservoirs.default_destination_account_id`.
 
 ---
 
@@ -137,7 +140,7 @@ src
  │  ├ reservoirs/components (reservoir-form-dialog, accrual-dialog [description pre-filled with "Movimentação da receita programada {nome}"], withdrawal-dialog — feature displayed as "Receita Programada" in the UI, folder/file names unchanged)
  │  ├ debts/components (debt-form-dialog, debt-transaction-dialog [defaults description to "Movimentação da dívida {nome}"; warns and requires a second confirm before a payment that fully settles/overpays the debt], debts-charts ["Dívidas a pagar"/"Dívidas a receber" pies, each rendered only when that side has data])
  │  ├ budgets/components (budget-form-dialog [create+edit, month-scoped], fixed-expense-form-dialog [create+edit], budget-tree-editor ["Planejar orçamentos" — whole category+subcategory tree in one screen for one month, reuses onboarding's tree pattern; clearing an existing field deletes that row, same guards as the single-row delete], budget-tree-fields [the reusable amount-input tree, shared with the onboarding budget step], budget-tree [the ONLY list on /budgets now — no separate fixed-expense tab; renders category/subcategory boxes plus a `renderFixedExpenseActions` slot per nested fixed-expense row for pay/edit/delete, shared read-only (no action slots passed) by the dashboard panel], progress-row [shared planned-vs-actual bar], clone-budget-button, deactivate-budget-button [hidden by the caller when fixed expenses are attached; deactivateBudget itself also blocks it server-side], deactivate-fixed-expense-button, pay-fixed-expense-dialog)
- │  └ categories/components (category-form-dialog, subcategory-form-dialog, category-tree-item [onboarding/Settings re-import — always renders the full is_default catalog, already-imported items checked+disabled], inline-category-create [used from transaction/card-purchase forms], delete-category-dialog)
+ │  └ categories/components (category-form-dialog, subcategory-form-dialog, category-tree-item [onboarding/Settings re-import — always renders the full is_default catalog, already-imported items checked+disabled], category-select [CategorySelect/SubcategorySelect — standard picker used everywhere a category/subcategory is assigned, with a "Nova categoria/subcategoria" item at the end of the same dropdown instead of a separate button; replaced the old inline-category-create.tsx, decided 2026-08-09], delete-category-dialog)
  ├ components
  │  ├ ui (button, card, input/field/label/textarea, dialog, select [incl. SelectGroup/SelectLabel for grouped options], tabs, checkbox, switch, dropdown-menu, popover, table, badge, icon-picker + icon-set, account-type-icon [CASH/BANK/CREDIT_CARD → Banknote/Wallet/CreditCard, shared by Accounts + transaction lists], month-picker [prev/next + click-anywhere-on-label native month picker, shared by Dashboard/Cards/Transactions month navigators], confirm-delete-dialog, corner-marks — the Industry blueprint frame)
  │  └ layout (sidebar, header, bottom-navigation, nav-items)
@@ -302,12 +305,14 @@ registerCardPayment(data)
 ```
 -- feature exibida na UI como "Receita Programada" (renomeado 2026-08-07, só o label/ícone —
 -- ver AI_CONTEXT.md "Reservoir (Cofre)"); nomes de rota/tabela/service/DTO permanecem reservoir*
-createReservoir(data)
+createReservoir(data)   -- data pode incluir defaultPercentage/defaultDestinationAccountId (0010)
+  -- — não há updateReservoir ainda, os defaults só são setáveis na criação (ver "Known gaps")
 addReservoirTransaction(data)   -- lançamento de acúmulo (amount positivo); description default
   -- = "Movimentação da receita programada {nome}" quando não informada
 withdrawReservoir(data)         -- saque (amount negativo, cria transaction vinculada); mesmo
   -- default de description do acúmulo, aplicado tanto no ledger quanto na transaction vinculada
-getReservoirs() → ReservoirDTO[]
+getReservoirs() → ReservoirDTO[]   -- inclui defaultPercentage/defaultDestinationAccountId, usados
+  -- pra pré-preencher AccrualDialog/WithdrawalDialog (AI_CONTEXT.md "Reservoir (Cofre)")
 getReservoirTransactions(reservoirId) → ReservoirTransactionDTO[]
 ```
 
@@ -356,6 +361,11 @@ getBudgetMonthWindow() → BudgetMonthWindowDTO
 cloneBudgetMonth(fromMonth, toMonth) → { count }
   -- copia toda linha ativa de fromMonth pra toMonth verbatim, sem revalidar floors (uma
   -- cópia de um mês já consistente não pode gerar inconsistência)
+getBudgetFloor(categoryId, subcategoryId, month) → number
+  -- NOVO (2026-08-09): wrapper fino sobre getCategoryBudgetFloor/getSubcategoryBudgetFloor,
+  -- exposto via getBudgetFloorAction pro client mostrar/aplicar o piso direto no input de
+  -- valor (BudgetFormDialog, BudgetTreeFields) em vez de só descobrir via erro pós-submit —
+  -- o bloqueio real continua sendo createBudget/updateBudget no servidor
 ```
 
 ## fixed-expenses.service.ts
@@ -369,6 +379,11 @@ updateFixedExpense(id, data) → { notices[] }
   -- com o texto pronto
 deactivateFixedExpense(id)  -- soft delete
 getFixedExpenses(month) → FixedExpenseDTO[]
+payFixedExpense(data)  -- NOVO (2026-08-09): registra o pagamento real (createTransaction com
+  -- fixedExpenseId), defaultando description pra "Pagamento — {nome}" no servidor quando vem
+  -- vazio — fecha a lacuna que só existia hardcoded no client (PayFixedExpenseDialog), mesmo
+  -- padrão de registerCardPayment/addDebtTransaction. payFixedExpenseAction (budgets/actions.ts)
+  -- chama isso em vez de createTransaction direto.
 ```
 
 ## _shared.ts
@@ -424,7 +439,10 @@ type TransactionViewDTO = {
   purchaseId?: string // set only when source === "installment" — the id inline edits must target (card_purchases), since `id` above is the installment's own id and card_installments carries no category itself
 }
 
-type ReservoirDTO = { id: string; name: string; balance: number; categoryId: string | null; categoryName: string | null } // balance = SUM(reservoir_transactions.amount)
+type ReservoirDTO = {
+  id: string; name: string; balance: number; categoryId: string | null; categoryName: string | null // balance = SUM(reservoir_transactions.amount)
+  defaultPercentage?: number; defaultDestinationAccountId?: string // NOVO (0010) — pré-preenchem AccrualDialog/WithdrawalDialog
+}
 
 type ReservoirTransactionDTO = {
   id: string; reservoirId: string; date: string; description: string | null

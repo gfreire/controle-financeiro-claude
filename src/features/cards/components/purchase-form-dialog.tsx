@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { InlineCategoryCreate, InlineSubcategoryCreate } from "@/features/categories/components/inline-category-create";
+import { CategorySelect, SubcategorySelect } from "@/features/categories/components/category-select";
 import { Plus, TriangleAlert } from "lucide-react";
 import { createCardPurchaseAction, updateCardPurchaseAction } from "../actions";
 import { cardPurchaseSchema } from "@/lib/validations/cards";
@@ -159,7 +159,7 @@ export function PurchaseFormDialog({
         <div className="grid grid-cols-2 gap-2">
           <Field>
             <Label>Valor total</Label>
-            <Input type="number" step="0.01" min="0" value={amount} onChange={(e) => handleAmountChange(e.target.value)} />
+            <Input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => handleAmountChange(e.target.value)} />
           </Field>
           <Field>
             <Label>Data da compra</Label>
@@ -189,38 +189,32 @@ export function PurchaseFormDialog({
         )}
 
         <Field>
-          <div className="flex items-center justify-between">
-            <Label className="mb-0">Categoria</Label>
-            <InlineCategoryCreate type="EXPENSE" onCreated={(created) => { setCategories((prev) => [...prev, created]); setCategoryId(created.id); }} />
-          </div>
-          <Select value={categoryId} onValueChange={(v) => { setCategoryId(v); setSubcategoryId(NONE); }}>
-            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>Sem categoria</SelectItem>
-              {expenseCategories.map((c) => <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <Label>Categoria</Label>
+          <CategorySelect
+            categories={categories}
+            type="EXPENSE"
+            value={categoryId}
+            onChange={(v) => { setCategoryId(v); setSubcategoryId(NONE); }}
+            onCategoryCreated={(created) => setCategories((prev) => [...prev, created])}
+            noneValue={NONE}
+            noneLabel="Sem categoria"
+          />
         </Field>
 
         {selectedCategory && (
           <Field>
-            <div className="flex items-center justify-between">
-              <Label className="mb-0">Subcategoria</Label>
-              <InlineSubcategoryCreate
-                categoryId={selectedCategory.id}
-                onCreated={(created) => {
-                  setCategories((prev) => prev.map((c) => (c.id === selectedCategory.id ? { ...c, subcategories: [...c.subcategories, created] } : c)));
-                  setSubcategoryId(created.id);
-                }}
-              />
-            </div>
-            <Select value={subcategoryId} onValueChange={setSubcategoryId}>
-              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>Sem subcategoria</SelectItem>
-                {selectedCategory.subcategories.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <Label>Subcategoria</Label>
+            <SubcategorySelect
+              subcategories={selectedCategory.subcategories}
+              categoryId={selectedCategory.id}
+              value={subcategoryId}
+              onChange={setSubcategoryId}
+              onSubcategoryCreated={(created) =>
+                setCategories((prev) => prev.map((c) => (c.id === selectedCategory.id ? { ...c, subcategories: [...c.subcategories, created] } : c)))
+              }
+              noneValue={NONE}
+              noneLabel="Sem subcategoria"
+            />
           </Field>
         )}
 

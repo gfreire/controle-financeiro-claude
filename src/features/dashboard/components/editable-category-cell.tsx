@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CategorySelect, SubcategorySelect } from "@/features/categories/components/category-select";
 import { inlineEditTransaction } from "../actions";
 import type { CategoryDTO, TransactionViewDTO } from "@/types/dto";
 
@@ -12,9 +12,10 @@ const UNCATEGORIZED = "UNCATEGORIZED";
 // a card_purchases row directly) reuse this without fabricating unrelated DTO fields like date/account.
 type EditableCategoryRow = Pick<TransactionViewDTO, "id" | "source" | "type" | "categoryId" | "subcategoryId" | "purchaseId">;
 
-export function EditableCategoryCell({ row, categories }: { row: EditableCategoryRow; categories: CategoryDTO[] }) {
+export function EditableCategoryCell({ row, categories: initialCategories }: { row: EditableCategoryRow; categories: CategoryDTO[] }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [categories, setCategories] = useState(initialCategories);
   const [categoryId, setCategoryId] = useState(row.categoryId ?? UNCATEGORIZED);
   const [subcategoryId, setSubcategoryId] = useState(row.subcategoryId ?? UNCATEGORIZED);
 
@@ -46,40 +47,40 @@ export function EditableCategoryCell({ row, categories }: { row: EditableCategor
 
   return (
     <div className="flex flex-col gap-1 min-w-[9rem]">
-      <Select
+      <CategorySelect
+        categories={categories}
+        type={row.type}
         value={categoryId}
         disabled={pending}
-        onValueChange={(value) => {
+        triggerClassName="h-7 text-xs"
+        placeholder="Sem categoria"
+        noneValue={UNCATEGORIZED}
+        noneLabel="Sem categoria"
+        onChange={(value) => {
           setCategoryId(value);
           setSubcategoryId(UNCATEGORIZED);
           commit(value, UNCATEGORIZED);
         }}
-      >
-        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Sem categoria" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value={UNCATEGORIZED}>Sem categoria</SelectItem>
-          {relevantCategories.map((c) => (
-            <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {selectedCategory && subcategories.length > 0 && row.type === "EXPENSE" && (
-        <Select
+        onCategoryCreated={(created) => setCategories((prev) => [...prev, created])}
+      />
+      {selectedCategory && row.type === "EXPENSE" && (
+        <SubcategorySelect
+          subcategories={subcategories}
+          categoryId={selectedCategory.id}
           value={subcategoryId}
           disabled={pending}
-          onValueChange={(value) => {
+          triggerClassName="h-7 text-xs"
+          placeholder="Subcategoria"
+          noneValue={UNCATEGORIZED}
+          noneLabel="Sem subcategoria"
+          onChange={(value) => {
             setSubcategoryId(value);
             commit(categoryId, value);
           }}
-        >
-          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Subcategoria" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={UNCATEGORIZED}>Sem subcategoria</SelectItem>
-            {subcategories.map((s) => (
-              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          onSubcategoryCreated={(created) =>
+            setCategories((prev) => prev.map((c) => (c.id === selectedCategory.id ? { ...c, subcategories: [...c.subcategories, created] } : c)))
+          }
+        />
       )}
     </div>
   );

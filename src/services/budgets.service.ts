@@ -184,6 +184,19 @@ export async function cloneBudgetMonth(fromMonth: string, toMonth: string): Prom
 }
 
 /**
+ * Exposes the same floor `createBudget`/`updateBudget` enforce server-side, so the client can
+ * show/enforce it on the amount input directly instead of only surfacing it as a post-submit
+ * error. The server check below remains the source of truth.
+ */
+export async function getBudgetFloor(categoryId: string, subcategoryId: string | null | undefined, month: string): Promise<number> {
+  const supabase = await createClient();
+  const user = await getUser();
+  return subcategoryId
+    ? getSubcategoryBudgetFloor(supabase, user.id, subcategoryId)
+    : getCategoryBudgetFloor(supabase, user.id, categoryId, startOfMonth(month));
+}
+
+/**
  * Floor check is a hard block (never a soft warning, unlike the credit-limit pattern) — see
  * AI_CONTEXT.md "Budget hierarchy": a budget that contradicts its own committed children
  * (subcategory budgets, or fixed expenses) is simply wrong, not a maybe-forgot-something call.

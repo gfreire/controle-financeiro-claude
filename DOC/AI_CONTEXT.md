@@ -32,7 +32,7 @@ Real money locations. `type`: `CASH`, `BANK`, `CREDIT_CARD`. Each type has a 1:1
 
 `bank_accounts.initial_balance` was added after the fact (migration `0005`) — the original design only gave `CASH` an initial balance, which meant every new `BANK` account started at zero and needed an immediate `Ajustar Saldo` just to reflect reality. Both `CASH` and `BANK` now work the same way: `balance = initial_balance + SUM(transactions affecting the account)`.
 
-`closing_day`/`due_day` are what allow the system to compute which invoice month (competence) a given purchase's installments fall into.
+`closing_day`/`due_day` are what allow the system to compute which invoice month (competence) a given purchase's installments fall into. Both are constrained to **1-28** (not 1-31, decided 2026-08-09) — the same simplification real card issuers already make, so a card set to close on the 30th never has to special-case February. Enforced in `src/lib/validations/accounts.ts` (`accountBaseSchema`) and mirrored as HTML `min`/`max` on every input that edits these fields (account creation, "Ajustar Cartão").
 
 `credit_limit` (migration `0007`) is **required and must be > 0 for every `CREDIT_CARD` account** (migration `0008`, decided 2026-08-08 — reverses the original "optional" design). What stays **soft-enforced only** is what happens once the limit exists: a purchase that would push the card's outstanding balance past it doesn't get blocked; the UI shows a warning ("you may have forgotten to log the invoice payment, or made a mistake in this entry") and requires an explicit "insert anyway" acknowledgment before it proceeds. This is deliberate: a real payment not yet logged, or a genuine data-entry mistake, are both things the user needs to see and decide about, not be locked out of correcting. The account creation form and the "Ajustar Cartão" quick action both require a positive `creditLimit` before saving (`src/lib/validations/accounts.ts`); a card simply can't exist without one anymore.
 
@@ -201,6 +201,8 @@ Represents accumulated value that is **not yet real money** — projected or alr
 - None of this is required — a plain `amount`-only entry remains fully valid.
 
 Otherwise, when gross/percentage don't matter, the detail can just live in `description`.
+
+**Reservoir-level defaults (decided and implemented 2026-08-09).** `reservoirs.default_percentage` and `reservoirs.default_destination_account_id` (migration `0010`) let a reservoir remember its usual gross→net cut and its usual withdrawal account, since most recurring income sources always use the same split and land in the same account. `ReservoirFormDialog` sets both at creation time (there is still no reservoir-edit flow — see "Known gaps"). `AccrualDialog` pre-fills its `percentage` field from `defaultPercentage`; `WithdrawalDialog` pre-fills `destinationAccountId` from `defaultDestinationAccountId`, falling back to the first account only when no default is set. Both remain fully editable per entry — these are starting values, not constraints.
 
 Reservoir must **never** affect account balances, income/expense totals, or dashboard analytics — only a withdrawal (which creates a real transaction) does.
 

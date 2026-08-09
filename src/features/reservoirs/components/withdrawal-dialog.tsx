@@ -11,14 +11,24 @@ import { reservoirWithdrawalSchema } from "@/lib/validations/reservoirs";
 import { todayIso } from "@/lib/utils/date";
 import type { AccountDTO } from "@/types/dto";
 
-export function WithdrawalDialog({ reservoirId, accounts, trigger }: { reservoirId: string; accounts: AccountDTO[]; trigger: React.ReactNode }) {
+export function WithdrawalDialog({
+  reservoirId,
+  accounts,
+  defaultDestinationAccountId,
+  trigger,
+}: {
+  reservoirId: string;
+  accounts: AccountDTO[];
+  defaultDestinationAccountId?: string;
+  trigger: React.ReactNode;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState(todayIso());
   const [amount, setAmount] = useState("");
-  const [destinationAccountId, setDestinationAccountId] = useState(accounts[0]?.id ?? "");
+  const [destinationAccountId, setDestinationAccountId] = useState(defaultDestinationAccountId ?? accounts[0]?.id ?? "");
 
   function handleSubmit() {
     setError(null);
@@ -57,7 +67,7 @@ export function WithdrawalDialog({ reservoirId, accounts, trigger }: { reservoir
         <div className="grid grid-cols-2 gap-2">
           <Field>
             <Label>Valor recebido</Label>
-            <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </Field>
           <Field>
             <Label>Data</Label>

@@ -68,7 +68,7 @@ export function PaymentFormDialog({
         <div className="grid grid-cols-2 gap-2">
           <Field>
             <Label>Valor</Label>
-            <Input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </Field>
           <Field>
             <Label>Data do pagamento</Label>

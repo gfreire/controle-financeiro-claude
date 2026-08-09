@@ -1,5 +1,6 @@
 import { getCategories } from "@/services/categories.service";
 import { getBudgetMonthWindow } from "@/services/budgets.service";
+import { getFixedExpenses } from "@/services/fixed-expenses.service";
 import { formatMonthLabel } from "@/lib/utils/date";
 import { OnboardingBudgetForm } from "./onboarding-budget-form";
 import { ListTree } from "lucide-react";
@@ -8,9 +9,12 @@ import { ListTree } from "lucide-react";
  * First-time-only step, reached right after picking starter categories (AI_CONTEXT.md
  * "Budgets"): plan this month's budget before landing on the dashboard. Skipping it is a valid,
  * no-op choice — the dashboard's budgets panel just shows a "Criar orçamento" CTA instead.
+ * Fetches fixed expenses too (usually empty for a brand-new user, but not for someone
+ * re-running onboarding from Settings who already has some) so the floor still applies here.
  */
 export default async function OnboardingBudgetPage() {
   const [categories, monthWindow] = await Promise.all([getCategories(), getBudgetMonthWindow()]);
+  const fixedExpenses = await getFixedExpenses(monthWindow.currentMonth);
 
   return (
     <div className="mx-auto flex min-h-svh max-w-2xl flex-col justify-center gap-6 p-4">
@@ -23,7 +27,7 @@ export default async function OnboardingBudgetPage() {
         subcategorias. O que sobrar fica livre dentro da categoria. Não precisa preencher tudo
         agora: dá pra ajustar ou criar orçamentos novos a qualquer momento em Orçamentos.
       </p>
-      <OnboardingBudgetForm categories={categories} month={monthWindow.currentMonth} />
+      <OnboardingBudgetForm categories={categories} fixedExpenses={fixedExpenses} month={monthWindow.currentMonth} />
     </div>
   );
 }

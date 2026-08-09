@@ -25,6 +25,8 @@ export async function getReservoirs(): Promise<ReservoirDTO[]> {
       balance: sumMoney((entries ?? []).map((e) => e.amount)),
       categoryId: row.category_id,
       categoryName: row.categories?.name ?? null,
+      defaultPercentage: row.default_percentage ?? undefined,
+      defaultDestinationAccountId: row.default_destination_account_id ?? undefined,
     });
   }
   return results;
@@ -35,7 +37,14 @@ export async function createReservoir(input: ReservoirInput): Promise<string> {
   const user = await getUser();
   const { data, error } = await supabase
     .from("reservoirs")
-    .insert({ user_id: user.id, name: input.name, category_id: input.categoryId ?? null, subcategory_id: input.subcategoryId ?? null })
+    .insert({
+      user_id: user.id,
+      name: input.name,
+      category_id: input.categoryId ?? null,
+      subcategory_id: input.subcategoryId ?? null,
+      default_percentage: input.defaultPercentage ?? null,
+      default_destination_account_id: input.defaultDestinationAccountId ?? null,
+    })
     .select("id")
     .single();
   if (error) throw new Error(error.message);

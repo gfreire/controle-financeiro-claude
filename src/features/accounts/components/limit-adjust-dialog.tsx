@@ -56,12 +56,12 @@ export function LimitAdjustDialog({ account, trigger }: { account: AccountDTO; t
     if (isCard) {
       closingDayValue = Number(closingDay);
       dueDayValue = Number(dueDay);
-      if (!Number.isInteger(closingDayValue) || closingDayValue < 1 || closingDayValue > 31) {
-        setError("Dia de fechamento deve ser entre 1 e 31");
+      if (!Number.isInteger(closingDayValue) || closingDayValue < 1 || closingDayValue > 28) {
+        setError("Dia de fechamento deve ser entre 1 e 28");
         return;
       }
-      if (!Number.isInteger(dueDayValue) || dueDayValue < 1 || dueDayValue > 31) {
-        setError("Dia de vencimento deve ser entre 1 e 31");
+      if (!Number.isInteger(dueDayValue) || dueDayValue < 1 || dueDayValue > 28) {
+        setError("Dia de vencimento deve ser entre 1 e 28");
         return;
       }
     }
@@ -107,11 +107,11 @@ export function LimitAdjustDialog({ account, trigger }: { account: AccountDTO; t
           <div className="flex gap-3">
             <Field className="flex-1">
               <Label>Dia de fechamento</Label>
-              <Input type="number" min="1" max="31" value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />
+              <Input type="number" min="1" max="28" value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />
             </Field>
             <Field className="flex-1">
               <Label>Dia de vencimento</Label>
-              <Input type="number" min="1" max="31" value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
+              <Input type="number" min="1" max="28" value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
             </Field>
           </div>
         )}

@@ -53,7 +53,10 @@ export type TransactionViewDTO = {
   purchaseId?: string; // set only when source === "installment" — the category/subcategory live on card_purchases, not the installment row, so edits must target this id
 };
 
-export type ReservoirDTO = { id: string; name: string; balance: number; categoryId: string | null; categoryName: string | null };
+export type ReservoirDTO = {
+  id: string; name: string; balance: number; categoryId: string | null; categoryName: string | null
+  defaultPercentage?: number; defaultDestinationAccountId?: string
+};
 
 export type ReservoirTransactionDTO = {
   id: string;

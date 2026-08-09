@@ -1,6 +1,42 @@
 import type { ReactNode } from "react";
 import { ProgressRow } from "./progress-row";
-import type { BudgetTreeCategoryDTO, BudgetTreeSubcategoryDTO, FixedExpenseDTO } from "@/types/dto";
+import { Badge } from "@/components/ui/badge";
+import { formatCurrency } from "@/lib/utils/currency";
+import { formatDate } from "@/lib/utils/date";
+import type { BudgetTreeCategoryDTO, BudgetTreeSubcategoryDTO, FixedExpenseDTO, TransactionViewDTO } from "@/types/dto";
+
+/**
+ * The transactions/installments that actually compute a box's `actual` figure — same filter
+ * `getActualAmountForCategory` (_shared.ts) uses: category-level matches everything under the
+ * category regardless of subcategory (mirrors "category ceilings" including untracked
+ * subcategories, AI_CONTEXT.md "Budgets"); subcategory-level matches that subcategory only.
+ */
+function transactionsFor(transactions: TransactionViewDTO[], categoryId: string, subcategoryId?: string): TransactionViewDTO[] {
+  return transactions.filter((t) => t.categoryId === categoryId && (subcategoryId ? t.subcategoryId === subcategoryId : true));
+}
+
+/** Collapsed-by-default breakdown of what's computing a box's total — no JS needed (native <details>). */
+function BudgetTransactionsList({ transactions }: { transactions: TransactionViewDTO[] }) {
+  if (transactions.length === 0) return null;
+  return (
+    <details className="ml-4 border-l border-divider pl-3">
+      <summary className="cursor-pointer text-[11px] opacity-50 select-none">
+        {transactions.length} lançamento{transactions.length > 1 ? "s" : ""} neste mês
+      </summary>
+      <ul className="mt-1 flex flex-col gap-1">
+        {transactions.map((t) => (
+          <li key={`${t.source}-${t.id}`} className="flex items-center justify-between gap-2 text-[12px]">
+            <span className="min-w-0 truncate opacity-70">
+              {formatDate(t.date)} · {t.description || "Sem descrição"}
+              {t.source === "installment" && <Badge variant="neutral" className="ml-1">cartão</Badge>}
+            </span>
+            <span className="shrink-0 tabular-nums opacity-80">{formatCurrency(t.amount)}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 // Inside the budget tree, the bar reflects whether the bill has actually been paid this month —
 // `actualAmount` (real linked transactions, 0 when unpaid), never `projectedAmount` (the planned
@@ -36,11 +72,14 @@ function FixedExpenseRow({ f, actions }: { f: FixedExpenseDTO; actions?: ReactNo
  */
 export function BudgetTree({
   categories,
+  transactions,
   renderCategoryActions,
   renderSubcategoryActions,
   renderFixedExpenseActions,
 }: {
   categories: BudgetTreeCategoryDTO[];
+  /** When provided, each box shows a collapsible breakdown of the transactions/installments computing its total. Omitted by the dashboard panel to stay lightweight. */
+  transactions?: TransactionViewDTO[];
   renderCategoryActions?: (c: BudgetTreeCategoryDTO) => ReactNode;
   renderSubcategoryActions?: (c: BudgetTreeCategoryDTO, s: BudgetTreeSubcategoryDTO) => ReactNode;
   renderFixedExpenseActions?: (f: FixedExpenseDTO) => ReactNode;
@@ -62,6 +101,7 @@ export function BudgetTree({
                 status={c.budget.status}
                 actions={renderCategoryActions?.(c)}
               />
+              {transactions && <BudgetTransactionsList transactions={transactionsFor(transactions, c.categoryId)} />}
               {c.subcategories.map((s) => (
                 <div key={s.budgetId} className="flex flex-col gap-2">
                   <ProgressRow
@@ -72,6 +112,7 @@ export function BudgetTree({
                     status={s.status}
                     actions={renderSubcategoryActions?.(c, s)}
                   />
+                  {transactions && <BudgetTransactionsList transactions={transactionsFor(transactions, c.categoryId, s.subcategoryId)} />}
                   {s.fixedExpenses.map((f) => <FixedExpenseRow key={f.id} f={f} actions={renderFixedExpenseActions?.(f)} />)}
                 </div>
               ))}
@@ -91,6 +132,7 @@ export function BudgetTree({
                 status={s.status}
                 actions={renderSubcategoryActions?.(c, s)}
               />
+              {transactions && <BudgetTransactionsList transactions={transactionsFor(transactions, c.categoryId, s.subcategoryId)} />}
               {s.fixedExpenses.map((f) => <FixedExpenseRow key={f.id} f={f} actions={renderFixedExpenseActions?.(f)} />)}
             </div>
           );
@@ -108,6 +150,7 @@ export function BudgetTree({
                   status={s.status}
                   actions={renderSubcategoryActions?.(c, s)}
                 />
+                {transactions && <BudgetTransactionsList transactions={transactionsFor(transactions, c.categoryId, s.subcategoryId)} />}
                 {s.fixedExpenses.map((f) => <FixedExpenseRow key={f.id} f={f} actions={renderFixedExpenseActions?.(f)} />)}
               </div>
             ))}

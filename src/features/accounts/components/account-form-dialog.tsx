@@ -129,24 +129,24 @@ export function AccountFormDialog({ institutions }: { institutions: FinancialIns
         {(type === "CASH" || type === "BANK") && (
           <Field>
             <Label>Saldo inicial</Label>
-            <Input type="number" step="0.01" value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} />
+            <Input type="number" step="0.01" min={type === "CASH" ? "0" : undefined} value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} />
           </Field>
         )}
         {type === "BANK" && (
           <Field>
             <Label>Limite de cheque especial</Label>
-            <Input type="number" step="0.01" value={overdraftLimit} onChange={(e) => setOverdraftLimit(e.target.value)} />
+            <Input type="number" step="0.01" min="0" value={overdraftLimit} onChange={(e) => setOverdraftLimit(e.target.value)} />
           </Field>
         )}
         {type === "CREDIT_CARD" && (
           <div className="grid grid-cols-2 gap-2">
             <Field>
               <Label>Dia de fechamento</Label>
-              <Input type="number" min={1} max={31} value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />
+              <Input type="number" min={1} max={28} value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />
             </Field>
             <Field>
               <Label>Dia de vencimento</Label>
-              <Input type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
+              <Input type="number" min={1} max={28} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
             </Field>
           </div>
         )}

@@ -11,8 +11,9 @@ const accountBaseSchema = z.object({
   color: z.string().optional().nullable(),
   initialBalance: z.number().optional(),
   overdraftLimit: z.number().min(0).optional(),
-  closingDay: z.number().int().min(1).max(31).optional(),
-  dueDay: z.number().int().min(1).max(31).optional(),
+  // 1-28, não 1-31: evita lógica de mês com menos dias — o próprio banco já opera assim.
+  closingDay: z.number().int().min(1).max(28).optional(),
+  dueDay: z.number().int().min(1).max(28).optional(),
   // No .min()/.positive() here on purpose — creditLimit is CREDIT_CARD-only and its ">0, always
   // required" rule depends on `type`/on whether the field is even present in a partial update,
   // which a base-schema constraint can't express. Enforced in the two superRefines below instead.

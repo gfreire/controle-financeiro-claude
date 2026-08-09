@@ -329,12 +329,16 @@ CREATE TABLE public.reservoirs (
   name text NOT NULL,
   category_id uuid,
   subcategory_id uuid,
+  default_percentage numeric(5,2), -- NOVO (0010): pré-preenche o % no AccrualDialog
+  default_destination_account_id uuid, -- NOVO (0010): pré-preenche a conta no WithdrawalDialog
   active boolean DEFAULT true, -- CORRIGIDO: faltava, inconsistente com accounts/debts/fixed_expenses
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT reservoirs_pkey PRIMARY KEY (id),
   CONSTRAINT reservoirs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
   CONSTRAINT reservoirs_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
-  CONSTRAINT reservoirs_subcategory_id_fkey FOREIGN KEY (subcategory_id) REFERENCES public.subcategories(id)
+  CONSTRAINT reservoirs_subcategory_id_fkey FOREIGN KEY (subcategory_id) REFERENCES public.subcategories(id),
+  CONSTRAINT reservoirs_default_destination_account_id_fkey FOREIGN KEY (default_destination_account_id) REFERENCES public.accounts(id),
+  CONSTRAINT reservoirs_default_percentage_range CHECK (default_percentage IS NULL OR (default_percentage > 0 AND default_percentage <= 100))
 );
 
 CREATE TABLE public.reservoir_transactions (

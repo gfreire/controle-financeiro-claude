@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogActions, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
+import { CategorySelect, SubcategorySelect } from "@/features/categories/components/category-select";
 import { Plus, Pencil } from "lucide-react";
 import { createFixedExpenseAction, updateFixedExpenseAction } from "../actions";
 import { fixedExpenseSchema } from "@/lib/validations/fixed-expenses";
@@ -14,7 +15,7 @@ import type { AccountDTO, CategoryDTO, FixedExpenseDTO } from "@/types/dto";
 const NONE = "NONE";
 
 export function FixedExpenseFormDialog({
-  categories,
+  categories: initialCategories,
   accounts,
   expense,
 }: {
@@ -28,6 +29,7 @@ export function FixedExpenseFormDialog({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
+  const [categories, setCategories] = useState(initialCategories);
   const [name, setName] = useState(expense?.name ?? "");
   const [amount, setAmount] = useState(expense ? String(expense.plannedAmount) : "");
   const [dueDay, setDueDay] = useState(expense ? String(expense.dueDay) : "10");
@@ -104,7 +106,7 @@ export function FixedExpenseFormDialog({
             <div className="grid grid-cols-2 gap-2">
               <Field>
                 <Label>Valor</Label>
-                <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                <Input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
               </Field>
               <Field>
                 <Label>Dia de vencimento</Label>
@@ -113,24 +115,30 @@ export function FixedExpenseFormDialog({
             </div>
             <Field>
               <Label>Categoria</Label>
-              <Select value={categoryId} onValueChange={(v) => { setCategoryId(v); setSubcategoryId(NONE); }}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>Sem categoria</SelectItem>
-                  {expenseCategories.map((c) => <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <CategorySelect
+                categories={categories}
+                type="EXPENSE"
+                value={categoryId}
+                onChange={(v) => { setCategoryId(v); setSubcategoryId(NONE); }}
+                onCategoryCreated={(created) => setCategories((prev) => [...prev, created])}
+                noneValue={NONE}
+                noneLabel="Sem categoria"
+              />
             </Field>
-            {selectedCategory && selectedCategory.subcategories.length > 0 && (
+            {selectedCategory && (
               <Field>
                 <Label>Subcategoria</Label>
-                <Select value={subcategoryId} onValueChange={setSubcategoryId}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>Sem subcategoria</SelectItem>
-                    {selectedCategory.subcategories.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SubcategorySelect
+                  subcategories={selectedCategory.subcategories}
+                  categoryId={selectedCategory.id}
+                  value={subcategoryId}
+                  onChange={setSubcategoryId}
+                  onSubcategoryCreated={(created) =>
+                    setCategories((prev) => prev.map((c) => (c.id === selectedCategory.id ? { ...c, subcategories: [...c.subcategories, created] } : c)))
+                  }
+                  noneValue={NONE}
+                  noneLabel="Sem subcategoria"
+                />
               </Field>
             )}
             <Field>

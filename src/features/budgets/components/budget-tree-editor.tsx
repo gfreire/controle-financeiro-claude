@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { ListTree } from "lucide-react";
 import { createBudgetAction, updateBudgetAction, deactivateBudgetAction } from "../actions";
 import { BudgetTreeFields, rowKey, type RowKey } from "./budget-tree-fields";
-import type { BudgetDTO, CategoryDTO } from "@/types/dto";
+import { formatCurrency } from "@/lib/utils/currency";
+import type { BudgetDTO, CategoryDTO, FixedExpenseDTO } from "@/types/dto";
 
 /**
  * Tree-based budget planning screen — reuses the onboarding category-tree visual pattern
@@ -23,7 +24,17 @@ import type { BudgetDTO, CategoryDTO } from "@/types/dto";
  * delete button apply — so this fails gracefully (an error, not a crash) when a row still has
  * fixed expenses depending on it.
  */
-export function BudgetTreeEditor({ categories, budgets, month }: { categories: CategoryDTO[]; budgets: BudgetDTO[]; month: string }) {
+export function BudgetTreeEditor({
+  categories,
+  budgets,
+  fixedExpenses,
+  month,
+}: {
+  categories: CategoryDTO[];
+  budgets: BudgetDTO[];
+  fixedExpenses: FixedExpenseDTO[];
+  month: string;
+}) {
   const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
   const budgetByKey = new Map<RowKey, BudgetDTO>();
   for (const b of budgets) budgetByKey.set(rowKey(b.categoryId, b.subcategoryId), b);
@@ -41,6 +52,19 @@ export function BudgetTreeEditor({ categories, budgets, month }: { categories: C
 
   function setAmount(key: RowKey, value: string) {
     setAmounts((prev) => ({ ...prev, [key]: value }));
+  }
+
+  // Mirrors BudgetTreeFields' own floor math so a save attempt below the floor fails fast,
+  // client-side, instead of only after the server round trip — the server check stays the
+  // real source of truth either way.
+  function floorFor(categoryId: string, subcategoryId: string | undefined): number {
+    if (subcategoryId) {
+      return fixedExpenses.filter((f) => f.subcategoryId === subcategoryId).reduce((sum, f) => sum + f.plannedAmount, 0);
+    }
+    const category = expenseCategories.find((c) => c.id === categoryId);
+    const subSum = (category?.subcategories ?? []).reduce((sum, s) => sum + (Number(amounts[rowKey(categoryId, s.id)]) || 0), 0);
+    const directFixed = fixedExpenses.filter((f) => f.categoryId === categoryId && !f.subcategoryId).reduce((sum, f) => sum + f.plannedAmount, 0);
+    return subSum + directFixed;
   }
 
   function handleSave() {
@@ -72,6 +96,12 @@ export function BudgetTreeEditor({ categories, budgets, month }: { categories: C
         const amount = Number(raw);
         if (!Number.isFinite(amount) || amount <= 0) return;
         if (existing && existing.plannedAmount === amount) return; // unchanged, nothing to do
+
+        const floor = floorFor(categoryId, subcategoryId);
+        if (amount < floor) {
+          allErrors.push(`${label}: valor não pode ser menor que ${formatCurrency(floor)}`);
+          return;
+        }
 
         try {
           const result = existing
@@ -108,7 +138,7 @@ export function BudgetTreeEditor({ categories, budgets, month }: { categories: C
           Defina o valor de cada categoria e, se quiser, reparta entre subcategorias — o que sobrar fica livre dentro da categoria. Deixe em branco o que não quiser planejar agora, ou apague o valor de um orçamento já existente para removê-lo.
         </DialogDescription>
 
-        <BudgetTreeFields categories={categories} amounts={amounts} onChange={setAmount} />
+        <BudgetTreeFields categories={categories} amounts={amounts} onChange={setAmount} fixedExpenses={fixedExpenses} />
 
         {errors.length > 0 && (
           <div className="flex flex-col gap-1 text-sm text-danger-600">

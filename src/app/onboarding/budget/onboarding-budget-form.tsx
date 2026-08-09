@@ -6,9 +6,18 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BudgetTreeFields, rowKey, type RowKey } from "@/features/budgets/components/budget-tree-fields";
 import { createBudgetAction } from "@/features/budgets/actions";
-import type { CategoryDTO } from "@/types/dto";
+import { formatCurrency } from "@/lib/utils/currency";
+import type { CategoryDTO, FixedExpenseDTO } from "@/types/dto";
 
-export function OnboardingBudgetForm({ categories, month }: { categories: CategoryDTO[]; month: string }) {
+export function OnboardingBudgetForm({
+  categories,
+  fixedExpenses,
+  month,
+}: {
+  categories: CategoryDTO[];
+  fixedExpenses: FixedExpenseDTO[];
+  month: string;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [amounts, setAmounts] = useState<Record<RowKey, string>>({});
@@ -28,11 +37,26 @@ export function OnboardingBudgetForm({ categories, month }: { categories: Catego
       const allNotices: string[] = [];
       const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
 
+      function floorFor(categoryId: string, subcategoryId: string | undefined): number {
+        if (subcategoryId) {
+          return fixedExpenses.filter((f) => f.subcategoryId === subcategoryId).reduce((sum, f) => sum + f.plannedAmount, 0);
+        }
+        const category = expenseCategories.find((c) => c.id === categoryId);
+        const subSum = (category?.subcategories ?? []).reduce((sum, s) => sum + (Number(amounts[rowKey(categoryId, s.id)]) || 0), 0);
+        const directFixed = fixedExpenses.filter((f) => f.categoryId === categoryId && !f.subcategoryId).reduce((sum, f) => sum + f.plannedAmount, 0);
+        return subSum + directFixed;
+      }
+
       async function saveRow(categoryId: string, subcategoryId: string | undefined, label: string) {
         const raw = amounts[rowKey(categoryId, subcategoryId)];
         if (raw === undefined || raw.trim() === "") return;
         const amount = Number(raw);
         if (!Number.isFinite(amount) || amount <= 0) return;
+        const floor = floorFor(categoryId, subcategoryId);
+        if (amount < floor) {
+          allErrors.push(`${label}: valor não pode ser menor que ${formatCurrency(floor)}`);
+          return;
+        }
         try {
           const result = await createBudgetAction({ categoryId, subcategoryId, amount, month });
           allNotices.push(...result.notices);
@@ -78,7 +102,7 @@ export function OnboardingBudgetForm({ categories, month }: { categories: Catego
 
   return (
     <div className="flex flex-col gap-4">
-      <BudgetTreeFields categories={categories} amounts={amounts} onChange={setAmount} />
+      <BudgetTreeFields categories={categories} amounts={amounts} onChange={setAmount} fixedExpenses={fixedExpenses} />
       <div className="flex gap-2">
         <Button asChild variant="secondary" className="flex-1"><Link href="/dashboard">Pular</Link></Button>
         <Button className="flex-1" disabled={pending} onClick={handleSave}>{pending ? "Salvando..." : "Salvar e continuar"}</Button>

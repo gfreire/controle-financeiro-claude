@@ -10,7 +10,17 @@ import { reservoirAccrualSchema } from "@/lib/validations/reservoirs";
 import { calculateGrossNetSplit } from "@/lib/utils/money";
 import { todayIso } from "@/lib/utils/date";
 
-export function AccrualDialog({ reservoirId, reservoirName, trigger }: { reservoirId: string; reservoirName: string; trigger: React.ReactNode }) {
+export function AccrualDialog({
+  reservoirId,
+  reservoirName,
+  defaultPercentage,
+  trigger,
+}: {
+  reservoirId: string;
+  reservoirName: string;
+  defaultPercentage?: number;
+  trigger: React.ReactNode;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -19,7 +29,7 @@ export function AccrualDialog({ reservoirId, reservoirName, trigger }: { reservo
   const [date, setDate] = useState(todayIso());
   const [description, setDescription] = useState(`Movimentação da receita programada ${reservoirName}`);
   const [grossAmount, setGrossAmount] = useState("");
-  const [percentage, setPercentage] = useState("");
+  const [percentage, setPercentage] = useState(defaultPercentage !== undefined ? String(defaultPercentage) : "");
   const [amount, setAmount] = useState("");
 
   function handlePercentageChange(value: string) {
@@ -59,7 +69,7 @@ export function AccrualDialog({ reservoirId, reservoirName, trigger }: { reservo
         await addReservoirAccrualAction(parsed.data);
         router.refresh();
         setOpen(false);
-        setGrossAmount(""); setPercentage(""); setAmount("");
+        setGrossAmount(""); setPercentage(defaultPercentage !== undefined ? String(defaultPercentage) : ""); setAmount("");
         setDescription(`Movimentação da receita programada ${reservoirName}`);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao lançar acúmulo");
@@ -78,7 +88,7 @@ export function AccrualDialog({ reservoirId, reservoirName, trigger }: { reservo
         </Field>
         <Field>
           <Label>Valor bruto (opcional)</Label>
-          <Input type="number" step="0.01" value={grossAmount} onChange={(e) => setGrossAmount(e.target.value)} placeholder="Ex: valor antes da taxa" />
+          <Input type="number" step="0.01" min="0.01" value={grossAmount} onChange={(e) => setGrossAmount(e.target.value)} placeholder="Ex: valor antes da taxa" />
         </Field>
         <div className="grid grid-cols-2 gap-2">
           <Field>
@@ -87,7 +97,7 @@ export function AccrualDialog({ reservoirId, reservoirName, trigger }: { reservo
           </Field>
           <Field>
             <Label>Valor líquido</Label>
-            <Input type="number" step="0.01" value={amount} onChange={(e) => handleAmountChange(e.target.value)} />
+            <Input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => handleAmountChange(e.target.value)} />
           </Field>
         </div>
         <Field>

@@ -5,6 +5,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils/currency";
 import { toPercentage } from "@/lib/utils/number";
+import { ArrowLeft } from "lucide-react";
 import type { CategoryDistributionDTO } from "@/types/dto";
 
 export function CategoryPie({ data }: { data: CategoryDistributionDTO[] }) {
@@ -12,6 +13,7 @@ export function CategoryPie({ data }: { data: CategoryDistributionDTO[] }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const total = data.reduce((sum, d) => sum + d.total, 0);
+  const activeCategoryId = searchParams.get("categories");
 
   function handleClick(categoryId: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -23,7 +25,19 @@ export function CategoryPie({ data }: { data: CategoryDistributionDTO[] }) {
 
   return (
     <Card elevation="sm" className="min-h-[320px]">
-      <CardTitle>Distribuição por categoria</CardTitle>
+      <div className="flex items-center gap-2">
+        {activeCategoryId && (
+          <button
+            type="button"
+            onClick={() => handleClick(activeCategoryId)}
+            className="flex items-center gap-1 text-text/50 hover:text-accent"
+            aria-label="Voltar (limpar filtro de categoria)"
+          >
+            <ArrowLeft className="size-4" strokeWidth={1.5} />
+          </button>
+        )}
+        <CardTitle>Distribuição por categoria</CardTitle>
+      </div>
       {data.length === 0 ? (
         <p className="flex-1 text-sm opacity-60">Sem lançamentos no período.</p>
       ) : (
