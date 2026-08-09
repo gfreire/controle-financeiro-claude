@@ -13,18 +13,37 @@ const accountBaseSchema = z.object({
   overdraftLimit: z.number().min(0).optional(),
   closingDay: z.number().int().min(1).max(31).optional(),
   dueDay: z.number().int().min(1).max(31).optional(),
-  creditLimit: z.number().min(0).optional().nullable(),
+  // No .min()/.positive() here on purpose — creditLimit is CREDIT_CARD-only and its ">0, always
+  // required" rule depends on `type`/on whether the field is even present in a partial update,
+  // which a base-schema constraint can't express. Enforced in the two superRefines below instead.
+  creditLimit: z.number().optional().nullable(),
 });
 
 export const accountSchema = accountBaseSchema.superRefine((data, ctx) => {
-  if (data.type === "CREDIT_CARD" && (data.closingDay === undefined || data.dueDay === undefined)) {
-    ctx.addIssue({ code: "custom", path: ["closingDay"], message: "Dia de fechamento e vencimento são obrigatórios para cartão de crédito" });
+  if (data.type === "CREDIT_CARD") {
+    if (data.closingDay === undefined || data.dueDay === undefined) {
+      ctx.addIssue({ code: "custom", path: ["closingDay"], message: "Dia de fechamento e vencimento são obrigatórios para cartão de crédito" });
+    }
+    // Decided 2026-08-08: a credit card account must always carry a real limit — see AI_CONTEXT.md
+    // "Accounts". This replaces the earlier "optional, soft-enforced" design.
+    if (data.creditLimit === undefined || data.creditLimit === null || data.creditLimit <= 0) {
+      ctx.addIssue({ code: "custom", path: ["creditLimit"], message: "O limite do cartão é obrigatório e deve ser maior que zero" });
+    }
   }
 });
 
 export type AccountInput = z.infer<typeof accountSchema>;
 
-export const updateAccountSchema = accountBaseSchema.partial().extend({ id: z.string().uuid() });
+export const updateAccountSchema = accountBaseSchema
+  .partial()
+  .extend({ id: z.string().uuid() })
+  .superRefine((data, ctx) => {
+    // A partial update may omit creditLimit entirely (e.g. only editing closing/due day) — that's
+    // fine. What's never allowed is explicitly clearing or zeroing it out once it's part of the payload.
+    if (data.creditLimit !== undefined && (data.creditLimit === null || data.creditLimit <= 0)) {
+      ctx.addIssue({ code: "custom", path: ["creditLimit"], message: "O limite do cartão é obrigatório e deve ser maior que zero" });
+    }
+  });
 
 export const registerYieldSchema = z.object({
   accountId: z.string().uuid(),

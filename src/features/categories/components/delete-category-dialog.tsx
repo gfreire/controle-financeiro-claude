@@ -21,6 +21,8 @@ type Target =
 
 type Strategy = "reassign" | "parent" | "uncategorized";
 
+const NONE = "NONE";
+
 export function DeleteCategoryDialog({ target, categories }: { target: Target; categories: CategoryDTO[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -29,6 +31,14 @@ export function DeleteCategoryDialog({ target, categories }: { target: Target; c
   const [usage, setUsage] = useState<CategoryUsageDTO | null>(null);
   const [strategy, setStrategy] = useState<Strategy>(target.kind === "subcategory" ? "parent" : "uncategorized");
   const [toCategoryId, setToCategoryId] = useState("");
+  const [toSubcategoryId, setToSubcategoryId] = useState(NONE);
+
+  const sourceType =
+    target.kind === "category"
+      ? categories.find((c) => c.id === target.id)?.type
+      : categories.find((c) => c.id === target.parentCategoryId)?.type;
+  const reassignableCategories = categories.filter((c) => c.id !== target.id && !c.isSystem && c.type === sourceType);
+  const selectedTargetCategory = reassignableCategories.find((c) => c.id === toCategoryId);
 
   useEffect(() => {
     if (!open) return;
@@ -43,12 +53,13 @@ export function DeleteCategoryDialog({ target, categories }: { target: Target; c
           await deleteCategoryWithReassignmentAction({
             categoryId: target.id,
             toCategoryId: strategy === "uncategorized" ? null : toCategoryId,
+            toSubcategoryId: strategy === "reassign" && toSubcategoryId !== NONE ? toSubcategoryId : null,
           });
         } else {
           await deleteSubcategoryWithReassignmentAction({
             subcategoryId: target.id,
             toCategoryId: strategy === "parent" ? target.parentCategoryId : strategy === "uncategorized" ? null : toCategoryId,
-            toSubcategoryId: null,
+            toSubcategoryId: strategy === "reassign" && toSubcategoryId !== NONE ? toSubcategoryId : null,
           });
         }
         router.refresh();
@@ -91,14 +102,27 @@ export function DeleteCategoryDialog({ target, categories }: { target: Target; c
                 Mover para outra categoria
               </label>
               {strategy === "reassign" && (
-                <Select value={toCategoryId} onValueChange={setToCategoryId}>
-                  <SelectTrigger className="ml-6 w-56"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    {categories.filter((c) => c.id !== target.id && !c.isSystem).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="ml-6 flex flex-col gap-1.5">
+                  <Select value={toCategoryId} onValueChange={(v) => { setToCategoryId(v); setToSubcategoryId(NONE); }}>
+                    <SelectTrigger className="w-56"><SelectValue placeholder="Selecione a categoria" /></SelectTrigger>
+                    <SelectContent>
+                      {reassignableCategories.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedTargetCategory && selectedTargetCategory.subcategories.length > 0 && (
+                    <Select value={toSubcategoryId} onValueChange={setToSubcategoryId}>
+                      <SelectTrigger className="w-56"><SelectValue placeholder="Subcategoria (opcional)" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>Sem subcategoria</SelectItem>
+                        {selectedTargetCategory.subcategories.filter((s) => s.active).map((s) => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
               )}
               <label className="flex items-center gap-2">
                 <input type="radio" checked={strategy === "uncategorized"} onChange={() => setStrategy("uncategorized")} />

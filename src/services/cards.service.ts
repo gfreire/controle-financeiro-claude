@@ -72,14 +72,17 @@ export async function updateCardPurchase(id: string, input: Partial<CardPurchase
   const { data: current, error: currentError } = await supabase.from("card_purchases").select("*").eq("id", id).single();
   if (currentError) throw new Error(currentError.message);
 
+  // categoryId/subcategoryId use `!== undefined` (not `??`) because `null` is a meaningful,
+  // intentional value here — "clear this field" — and `??` would silently discard it in favor
+  // of the current value, indistinguishable from the field simply not being part of this update.
   const merged = {
     amount: input.amount ?? current.amount,
     purchaseDate: input.purchaseDate ?? current.purchase_date,
     installments: input.installments ?? current.installments,
     creditCardId: input.creditCardId ?? current.credit_card_id,
     description: input.description ?? current.description,
-    categoryId: input.categoryId ?? current.category_id,
-    subcategoryId: input.subcategoryId ?? current.subcategory_id,
+    categoryId: input.categoryId !== undefined ? input.categoryId : current.category_id,
+    subcategoryId: input.subcategoryId !== undefined ? input.subcategoryId : current.subcategory_id,
   };
 
   const { error } = await supabase

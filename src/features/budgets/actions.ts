@@ -45,6 +45,13 @@ export async function deactivateBudgetAction(id: string) {
   revalidatePath("/dashboard");
 }
 
+export async function cloneBudgetMonthAction(fromMonth: string, toMonth: string) {
+  const result = await budgetsService.cloneBudgetMonth(fromMonth, toMonth);
+  revalidatePath("/budgets");
+  revalidatePath("/dashboard");
+  return result;
+}
+
 export async function deactivateFixedExpenseAction(id: string) {
   await fixedExpensesService.deactivateFixedExpense(id);
   revalidatePath("/budgets");

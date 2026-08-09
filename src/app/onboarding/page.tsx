@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getUser } from "@/lib/auth/getUser";
-import { getAvailableDefaultCategories } from "@/services/categories.service";
+import { getDefaultCategoryImportOptions } from "@/services/categories.service";
 import { getProfile } from "@/services/profile.service";
 import { completeOnboarding } from "./actions";
 import { Card, CardTitle, CardBody } from "@/components/ui/card";
@@ -10,10 +10,12 @@ import { Wallet2, PartyPopper } from "lucide-react";
 
 export default async function OnboardingPage() {
   await getUser();
-  const [options, profile] = await Promise.all([getAvailableDefaultCategories(), getProfile()]);
+  const [options, profile] = await Promise.all([getDefaultCategoryImportOptions(), getProfile()]);
   const isFirstTime = !profile.onboardingCompleted;
   const expenseOptions = options.filter((c) => c.type === "EXPENSE");
   const incomeOptions = options.filter((c) => c.type === "INCOME");
+  const hasSelectableOptions = options.some((c) => !c.alreadyImported || c.subcategories.some((s) => !s.alreadyImported));
+  const showEmptyState = isFirstTime ? options.length === 0 : !hasSelectableOptions;
 
   return (
     <div className="mx-auto flex min-h-svh max-w-2xl flex-col justify-center gap-6 p-4">
@@ -26,13 +28,13 @@ export default async function OnboardingPage() {
       <p className="text-sm opacity-80">
         {isFirstTime
           ? "Este é o pacote inicial de categorias. Escolha as que fazem sentido para sua vida financeira — elas serão copiadas para sua conta e você pode editar ou criar novas depois."
-          : "Categorias que você ainda não importou. Útil quando sua vida financeira muda — por exemplo, importar \"Transporte\" só quando você comprar um carro."}
+          : "Todo o pacote inicial de categorias. As que você já importou aparecem marcadas e travadas — escolha o que mais quiser adicionar, seja uma categoria nova ou só uma subcategoria que faltou (ex: importar \"Transporte\" só quando você comprar um carro)."}
       </p>
       <p className="text-xs opacity-60">
         Cada categoria pode ser aberta pra escolher só as subcategorias que fazem sentido pra você — por exemplo, manter &quot;Moradia&quot; mas só com &quot;Aluguel&quot;, sem &quot;IPTU&quot;.
       </p>
 
-      {options.length === 0 ? (
+      {showEmptyState ? (
         <Card frame={false} className="items-center gap-2 text-center">
           <PartyPopper className="size-6 text-accent" strokeWidth={1.5} />
           <CardTitle className="text-base">Você já importou todas as categorias padrão</CardTitle>
@@ -42,6 +44,7 @@ export default async function OnboardingPage() {
       ) : (
         <form action={completeOnboarding} className="flex flex-col gap-6">
           <input type="hidden" name="redirectTo" value={isFirstTime ? "/dashboard" : "/settings"} />
+          <input type="hidden" name="isFirstTime" value={String(isFirstTime)} />
 
           {expenseOptions.length > 0 && (
             <section className="flex flex-col gap-2">
@@ -77,7 +80,7 @@ export default async function OnboardingPage() {
               <Button asChild variant="secondary" className="flex-1"><Link href="/settings">Cancelar</Link></Button>
             )}
             <Button type="submit" className="flex-1">
-              {isFirstTime ? "Continuar para o Dashboard" : "Importar selecionadas"}
+              {isFirstTime ? "Continuar" : "Importar selecionadas"}
             </Button>
           </div>
         </form>

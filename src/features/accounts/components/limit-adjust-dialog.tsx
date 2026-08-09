@@ -46,6 +46,10 @@ export function LimitAdjustDialog({ account, trigger }: { account: AccountDTO; t
       setError("Informe um valor válido");
       return;
     }
+    if (isCard && (value === null || value <= 0)) {
+      setError("O limite do cartão é obrigatório e deve ser maior que zero");
+      return;
+    }
 
     let closingDayValue: number | undefined;
     let dueDayValue: number | undefined;
@@ -91,10 +95,9 @@ export function LimitAdjustDialog({ account, trigger }: { account: AccountDTO; t
           <Input
             type="number"
             step="0.01"
-            min="0"
+            min={isCard ? "0.01" : "0"}
             value={limit}
             onChange={(e) => setLimit(e.target.value)}
-            placeholder={isCard ? "Deixe em branco para remover o alerta de limite" : undefined}
           />
         </Field>
         {currentLimit !== null && (

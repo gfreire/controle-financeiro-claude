@@ -310,6 +310,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
       accountType: "CREDIT_CARD" as const,
       amount: row.amount,
       source: "installment" as const,
+      purchaseId: purchase.id,
     });
   }
 

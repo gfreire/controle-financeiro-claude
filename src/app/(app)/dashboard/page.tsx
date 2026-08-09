@@ -8,7 +8,7 @@ import {
 } from "@/services/dashboard.service";
 import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
-import { getBudgets } from "@/services/budgets.service";
+import { getBudgetTree } from "@/services/budgets.service";
 import { getFixedExpenses } from "@/services/fixed-expenses.service";
 
 import { DashboardFilters } from "@/features/dashboard/components/dashboard-filters";
@@ -28,7 +28,7 @@ export default async function DashboardPage({
   const resolvedSearchParams = await searchParams;
   const filters = parseDashboardFilters(resolvedSearchParams);
 
-  const [summary, monthlyEvolution, categoryDistribution, categoryComparison, transactions, accounts, categories, budgets, fixedExpenses] =
+  const [summary, monthlyEvolution, categoryDistribution, categoryComparison, transactions, accounts, categories, fixedExpenses] =
     await Promise.all([
       getFinancialSummary(filters),
       getMonthlyEvolution(filters),
@@ -39,9 +39,9 @@ export default async function DashboardPage({
       getCategories(),
       // Reflects the filtered period, not always "today" — a user browsing a past/future
       // month via the filters expects the budgets/fixed-expenses panel to follow along.
-      getBudgets(filters.periodEnd),
       getFixedExpenses(filters.periodEnd),
     ]);
+  const budgetTree = await getBudgetTree(filters.periodEnd, fixedExpenses);
 
   return (
     <div className="flex flex-col gap-4">
@@ -59,7 +59,7 @@ export default async function DashboardPage({
         <CategoryBars data={categoryComparison} />
       </div>
 
-      <BudgetsPanel budgets={budgets} fixedExpenses={fixedExpenses} />
+      <BudgetsPanel categories={budgetTree} />
 
       <TransactionExplorer transactions={transactions} categories={categories} />
     </div>

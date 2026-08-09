@@ -4,15 +4,20 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardKicker, CardTitle, CardMeta } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
 import { BalanceAdjustDialog } from "./balance-adjust-dialog";
 import { LimitAdjustDialog } from "./limit-adjust-dialog";
 import { formatCurrency } from "@/lib/utils/currency";
+import { formatMonthLabel } from "@/lib/utils/date";
+import { toPercentage } from "@/lib/utils/number";
 import { deactivateAccountAction } from "../actions";
 import { MoreVertical } from "lucide-react";
 import { AccountTypeIcon, ACCOUNT_TYPE_LABEL } from "@/components/ui/account-type-icon";
-import type { AccountDTO } from "@/types/dto";
+import type { AccountDTO, CardSummaryDTO } from "@/types/dto";
 
-export function AccountCard({ account }: { account: AccountDTO }) {
+// Same figure, same "usado/total" framing as the Cards page (getCardSummary#totalCommitted vs.
+// creditLimit) — a credit card's "balance" here must never diverge from what /cards shows.
+export function AccountCard({ account, cardSummary, cardSummaryMonth }: { account: AccountDTO; cardSummary?: CardSummaryDTO; cardSummaryMonth?: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
@@ -55,9 +60,36 @@ export function AccountCard({ account }: { account: AccountDTO }) {
         </DropdownMenu>
       </div>
       <CardTitle>{account.name}</CardTitle>
-      <div className={`text-xl font-semibold tabular-nums ${account.balance < 0 ? "text-danger-600" : ""}`}>
-        {formatCurrency(account.balance)}
-      </div>
+      {account.type === "CREDIT_CARD" && cardSummary ? (
+        <>
+          <div className="flex items-baseline gap-1">
+            <span className={`text-xl font-semibold tabular-nums ${usagePercent(cardSummary) !== null && usagePercent(cardSummary)! >= 90 ? "text-danger-600" : ""}`}>
+              {formatCurrency(cardSummary.totalCommitted)}
+            </span>
+            {cardSummary.creditLimit !== null && (
+              <span className="text-sm opacity-60 tabular-nums">/ {formatCurrency(cardSummary.creditLimit)}</span>
+            )}
+          </div>
+          {cardSummary.creditLimit !== null && (
+            <div className="mt-1 h-1.5 w-40 bg-neutral-200">
+              <div
+                className={usagePercent(cardSummary) !== null && usagePercent(cardSummary)! >= 90 ? "h-full bg-danger-500" : "h-full bg-accent"}
+                style={{ width: `${usagePercent(cardSummary) ?? 0}%` }}
+              />
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
+            {cardSummaryMonth && (
+              <span>Fatura de {formatMonthLabel(cardSummaryMonth)}: <strong className="tabular-nums">{formatCurrency(cardSummary.currentMonthInvoice)}</strong></span>
+            )}
+            {cardSummary.overdueAmount > 0 && <Badge variant="danger">Em atraso: {formatCurrency(cardSummary.overdueAmount)}</Badge>}
+          </div>
+        </>
+      ) : (
+        <div className={`text-xl font-semibold tabular-nums ${account.balance < 0 ? "text-danger-600" : ""}`}>
+          {formatCurrency(account.balance)}
+        </div>
+      )}
       {account.institutionName && (
         <CardMeta>
           <span className="size-2" style={{ background: account.institutionColor ?? "var(--color-accent)" }} />
@@ -69,4 +101,8 @@ export function AccountCard({ account }: { account: AccountDTO }) {
       )}
     </Card>
   );
+}
+
+function usagePercent(summary: CardSummaryDTO): number | null {
+  return summary.creditLimit ? toPercentage(summary.totalCommitted, summary.creditLimit) : null;
 }

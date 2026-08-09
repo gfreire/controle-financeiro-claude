@@ -1,108 +1,125 @@
-import { getBudgets } from "@/services/budgets.service";
+import { getBudgets, getBudgetTree, getBudgetMonthWindow } from "@/services/budgets.service";
 import { getFixedExpenses } from "@/services/fixed-expenses.service";
 import { getCategories } from "@/services/categories.service";
 import { getAccounts } from "@/services/accounts.service";
-import { todayIso } from "@/lib/utils/date";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Card, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { formatCurrency } from "@/lib/utils/currency";
-import { toPercentage } from "@/lib/utils/number";
+import { getTransactionsFiltered } from "@/services/dashboard.service";
+import { monthKey, todayIso, startOfMonth, endOfMonth } from "@/lib/utils/date";
 import { BudgetFormDialog } from "@/features/budgets/components/budget-form-dialog";
 import { BudgetTreeEditor } from "@/features/budgets/components/budget-tree-editor";
+import { BudgetTree } from "@/features/budgets/components/budget-tree";
+import { CloneBudgetButton } from "@/features/budgets/components/clone-budget-button";
 import { FixedExpenseFormDialog } from "@/features/budgets/components/fixed-expense-form-dialog";
 import { PayFixedExpenseDialog } from "@/features/budgets/components/pay-fixed-expense-dialog";
 import { DeactivateBudgetButton } from "@/features/budgets/components/deactivate-budget-button";
 import { DeactivateFixedExpenseButton } from "@/features/budgets/components/deactivate-fixed-expense-button";
-import { CircleCheck, CreditCard } from "lucide-react";
+import { MonthNav } from "@/features/cards/components/month-nav";
+import { TransactionExplorer } from "@/features/dashboard/components/transaction-explorer";
+import { CreditCard } from "lucide-react";
 
-export default async function BudgetsPage() {
-  const month = todayIso();
-  const [budgets, fixedExpenses, categories, accounts] = await Promise.all([
-    getBudgets(month),
-    getFixedExpenses(month),
+export default async function BudgetsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+  const resolvedSearchParams = await searchParams;
+  const month = resolvedSearchParams.month ?? monthKey(todayIso());
+  // Service calls need a full "YYYY-MM-DD" (startOfMonth/endOfMonth require a real day-of-month);
+  // `month` itself stays "YYYY-MM" for the MonthNav/searchParams and window comparisons below.
+  const monthDate = `${month}-01`;
+
+  const [fixedExpenses, categories, accounts, monthWindow] = await Promise.all([
+    getFixedExpenses(monthDate),
     getCategories(),
     getAccounts(),
+    getBudgetMonthWindow(),
+  ]);
+  const [tree, budgets, transactions] = await Promise.all([
+    getBudgetTree(monthDate, fixedExpenses),
+    getBudgets(monthDate),
+    getTransactionsFiltered({ periodStart: startOfMonth(monthDate), periodEnd: endOfMonth(monthDate) }),
   ]);
   const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
 
+  // AI_CONTEXT.md "Budgets": only the current real month and the next one (once the current
+  // month has a budget) can be created/edited/cloned — every other month is read-only history.
+  const isCurrentMonth = month === monthKey(monthWindow.currentMonth);
+  const isNextMonth = month === monthKey(monthWindow.nextMonth);
+  const isEditableMonth = isCurrentMonth || (isNextMonth && monthWindow.hasCurrentMonthBudget);
+  const canClone = isEditableMonth && tree.length === 0 && !!monthWindow.lastRegisteredMonth && monthWindow.lastRegisteredMonth !== startOfMonth(monthDate);
+
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-heading text-2xl font-semibold">Orçamentos e despesas fixas</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="font-heading text-2xl font-semibold">Orçamentos e despesas fixas</h1>
+        <MonthNav />
+      </div>
 
-      <Tabs defaultValue="budgets">
-        <TabsList>
-          <TabsTrigger value="budgets">Orçamentos</TabsTrigger>
-          <TabsTrigger value="fixed">Despesas fixas</TabsTrigger>
-        </TabsList>
+      {!isEditableMonth && (
+        <p className="text-xs opacity-60">
+          {isCurrentMonth || isNextMonth
+            ? "Este mês ainda não está disponível para planejamento — o mês seguinte só é liberado depois que o mês corrente tiver um orçamento."
+            : "Histórico — somente consulta. Só é possível planejar o mês corrente e o próximo."}
+        </p>
+      )}
 
-        <TabsContent value="budgets" className="flex flex-col gap-3">
-          <div className="flex justify-end gap-2">
-            <BudgetTreeEditor categories={categories} budgets={budgets} />
-            <BudgetFormDialog categories={categories} />
-          </div>
-          {budgets.length === 0 ? (
-            <p className="text-sm opacity-60">Nenhum orçamento definido ainda.</p>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {budgets.map((b) => (
-                <Card key={b.id} elevation="sm">
-                  <div className="flex items-center justify-between">
-                    <CardTitle>{b.categoryName}{b.subcategoryName ? ` · ${b.subcategoryName}` : ""}</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <BudgetFormDialog categories={categories} budget={b} />
-                      <DeactivateBudgetButton budgetId={b.id} label={`${b.categoryName}${b.subcategoryName ? ` · ${b.subcategoryName}` : ""}`} />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="tabular-nums opacity-80">{formatCurrency(b.actualAmount)} / {formatCurrency(b.plannedAmount)}</span>
-                    {b.status === "EXCEEDED" && <Badge variant="danger">Estourou</Badge>}
-                  </div>
-                  <div className="h-1.5 w-full bg-neutral-200">
-                    <div className={b.status === "EXCEEDED" ? "h-full bg-danger-500" : "h-full bg-accent"} style={{ width: `${toPercentage(b.actualAmount, b.plannedAmount)}%` }} />
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
+      {/* Despesas fixas são perpétuas (não pertencem a um mês específico), então "Nova despesa
+          fixa" fica sempre disponível — só as ações de orçamento em si dependem do mês estar
+          na janela editável. Uma lista só (a árvore) em vez de abas separadas: despesa fixa já
+          aparece aninhada dentro da categoria/subcategoria dela, decidido 2026-08-08. */}
+      <div className="flex flex-wrap justify-end gap-2">
+        {isEditableMonth && canClone && <CloneBudgetButton fromMonth={monthWindow.lastRegisteredMonth!} toMonth={monthDate} />}
+        {isEditableMonth && <BudgetTreeEditor categories={categories} budgets={budgets} month={monthDate} />}
+        <FixedExpenseFormDialog categories={categories} accounts={liquidAccounts} />
+        {isEditableMonth && <BudgetFormDialog categories={categories} month={monthDate} />}
+      </div>
 
-        <TabsContent value="fixed" className="flex flex-col gap-3">
-          <div className="flex justify-end"><FixedExpenseFormDialog categories={categories} accounts={liquidAccounts} /></div>
-          {fixedExpenses.length === 0 ? (
-            <p className="text-sm opacity-60">Nenhuma despesa fixa cadastrada ainda.</p>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {fixedExpenses.map((f) => (
-                <Card key={f.id} elevation="sm" className="gap-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle>{f.name}</CardTitle>
-                    <div className="flex items-center gap-2">
-                      {f.isPaidThisMonth ? (
-                        <Badge variant="success" className="gap-1"><CircleCheck className="size-3" strokeWidth={1.5} /> Pago</Badge>
-                      ) : (
-                        <Badge variant="neutral">Vence dia {f.dueDay}</Badge>
-                      )}
-                      <FixedExpenseFormDialog categories={categories} accounts={liquidAccounts} expense={f} />
-                      <DeactivateFixedExpenseButton fixedExpenseId={f.id} name={f.name} />
-                    </div>
-                  </div>
-                  <div className="text-lg font-semibold tabular-nums">{formatCurrency(f.projectedAmount)}</div>
-                  {f.status === "EXCEEDED" && <Badge variant="danger" className="w-fit">Acima do planejado</Badge>}
-                  {!f.isPaidThisMonth && (
-                    <PayFixedExpenseDialog
-                      expense={f}
-                      accounts={liquidAccounts}
-                      trigger={<Button size="sm" variant="secondary" className="w-fit"><CreditCard className="size-3.5" strokeWidth={1.5} /> Registrar pagamento</Button>}
-                    />
+      <BudgetTree
+        categories={tree}
+        renderCategoryActions={
+          isEditableMonth
+            ? (c) => (
+                <div className="flex items-center gap-2">
+                  <BudgetFormDialog
+                    categories={categories}
+                    month={monthDate}
+                    budget={{ id: c.budget!.id, categoryId: c.categoryId, subcategoryId: undefined, plannedAmount: c.budget!.plannedAmount }}
+                  />
+                  {/* A budget with direct fixed expenses can't be deleted, only raised — deleting it would orphan their floor (AI_CONTEXT.md "Budget hierarchy"). */}
+                  {c.directFixedExpenses.length === 0 && (
+                    <DeactivateBudgetButton budgetId={c.budget!.id} label={c.categoryName} />
                   )}
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+                </div>
+              )
+            : undefined
+        }
+        renderSubcategoryActions={
+          isEditableMonth
+            ? (c, s) => (
+                <div className="flex items-center gap-2">
+                  <BudgetFormDialog
+                    categories={categories}
+                    month={monthDate}
+                    budget={{ id: s.budgetId, categoryId: c.categoryId, subcategoryId: s.subcategoryId, plannedAmount: s.plannedAmount }}
+                  />
+                  {s.fixedExpenses.length === 0 && (
+                    <DeactivateBudgetButton budgetId={s.budgetId} label={`${c.categoryName} · ${s.subcategoryName}`} />
+                  )}
+                </div>
+              )
+            : undefined
+        }
+        renderFixedExpenseActions={(f) => (
+          <div className="flex items-center gap-2">
+            {!f.isPaidThisMonth && (
+              <PayFixedExpenseDialog
+                expense={f}
+                accounts={liquidAccounts}
+                trigger={<button className="text-text/40 hover:text-accent" aria-label="Registrar pagamento"><CreditCard className="size-3.5" strokeWidth={1.5} /></button>}
+              />
+            )}
+            <FixedExpenseFormDialog categories={categories} accounts={liquidAccounts} expense={f} />
+            <DeactivateFixedExpenseButton fixedExpenseId={f.id} name={f.name} />
+          </div>
+        )}
+      />
+
+      <TransactionExplorer transactions={transactions} categories={categories} />
     </div>
   );
 }

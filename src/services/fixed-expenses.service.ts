@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { startOfMonth, endOfMonth } from "@/lib/utils/date";
-import { reconcileBudgetFloors } from "./_shared";
+import { reconcileFixedExpenseFloors } from "./_shared";
 import type { FixedExpenseInput } from "@/lib/validations/fixed-expenses";
 import type { FixedExpenseDTO } from "@/types/dto";
 
@@ -81,7 +81,7 @@ export async function createFixedExpense(input: FixedExpenseInput): Promise<{ id
     .single();
   if (error) throw new Error(error.message);
 
-  const notices = await reconcileBudgetFloors(supabase, user.id, input.categoryId, input.subcategoryId);
+  const notices = await reconcileFixedExpenseFloors(supabase, user.id, input.categoryId, input.subcategoryId);
   return { id: data.id, notices };
 }
 
@@ -111,7 +111,7 @@ export async function updateFixedExpense(id: string, input: Partial<FixedExpense
 
   const categoryId = input.categoryId !== undefined ? input.categoryId : existing.category_id;
   const subcategoryId = input.subcategoryId !== undefined ? input.subcategoryId : existing.subcategory_id;
-  const notices = await reconcileBudgetFloors(supabase, user.id, categoryId, subcategoryId);
+  const notices = await reconcileFixedExpenseFloors(supabase, user.id, categoryId, subcategoryId);
   return { notices };
 }
 

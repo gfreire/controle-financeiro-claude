@@ -13,7 +13,9 @@ import type { BudgetDTO, CategoryDTO } from "@/types/dto";
 
 const NONE = "NONE";
 
-export function BudgetFormDialog({ categories, budget }: { categories: CategoryDTO[]; budget?: BudgetDTO }) {
+type EditableBudget = Pick<BudgetDTO, "id" | "categoryId" | "subcategoryId" | "plannedAmount">;
+
+export function BudgetFormDialog({ categories, budget, month }: { categories: CategoryDTO[]; budget?: EditableBudget; month: string }) {
   const isEdit = !!budget;
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -29,7 +31,7 @@ export function BudgetFormDialog({ categories, budget }: { categories: CategoryD
 
   function handleSubmit() {
     setError(null);
-    const parsed = budgetSchema.safeParse({ categoryId, subcategoryId: subcategoryId === NONE ? undefined : subcategoryId, amount: Number(amount) });
+    const parsed = budgetSchema.safeParse({ categoryId, subcategoryId: subcategoryId === NONE ? undefined : subcategoryId, amount: Number(amount), month });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
       return;

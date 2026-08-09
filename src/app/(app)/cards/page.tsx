@@ -11,6 +11,7 @@ import { PurchaseFormDialog } from "@/features/cards/components/purchase-form-di
 import { PaymentFormDialog } from "@/features/cards/components/payment-form-dialog";
 import { DeletePurchaseButton } from "@/features/cards/components/delete-purchase-button";
 import { MonthNav } from "@/features/cards/components/month-nav";
+import { EditableCategoryCell } from "@/features/dashboard/components/editable-category-cell";
 import { Button } from "@/components/ui/button";
 import { CreditCard, Receipt, Pencil } from "lucide-react";
 
@@ -97,6 +98,7 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
                       <TableHeader>
                         <TableRow>
                           <TableHead>Descrição</TableHead>
+                          <TableHead>Categoria</TableHead>
                           <TableHead>Parcela</TableHead>
                           <TableHead className="text-right">Valor</TableHead>
                           <TableHead className="w-14" />
@@ -108,6 +110,19 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
                           return (
                             <TableRow key={r.id}>
                               <TableCell>{r.description}</TableCell>
+                              <TableCell>
+                                <EditableCategoryCell
+                                  row={{
+                                    id: r.id,
+                                    source: "installment",
+                                    purchaseId: r.purchaseId,
+                                    type: "EXPENSE",
+                                    categoryId: purchase?.categoryId ?? null,
+                                    subcategoryId: purchase?.subcategoryId ?? null,
+                                  }}
+                                  categories={categories}
+                                />
+                              </TableCell>
                               <TableCell className="text-xs opacity-70">{r.installmentNumber}/{r.totalInstallments}</TableCell>
                               <TableCell className="text-right tabular-nums">{formatCurrency(r.amount)}</TableCell>
                               <TableCell>

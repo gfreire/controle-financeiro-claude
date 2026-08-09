@@ -112,7 +112,7 @@ CREATE TABLE public.credit_cards (
   account_id uuid NOT NULL,
   closing_day integer NOT NULL,   -- dia de fechamento da fatura
   due_day integer NOT NULL,       -- dia de vencimento da fatura
-  credit_limit numeric(14,2),     -- ADICIONADO: soft-enforced na UI, nunca bloqueia o insert
+  credit_limit numeric(14,2) NOT NULL CHECK (credit_limit > 0), -- ALTERADO (0008): obrigatório e sempre > 0; só o EXCESSO de compra contra o limite é soft-enforced na UI, nunca bloqueia o insert
   CONSTRAINT credit_cards_pkey PRIMARY KEY (account_id),
   CONSTRAINT credit_cards_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id)
 );
@@ -358,9 +358,10 @@ CREATE TABLE public.reservoir_transactions (
 
 -- ============================================================
 -- BUDGETS
--- Alvo permanente por categoria/subcategoria (sem coluna de mês —
--- o mês é o parâmetro de consulta do service, nunca uma linha nova
--- por período). Nunca gera transaction; só alimenta alerta/dashboard.
+-- ALTERADO (0009, 2026-08-08): agora tem coluna `month` — cada linha pertence a exatamente um
+-- mês, então subir um valor (ex: aluguel) nunca mais sobrescreve o histórico do mês anterior.
+-- Antes disso era um "alvo permanente" sem coluna de mês (o mês era só parâmetro de consulta) —
+-- essa frase não vale mais para esta tabela.
 -- ============================================================
 CREATE TABLE public.budgets (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -368,6 +369,7 @@ CREATE TABLE public.budgets (
   category_id uuid,
   subcategory_id uuid,
   amount numeric(14,2) NOT NULL,
+  month date NOT NULL, -- ADICIONADO (0009): primeiro dia do mês ao qual este orçamento pertence
   active boolean DEFAULT true, -- CORRIGIDO: faltava, mesma inconsistência do reservoirs
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT budgets_pkey PRIMARY KEY (id),
@@ -375,6 +377,16 @@ CREATE TABLE public.budgets (
   CONSTRAINT budgets_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
   CONSTRAINT budgets_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id)
 );
+-- Índice único PARCIAL (WHERE active = true), não uma constraint UNIQUE simples: budgets usa o
+-- mesmo soft-delete (`active`) do resto do schema, e o mecanismo de auto-desativação
+-- (deactivateCategoryBudgetIfOverCommitted, _shared.ts) pode deixar uma linha desativada pra
+-- trás numa tupla (user_id, category_id, subcategory_id, month) que uma linha NOVA ativa
+-- reaproveita depois — uma constraint simples colidiria errado contra a linha antiga inativa.
+CREATE UNIQUE INDEX IF NOT EXISTS budgets_user_category_subcategory_month_unique
+  ON public.budgets (user_id, category_id, subcategory_id, month)
+  NULLS NOT DISTINCT
+  WHERE active = true;
+CREATE INDEX IF NOT EXISTS budgets_user_month_idx ON public.budgets (user_id, month);
 
 -- ============================================================
 -- POLÍTICA DE DELEÇÃO (CORRIGIDO: estava implícita, agora explícita)

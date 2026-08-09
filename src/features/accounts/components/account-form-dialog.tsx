@@ -152,15 +152,21 @@ export function AccountFormDialog({ institutions }: { institutions: FinancialIns
         )}
         {type === "CREDIT_CARD" && (
           <Field>
-            <Label>Limite do cartão (opcional)</Label>
-            <Input type="number" step="0.01" min="0" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="Deixe em branco se não quiser alertas de limite" />
+            <Label>Limite do cartão</Label>
+            <Input type="number" step="0.01" min="0.01" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="Obrigatório — todo cartão precisa de um limite" />
           </Field>
         )}
 
         <FieldError>{error}</FieldError>
         <DialogActions>
           <DialogClose asChild><Button variant="secondary" size="sm">Cancelar</Button></DialogClose>
-          <Button size="sm" disabled={pending || !name} onClick={handleSubmit}>{pending ? "Salvando..." : "Salvar"}</Button>
+          <Button
+            size="sm"
+            disabled={pending || !name || (type === "CREDIT_CARD" && !(Number(creditLimit) > 0))}
+            onClick={handleSubmit}
+          >
+            {pending ? "Salvando..." : "Salvar"}
+          </Button>
         </DialogActions>
       </DialogContent>
     </Dialog>

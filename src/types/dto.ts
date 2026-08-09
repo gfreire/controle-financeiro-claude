@@ -50,6 +50,7 @@ export type TransactionViewDTO = {
   accountType: AccountType | null;
   amount: number;
   source: "transaction" | "installment";
+  purchaseId?: string; // set only when source === "installment" — the category/subcategory live on card_purchases, not the installment row, so edits must target this id
 };
 
 export type ReservoirDTO = { id: string; name: string; balance: number; categoryId: string | null; categoryName: string | null };
@@ -144,6 +145,39 @@ export type FixedExpenseDTO = {
   status: "OK" | "EXCEEDED";
 };
 
+// Tree-shaped, grouped read used by /budgets and the dashboard panel (AI_CONTEXT.md "Budgets").
+// A category's `budget` is null whenever there's no active row for it this month — this is never
+// a computed stand-in (e.g. "sum of subcategories"): an implicit total would create false alerts,
+// since a category's actualAmount already covers every subcategory under it, tracked or not. When
+// `budget` is null, the UI shows no category-level number at all — see budget-tree.tsx.
+export type BudgetTreeSubcategoryDTO = {
+  budgetId: string;
+  subcategoryId: string;
+  subcategoryName: string;
+  plannedAmount: number;
+  actualAmount: number;
+  status: "OK" | "EXCEEDED";
+  fixedExpenses: FixedExpenseDTO[];
+};
+
+export type BudgetTreeCategoryDTO = {
+  categoryId: string;
+  categoryName: string;
+  icon: string | null;
+  budget: { id: string; plannedAmount: number; actualAmount: number; status: "OK" | "EXCEEDED" } | null;
+  subcategories: BudgetTreeSubcategoryDTO[]; // always real rows
+  directFixedExpenses: FixedExpenseDTO[]; // implies budget !== null, by construction
+};
+
+// Drives which months are plannable right now and what a "clonar orçamento" action copies from —
+// see getBudgetMonthWindow (budgets.service.ts) and AI_CONTEXT.md "Budgets".
+export type BudgetMonthWindowDTO = {
+  currentMonth: string;
+  nextMonth: string;
+  hasCurrentMonthBudget: boolean;
+  lastRegisteredMonth: string | null;
+};
+
 /* Additional DTOs — needed by Accounts/Categories/Cards screens, not
    explicitly enumerated in ARCHITECTURE.md's DTO list but following the
    same "service returns DTO, never a raw row" rule. */
@@ -188,4 +222,26 @@ export type CategoryUsageDTO = {
   budgetsCount: number;
   fixedExpensesCount: number;
   reservoirsCount: number;
+};
+
+/**
+ * Onboarding / Settings "Importar categorias padrão" tree picker. Always lists the FULL
+ * `is_default` catalog (not just what's missing) so the user always sees the whole starter pack;
+ * `alreadyImported` items render checked+disabled in the UI (can't be deselected) while still
+ * being visible, and `userCategoryId` lets a still-missing subcategory be attached to the user's
+ * existing category copy instead of creating a duplicate. See AI_CONTEXT.md "Onboarding".
+ */
+export type CategoryImportOptionDTO = {
+  id: string; // is_default category id — the value submitted when NOT already imported
+  name: string;
+  type: CategoryType;
+  color: string;
+  icon: string | null;
+  alreadyImported: boolean;
+  userCategoryId: string | null; // set when alreadyImported — the user's own copy of this category
+  subcategories: {
+    id: string; // is_default subcategory id — the value submitted when NOT already imported
+    name: string;
+    alreadyImported: boolean;
+  }[];
 };

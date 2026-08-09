@@ -8,7 +8,11 @@ import type { CategoryDTO, TransactionViewDTO } from "@/types/dto";
 
 const UNCATEGORIZED = "UNCATEGORIZED";
 
-export function EditableCategoryCell({ row, categories }: { row: TransactionViewDTO; categories: CategoryDTO[] }) {
+// Narrow subset of TransactionViewDTO — lets non-dashboard callers (e.g. the Cards page, editing
+// a card_purchases row directly) reuse this without fabricating unrelated DTO fields like date/account.
+type EditableCategoryRow = Pick<TransactionViewDTO, "id" | "source" | "type" | "categoryId" | "subcategoryId" | "purchaseId">;
+
+export function EditableCategoryCell({ row, categories }: { row: EditableCategoryRow; categories: CategoryDTO[] }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [categoryId, setCategoryId] = useState(row.categoryId ?? UNCATEGORIZED);
@@ -32,6 +36,7 @@ export function EditableCategoryCell({ row, categories }: { row: TransactionView
       await inlineEditTransaction({
         id: row.id,
         source: row.source,
+        purchaseId: row.purchaseId,
         categoryId: nextCategoryId === UNCATEGORIZED ? null : nextCategoryId,
         subcategoryId: nextSubcategoryId === UNCATEGORIZED ? null : nextSubcategoryId,
       });

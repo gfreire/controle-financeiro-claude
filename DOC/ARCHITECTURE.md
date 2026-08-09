@@ -24,11 +24,11 @@ Visual design: TailwindCSS v4 (CSS-first `@theme`, no `tailwind.config.js`) + ha
 
 Full app is built and running (Next.js 16, App Router, Turbopack) — this isn't a spec waiting to be implemented, it's what's actually in `src/`. Read this section before assuming something is missing; grep `src/` to confirm specifics, not to rediscover whether a feature exists at all.
 
-**Built**: auth (signup/login/signout, email-confirmation-aware), onboarding (category tree-picker, re-openable from Settings to import categories skipped the first time, diffed by name+type so already-imported ones never show again), all 8 services + their Server Actions, Dashboard (filters incl. month-by-month navigator via the shared `MonthPicker` — click-anywhere-on-label opens the native picker, not just the browser's own tiny icon hit-area —, account filter shows each account's type icon, category filter grouped under "Receitas"/"Despesas" `SelectGroup`s, 4 charts, budgets/fixed-expenses panel scoped to the filtered period (not always the current month) with fixed expenses nested under their parent budget, Transaction Explorer with inline category edit + delete + account-type icon per row — no standalone batch-reassign button, that only lives inside category deletion now), Transactions (month-scoped like Cards/Dashboard — a `MonthNav` filters the list to one month at a time instead of loading every transaction ever logged; create/delete; no manual "pay card bill" here — see below; `CREDIT_CARD_PAYMENT` rows show a "Pagamento de Cartão" label instead of a category), Accounts (create with institution-first naming — no institution field for `CASH`; initial balance for CASH/BANK; Informar Rendimento restricted to `BANK` since cash doesn't yield; Ajustar Saldo for CASH+BANK; Ajustar Limite/Ajustar Cartão quick action for `credit_limit`/`overdraft_limit`, editable anytime, and for `CREDIT_CARD` also `closing_day`/`due_day` in the same dialog; account-type icon — Banknote/Wallet/CreditCard — shown consistently on the Accounts page, transaction lists, and the dashboard's account filter), Cards (create/edit/delete a purchase — edit rolls back and regenerates every installment; competence month defaults from `closing_day` but is directly overridable; pay-the-bill flow suggests the statement balance through TODAY's real month regardless of the page's month filter; soft credit-limit warning, never blocks; card summary shows usado/total against the full committed balance incl. future installments, the VIEWED month's invoice, and the overdue amount), "Receita Programada" — displayed name for the Reservoir feature, route/table/service/DTO names still `reservoir*` (accrual/withdrawal entries, description defaults to "Movimentação da receita programada {nome}"), Debts (pie charts for "a pagar"/"a receber" at the top, each shown only when that side has data; payment/increase dialog defaults its description to "Movimentação da dívida {nome}"; a payment that fully settles or overpays a debt is soft-deleted automatically after a confirm-again warning), Budgets/Fixed Expenses (create + edit + soft-delete dialogs; a fixed expense is a committed floor on its category/subcategory's budget — auto-raises or creates the budget with a notice, never blocks; a budget can never be manually lowered below what its subcategory budgets + fixed expenses commit to, a hard block; a tree-based "Planejar orçamentos" screen plans a whole category + subcategories in one place, reusing the onboarding tree-picker's visual pattern; "Registrar pagamento" defaults its description to "Pagamento — {nome da despesa fixa}"), Settings (category/subcategory CRUD with guided-deletion, curated emoji icon picker — no free-text icon field).
+**Built**: auth (signup/login/signout, email-confirmation-aware), onboarding (category tree-picker — uncheck a subcategory to keep the rest of the category; re-openable from Settings to import more, always showing the FULL is_default catalog with already-imported categories/subcategories rendered checked+disabled rather than hidden), all 8 services + their Server Actions, Dashboard (filters incl. month-by-month navigator via the shared `MonthPicker` — click-anywhere-on-label opens the native picker, not just the browser's own tiny icon hit-area —, account filter shows each account's type icon, category filter grouped under "Receitas"/"Despesas" `SelectGroup`s, 4 charts, budgets/fixed-expenses panel scoped to the filtered period (not always the current month) with fixed expenses nested under their parent budget, Transaction Explorer with inline category edit + delete + account-type icon per row — no standalone batch-reassign button, that only lives inside category deletion now), Transactions (month-scoped like Cards/Dashboard — a `MonthNav` filters the list to one month at a time instead of loading every transaction ever logged; create/delete; no manual "pay card bill" here — see below; `CREDIT_CARD_PAYMENT` rows show a "Pagamento de Cartão" label instead of a category), Accounts (create with institution-first naming — no institution field for `CASH`; initial balance for CASH/BANK; Informar Rendimento restricted to `BANK` since cash doesn't yield; Ajustar Saldo for CASH+BANK; Ajustar Limite/Ajustar Cartão quick action for `credit_limit`/`overdraft_limit`, editable anytime, and for `CREDIT_CARD` also `closing_day`/`due_day` in the same dialog; `credit_limit` required and always > 0 for `CREDIT_CARD` accounts; each `CREDIT_CARD` account card shows the same `totalCommitted / creditLimit` usage figure as the Cards page; account-type icon — Banknote/Wallet/CreditCard — shown consistently on the Accounts page, transaction lists, and the dashboard's account filter), Cards (create/edit/delete a purchase — edit rolls back and regenerates every installment; competence month defaults from `closing_day` but is directly overridable; inline category/subcategory editing per installment row, same `EditableCategoryCell` pattern as the dashboard; pay-the-bill flow suggests the statement balance through TODAY's real month regardless of the page's month filter; soft credit-limit warning, never blocks; card summary shows usado/total against the full committed balance incl. future installments, the VIEWED month's invoice, and the overdue amount), "Receita Programada" — displayed name for the Reservoir feature, route/table/service/DTO names still `reservoir*` (accrual/withdrawal entries, description defaults to "Movimentação da receita programada {nome}"), Debts (pie charts for "a pagar"/"a receber" at the top, each shown only when that side has data; payment/increase dialog defaults its description to "Movimentação da dívida {nome}"; a payment that fully settles or overpays a debt is soft-deleted automatically after a confirm-again warning), Budgets/Fixed Expenses (budgets are month-scoped — `MonthNav` browses any month, but only the current real month and the next one, once the current month has a budget, are creatable/editable; every earlier month is read-only history; "Clonar de {mês}" copies a prior month's rows verbatim when the viewed editable month is empty; a category's own number is always real-or-absent, never an implicit sum of its subcategories — saving a subcategory budget can only erase an insufficient category row, never inflate one; a fixed expense is still a committed floor that auto-raises/creates the category or subcategory budget with a notice, never blocks, now scoped to current + next month; a budget can never be manually lowered below what its subcategory budgets + fixed expenses commit to, a hard block, and can never be *deleted* at all while fixed expenses depend on it (only raised) — the delete button hides itself in that case, and the service blocks it too either way; `/budgets` is a single unified view now, no more separate tabs — one tree (shared read-only by the dashboard panel) nested when a category has real headroom, merged into one box when a lone subcategory has no category number of its own, or standalone boxes under a bare label when there are several, with each fixed expense's pay/edit/delete actions living directly on its own nested row, and its progress bar reflecting real paid status, never the planned placeholder; a tree-based "Planejar orçamentos" screen plans (or bulk-deletes, by clearing a field) a whole category + subcategories for one month in one place, reusing the onboarding tree-picker's visual pattern and shared with the first-time onboarding budget step; the page also lists the viewed month's transactions/card purchases at the bottom, reusing the dashboard's `TransactionExplorer`; "Registrar pagamento" defaults its description to "Pagamento — {nome da despesa fixa}"), Settings (category/subcategory CRUD with guided-deletion, curated emoji icon picker — no free-text icon field).
 
 **Deliberate deviations from the original spec below** (each documented at its point of change — see the migration file's own comment for the *why*):
 - `bank_accounts.initial_balance` added (0005) — the original schema only gave `CASH` an initial balance, forcing every new `BANK` account through an immediate `Ajustar Saldo`.
-- `credit_cards.credit_limit` added (0007), optional, soft-enforced — a purchase that would exceed it shows a warning ("you may have forgotten to log the bill payment, or made a mistake") requiring an explicit "insert anyway" acknowledgment; it never blocks the insert. Both this and `overdraft_limit` are editable anytime via "Ajustar Limite" (decided 2026-08-07) — see `AI_CONTEXT.md` → "Accounts".
+- `credit_cards.credit_limit` added (0007); a purchase that would exceed it shows a warning ("you may have forgotten to log the bill payment, or made a mistake") requiring an explicit "insert anyway" acknowledgment, never blocking the insert — that part is still soft-enforced. The limit's *presence*, however, is not: migration 0008 (decided 2026-08-08) made it `NOT NULL` + `CHECK (credit_limit > 0)` — every `CREDIT_CARD` account must have a positive limit, reversing the original "optional" design. Both this and `overdraft_limit` are editable anytime via "Ajustar Limite" (decided 2026-08-07) — see `AI_CONTEXT.md` → "Accounts".
 - `profiles.onboarding_completed` added (0004) + `on_auth_user_created` trigger (0003) — see `schema.sql`'s comments on `profiles`.
 - The `is_system` category seed (`Juros`/`Rendimentos`/`Ajuste`×2) now lives only in `seed.sql`, not duplicated in `schema.sql` — running both used to violate the unique constraint.
 - The default `Dívidas` starter pack no longer includes a "Pagamento de Cartão" subcategory — paying a card bill is already implicit in the `CREDIT_CARD_PAYMENT` transfer and never takes a category (the real expense is the card's purchases); the subcategory only invited miscategorized manual entries.
@@ -44,6 +44,14 @@ Full app is built and running (Next.js 16, App Router, Turbopack) — this isn't
 - Debts: `addDebtTransaction` now defaults an empty `description` to `"Movimentação da dívida {agent}"` (fixed 2026-08-07, previously a generic "Movimentação de dívida" with no debt name) and auto soft-deletes the debt when a payment brings its real remaining balance to zero or below — an overpayment (e.g. interest the payer/creditor decided to settle) still zeroes it out intentionally, it isn't treated as an error. `DebtTransactionDialog` warns the user before submitting such a payment and requires a second explicit confirm ("Confirmar quitação"), so the debt disappearing from the list is never a surprise.
 - The Reservoir feature is now **displayed** as "Receita Programada" with a `Vault` icon instead of "Reservatórios"/`Droplets` (fixed 2026-08-07, at the user's explicit request — display-only, see AI_CONTEXT.md "Reservoir (Cofre)"). Route (`/reservoirs`), tables (`reservoirs`, `reservoir_transactions`), service (`reservoirs.service.ts`), and DTOs (`ReservoirDTO`, `ReservoirTransactionDTO`) are untouched on purpose — only Portuguese UI strings and the nav icon changed, across `nav-items.ts`, `reservoirs/page.tsx`, `reservoir-form-dialog.tsx`, `withdrawal-dialog.tsx`, and `delete-category-dialog.tsx`'s usage-count text.
 - Default-description convention broadened to every system-generated transaction that names an entity but had no free-text description field of its own (fixed 2026-08-07, generalizing the Debts fix from the same day): `addReservoirTransaction`/`withdrawReservoir` → `"Movimentação da receita programada {nome}"`; `registerCardPayment` → `"Pagamento da fatura do cartão {nome}"`; `registerYield`/`reconcileAccountBalance` → `"Informar Rendimento — {conta}"`/`"Ajustar Saldo — {conta}"`; `payFixedExpenseAction` → `"Pagamento — {nome da despesa fixa}"`. Previously several of these left `transactions.description` `null` or a generic string with no entity name, showing as blank/indistinguishable in Lançamentos and the Dashboard's Transaction Explorer.
+- The category import picker (onboarding + Settings "Importar categorias padrão", fixed 2026-08-08 at the user's request) now always lists the complete `is_default` catalog instead of pre-filtering to only what's missing — `getAvailableDefaultCategories` was replaced by `getDefaultCategoryImportOptions`, returning `CategoryImportOptionDTO[]` with an `alreadyImported` flag per category/subcategory. Already-imported items render checked+disabled in `CategoryTreeItem` (visible, not removable — badge "Já importada"); disabled checkboxes are excluded from native form submission by the browser itself, so the server action still only ever receives genuinely new selections. `copyDefaultCategories` gained a second path for a subcategory selected under an already-imported category: it resolves the user's existing category copy by `(type, name)` and attaches the new subcategory there instead of creating a duplicate category.
+- **Budgets became month-scoped (migration 0009, decided 2026-08-08)** — the biggest deviation from the original spec, which explicitly said "month is a query parameter, never a column" for this table; that line no longer applies. Bundled into the same change: `getBudgetTree`/`getBudgetMonthWindow`/`cloneBudgetMonth` are new; `reconcileBudgetFloors`'s auto-raise-the-category behavior, which used to be triggered by both fixed-expense saves and subcategory-budget saves, is now fixed-expense-only (`reconcileFixedExpenseFloors`) — a subcategory-budget save instead calls the new `deactivateCategoryBudgetIfOverCommitted`, which can only erase an insufficient category row, never inflate one. A category's own number is now always a real row or nothing — never a computed "sum of subcategories" stand-in (an earlier draft of this exact change tried that and was corrected — see `AI_CONTEXT.md` → "Category ceilings are never computed" for the full reasoning). Full detail in `AI_CONTEXT.md` → "Budgets".
+- `/budgets` dropped its Orçamentos/Despesas Fixas tabs in favor of one unified tree (decided 2026-08-08, at the user's request — the split was making the category↔fixed-expense hierarchy harder to see, not easier, since a fixed expense already nests inside its budget row). Fixed-expense pay/edit/delete actions moved onto their own row inside the tree (`BudgetTree`'s new `renderFixedExpenseActions` prop); "Nova despesa fixa" sits next to "Novo orçamento" at the top instead of behind a second tab. Two more fixes landed alongside this: a fixed expense's progress bar inside the tree now uses `actualAmount` (was showing 100%/full even when unpaid, because it used the `projectedAmount` placeholder meant for other contexts); and a budget row can no longer be deleted while fixed expenses depend on it (`deactivateBudget` now checks this server-side, not just via a hidden button), with `budget-tree-editor.tsx`'s "clear a field to bulk-delete" shortcut (also new — mirrors the same guard, added so large changes don't require hunting down individual trash icons) surfacing that same block as an inline error instead of silently failing. `/budgets` also now lists the viewed month's transactions/card purchases at the bottom via the shared `TransactionExplorer`.
+- `DeleteCategoryDialog`'s "Mover para outra categoria" reassign step (fixed 2026-08-08) now also lets the user pick a target *subcategory*, not just a category — it was silently dropping that half of the guided-reassignment flow described in `AI_CONTEXT.md` → "Deleting a category or subcategory". This also surfaced and fixed a real bug in `categories.service.ts#reassignCategory`: when reassigning rows away from a *subcategory* being deleted, the old code only ever updated `subcategory_id`, ignoring whatever target category the caller passed — it now always writes both `category_id` and `subcategory_id` together. The reassign-target category list is also now filtered to the source's own `type`, since a category's `type` must always match what it's attached to.
+- Credit card accounts must always carry a positive `credit_limit` (decided 2026-08-08, migration `0008`) — see `AI_CONTEXT.md` → "Accounts". This reverses the original "optional" design from migration `0007`; the soft-enforce behavior on purchases exceeding the limit is unchanged.
+- Contas now shows each `CREDIT_CARD` account's usage as the identical `totalCommitted / creditLimit` figure the Cards page shows (fixed 2026-08-08), instead of the generic `account.balance` line every other account type uses — see `AI_CONTEXT.md` → "Accounts".
+- Cards page installment rows now support inline category/subcategory editing (fixed 2026-08-08, at the user's request — "igual temos no sistema inteiro"), reusing `EditableCategoryCell` from the dashboard rather than requiring the full `PurchaseFormDialog` edit flow just to fix a category. Fixing this also surfaced a real, pre-existing bug: `TransactionViewDTO` rows with `source: "installment"` were passing the *installment's* id to `inlineEditTransaction`, which forwards it to `updateCardPurchase` — a `card_purchases` update keyed on an installment id, silently matching zero rows and throwing (`Cannot coerce the result to a single JSON object`). This affected the Dashboard's Transaction Explorer too, for any card-purchase row's category edit. Fixed by adding `TransactionViewDTO.purchaseId` (set only for `source: "installment"` rows) and using that instead of `id` when the edit lands on `card_purchases`.
+- Found live during Budgets verification (fixed 2026-08-08): `cards.service.ts#updateCardPurchase` merged `categoryId`/`subcategoryId` with `input.categoryId ?? current.category_id` — since `??` treats an explicit `null` (meaning "clear this field") the same as `undefined` (meaning "not part of this update"), clearing a card purchase's category to "Sem categoria" via inline edit silently never persisted; the UI showed the change optimistically but a fresh page load always reverted to the old category. Fixed by switching to `input.categoryId !== undefined ? input.categoryId : current.category_id`, the same pattern already used elsewhere (e.g. `updateBudget`) for partial updates where `null` is a meaningful value. Also added the missing `revalidatePath("/budgets")` to `inlineEditTransaction` — editing a transaction/purchase's category can change what a budget's `actualAmount` sums, and that path wasn't being invalidated alongside `/dashboard`, `/transactions`, `/cards`.
 
 **Known gaps** (not started, don't assume otherwise): no automated tests yet (see "Testing & Migrations" in `AI_GENERATION_RULES.md` for the intended scope); still no *general* account-level edit dialog (name/institution) — only the type-specific actions (balance, yield/reconcile, limit) exist, by design; OFX import remains out of scope per `AI_CONTEXT.md`.
 
@@ -58,6 +66,8 @@ Applied in order; each is additive (no destructive rewrites of an already-shippe
 5. `0005_bank_initial_balance.sql` — `bank_accounts.initial_balance`.
 6. `0006_remove_card_payment_subcategory.sql` — drops "Pagamento de Cartão" from the default `Dívidas` subcategories.
 7. `0007_credit_card_limit.sql` — `credit_cards.credit_limit`.
+8. `0008_credit_card_limit_required.sql` — makes `credit_cards.credit_limit` `NOT NULL` + `CHECK (> 0)`.
+9. `0009_monthly_budgets.sql` — `budgets.month`, `NOT NULL` + a **partial** unique index `NULLS NOT DISTINCT (user_id, category_id, subcategory_id, month) WHERE active = true` (not a plain constraint — must coexist with the `active` soft-delete convention) + a `(user_id, month)` index.
 
 ---
 
@@ -126,15 +136,15 @@ src
  │  ├ cards/components (purchase-form-dialog [create+edit, competence override, over-limit warning], payment-form-dialog, delete-purchase-button, month-nav)
  │  ├ reservoirs/components (reservoir-form-dialog, accrual-dialog [description pre-filled with "Movimentação da receita programada {nome}"], withdrawal-dialog — feature displayed as "Receita Programada" in the UI, folder/file names unchanged)
  │  ├ debts/components (debt-form-dialog, debt-transaction-dialog [defaults description to "Movimentação da dívida {nome}"; warns and requires a second confirm before a payment that fully settles/overpays the debt], debts-charts ["Dívidas a pagar"/"Dívidas a receber" pies, each rendered only when that side has data])
- │  ├ budgets/components (budget-form-dialog [create+edit], fixed-expense-form-dialog [create+edit], budget-tree-editor ["Planejar orçamentos" — whole category+subcategory tree in one screen, reuses onboarding's tree pattern], deactivate-budget-button, deactivate-fixed-expense-button, pay-fixed-expense-dialog)
- │  └ categories/components (category-form-dialog, subcategory-form-dialog, category-tree-item [onboarding], inline-category-create [used from transaction/card-purchase forms], delete-category-dialog)
+ │  ├ budgets/components (budget-form-dialog [create+edit, month-scoped], fixed-expense-form-dialog [create+edit], budget-tree-editor ["Planejar orçamentos" — whole category+subcategory tree in one screen for one month, reuses onboarding's tree pattern; clearing an existing field deletes that row, same guards as the single-row delete], budget-tree-fields [the reusable amount-input tree, shared with the onboarding budget step], budget-tree [the ONLY list on /budgets now — no separate fixed-expense tab; renders category/subcategory boxes plus a `renderFixedExpenseActions` slot per nested fixed-expense row for pay/edit/delete, shared read-only (no action slots passed) by the dashboard panel], progress-row [shared planned-vs-actual bar], clone-budget-button, deactivate-budget-button [hidden by the caller when fixed expenses are attached; deactivateBudget itself also blocks it server-side], deactivate-fixed-expense-button, pay-fixed-expense-dialog)
+ │  └ categories/components (category-form-dialog, subcategory-form-dialog, category-tree-item [onboarding/Settings re-import — always renders the full is_default catalog, already-imported items checked+disabled], inline-category-create [used from transaction/card-purchase forms], delete-category-dialog)
  ├ components
  │  ├ ui (button, card, input/field/label/textarea, dialog, select [incl. SelectGroup/SelectLabel for grouped options], tabs, checkbox, switch, dropdown-menu, popover, table, badge, icon-picker + icon-set, account-type-icon [CASH/BANK/CREDIT_CARD → Banknote/Wallet/CreditCard, shared by Accounts + transaction lists], month-picker [prev/next + click-anywhere-on-label native month picker, shared by Dashboard/Cards/Transactions month navigators], confirm-delete-dialog, corner-marks — the Industry blueprint frame)
  │  └ layout (sidebar, header, bottom-navigation, nav-items)
  ├ types (database.ts — raw row shapes; dto.ts — the DTOs below, source of truth)
  └ app
     ├ (auth)/login, (auth)/signup, (auth)/actions.ts
-    ├ onboarding/ (outside the (app) group — no sidebar/nav chrome; reused for the Settings re-import flow too)
+    ├ onboarding/ (outside the (app) group — no sidebar/nav chrome; reused for the Settings re-import flow too; onboarding/budget/ is the first-time-only "plan this month's budget" step reached right after picking starter categories)
     └ (app)/dashboard, transactions, accounts, cards, reservoirs, debts, budgets, settings — layout.tsx here redirects to /onboarding whenever profiles.onboarding_completed is false
 ```
 
@@ -245,7 +255,14 @@ reconcileAccountBalance(accountId, realBalance)
 getCategories() / getSubcategories(categoryId)
 createCategory(data) / createSubcategory(data)
 updateCategory(id, data) / updateSubcategory(id, data)
-copyDefaultCategories(selectedCategoryIds)  -- fluxo de onboarding, INSERT de cópia
+getDefaultCategoryImportOptions() → CategoryImportOptionDTO[]
+  -- catálogo is_default INTEIRO (fixed 2026-08-08 — antes filtrava e só devolvia o que
+  -- faltava), cada item marcado com alreadyImported (+ userCategoryId quando true) — a
+  -- picker do onboarding/Settings renderiza os já importados marcados e desabilitados
+copyDefaultCategories(selectedCategoryIds, selectedSubcategoryIds)  -- fluxo de onboarding/
+  -- reimportação, INSERT de cópia; uma subcategoria selecionada cujo pai NÃO está em
+  -- selectedCategoryIds é anexada à categoria já existente do usuário (resolvida por
+  -- type+name), não cria uma categoria duplicada
 getCategoryUsage(categoryId) / getSubcategoryUsage(subcategoryId)
   → { count: number, preview: TransactionViewDTO[] }
   -- conta e mostra amostra de transactions/card_purchases (+ sinaliza budgets/
@@ -311,26 +328,45 @@ getDebtTransactions(debtId) → DebtTransactionDTO[]
 deactivateDebt(id)  -- soft delete; chamado automaticamente por addDebtTransaction ao zerar o saldo
 ```
 
-## budgets.service.ts (NOVO)
+## budgets.service.ts
 ```
-createBudget(data) → { id, notices[] }
+createBudget(data) → { id, notices[] }   -- data inclui month (imutável após criação)
 updateBudget(id, data) → { notices[] }
   -- ambos aplicam o piso da hierarquia (ver AI_CONTEXT.md "Budget hierarchy") antes de
-  -- salvar: se amount < floor (soma de budgets de subcategoria + fixed_expenses diretas),
-  -- lança erro — bloqueio duro, nunca silencioso. Depois de salvar um orçamento de
-  -- subcategoria, chama reconcileBudgetFloors (_shared.ts) pra propagar o floor pro
-  -- orçamento da categoria; `notices[]` traz o texto pronto pra UI quando isso acontece
+  -- salvar: se amount < floor (soma de budgets de subcategoria + fixed_expenses diretas,
+  -- ambos escopados ao mesmo month), lança erro — bloqueio duro, nunca silencioso. Depois
+  -- de salvar um orçamento de SUBcategoria, chama deactivateCategoryBudgetIfOverCommitted
+  -- (_shared.ts) — NUNCA reconcileBudgetFloors (esse era o bug: subcategoria nunca deve
+  -- criar/aumentar a categoria, só pode invalidar uma linha explícita já insuficiente)
 deactivateBudget(id)  -- soft delete
-getBudgets(month) → BudgetDTO[]   -- month é parâmetro de agregação, não coluna
+  -- NOVO (2026-08-08): bloqueia se a linha for o piso de alguma fixed_expense ativa (mesma
+  -- checagem de deactivateCategoryBudgetIfOverCommitted, mas do lado do delete manual) —
+  -- lança erro em vez de apagar, pra nunca orfanizar o piso. Vale tanto pro botão de
+  -- excluir de uma linha quanto pro atalho "limpar o campo" do budget-tree-editor
+getBudgets(month) → BudgetDTO[]   -- month agora filtra a coluna budgets.month (migration 0009)
+getBudgetTree(month, fixedExpenses) → BudgetTreeCategoryDTO[]
+  -- leitura agrupada/em árvore usada por /budgets e o painel do dashboard — ver AI_CONTEXT.md
+  -- "Category ceilings are never computed". `budget` de cada categoria é a linha real do mês
+  -- ou null (nunca uma soma implícita); fixedExpenses vem de getFixedExpenses(month), já
+  -- calculado pelo caller, só é reagrupado aqui
+getBudgetMonthWindow() → BudgetMonthWindowDTO
+  -- currentMonth/nextMonth/hasCurrentMonthBudget/lastRegisteredMonth — decide quais meses
+  -- podem ser criados/editados agora e de onde "clonar" copia (ver AI_CONTEXT.md "Which
+  -- months can be planned")
+cloneBudgetMonth(fromMonth, toMonth) → { count }
+  -- copia toda linha ativa de fromMonth pra toMonth verbatim, sem revalidar floors (uma
+  -- cópia de um mês já consistente não pode gerar inconsistência)
 ```
 
-## fixed-expenses.service.ts (NOVO)
+## fixed-expenses.service.ts
 ```
 createFixedExpense(data) → { id, notices[] }
 updateFixedExpense(id, data) → { notices[] }
   -- uma despesa fixa é um piso comprometido do orçamento da sua categoria/subcategoria —
-  -- nunca bloqueia; ambas chamam reconcileBudgetFloors (_shared.ts) depois de salvar, que
-  -- cria ou aumenta o(s) orçamento(s) afetado(s) e devolve `notices[]` com o texto pronto
+  -- nunca bloqueia; ambas chamam reconcileFixedExpenseFloors (_shared.ts, não mais
+  -- reconcileBudgetFloors direto) depois de salvar, que cria/aumenta o(s) orçamento(s) do
+  -- mês corrente sempre, e do próximo mês também se ele já existir — devolve `notices[]`
+  -- com o texto pronto
 deactivateFixedExpense(id)  -- soft delete
 getFixedExpenses(month) → FixedExpenseDTO[]
 ```
@@ -338,16 +374,25 @@ getFixedExpenses(month) → FixedExpenseDTO[]
 ## _shared.ts
 ```
 getActualAmountForCategory(...)  -- reusado por budgets e fixed-expenses pro actualAmount do mês
-getCategoryBudgetFloor(supabase, userId, categoryId) → number
-  -- SUM(budgets de subcategoria ativos da categoria) + SUM(fixed_expenses ativas direto
-  -- na categoria, sem subcategoria)
+getCategoryBudgetFloor(supabase, userId, categoryId, month) → number
+  -- SUM(budgets de subcategoria ativos da categoria NAQUELE month) + SUM(fixed_expenses
+  -- ativas direto na categoria, sem subcategoria — essas não são escopadas por mês)
 getSubcategoryBudgetFloor(supabase, userId, subcategoryId) → number
-  -- SUM(fixed_expenses ativas daquela subcategoria)
-reconcileBudgetFloors(supabase, userId, categoryId, subcategoryId) → string[]
-  -- chamada depois de criar/editar uma fixed expense (ou salvar um orçamento de
-  -- subcategoria, passando subcategoryId=null pra só propagar pra cima): nunca bloqueia,
-  -- só cria/aumenta o(s) orçamento(s) cujo floor passou do valor atual, devolvendo avisos
-  -- legíveis pra UI mostrar
+  -- SUM(fixed_expenses ativas daquela subcategoria) — sem parâmetro month, só lê fixed_expenses
+reconcileBudgetFloors(supabase, userId, categoryId, subcategoryId, month) → string[]
+  -- auto-raise/create pra UM mês específico — comportamento inalterado desde 2026-08-07,
+  -- mas hoje só é chamada a partir de reconcileFixedExpenseFloors (nunca mais direto do
+  -- fluxo de orçamento de subcategoria)
+reconcileFixedExpenseFloors(supabase, userId, categoryId, subcategoryId) → string[]
+  -- NOVO (2026-08-08): decide os meses (mês corrente sempre + próximo mês se ele já
+  -- existir) e chama reconcileBudgetFloors pra cada um — é o único chamador que ainda
+  -- pode auto-criar/aumentar uma categoria, porque despesa fixa é comprometida de verdade
+deactivateCategoryBudgetIfOverCommitted(supabase, userId, categoryId, month) → string | null
+  -- NOVO (2026-08-08): o fix do bug. Chamada depois de criar/editar um orçamento de
+  -- SUBcategoria — nunca cria nem aumenta a categoria, só desativa a linha ativa da
+  -- categoria (nesse month) se ela ficou menor que a soma das subcategorias, e devolve o
+  -- aviso pronto pra UI. Nunca desativa se a categoria tem fixed_expenses diretas (o piso
+  -- delas nunca pode ficar órfão)
 ```
 
 ---
@@ -375,7 +420,8 @@ type TransactionViewDTO = {
   accountId: string | null; account: string
   accountType: AccountType | null // drives the account-type icon (Banknote/Wallet/CreditCard) in transaction lists
   amount: number
-  source: "transaction" | "installment" // "installment" rows come from card_purchases — edit/delete only from the Cards page, never here
+  source: "transaction" | "installment" // "installment" rows come from card_purchases — amount/date/installment-count edit and delete stay Cards-page-only; category/subcategory can be inline-edited from either place (dashboard or Cards), via `purchaseId` below
+  purchaseId?: string // set only when source === "installment" — the id inline edits must target (card_purchases), since `id` above is the installment's own id and card_installments carries no category itself
 }
 
 type ReservoirDTO = { id: string; name: string; balance: number; categoryId: string | null; categoryName: string | null } // balance = SUM(reservoir_transactions.amount)
@@ -435,6 +481,27 @@ type FixedExpenseDTO = {
   status: "OK" | "EXCEEDED"
 }
 
+// Leitura em árvore usada por /budgets e o painel do dashboard (AI_CONTEXT.md "Budgets" —
+// "Category ceilings are never computed"). `budget` nulo = sem linha ativa da categoria nesse
+// mês — NUNCA um valor implícito calculado; a UI então não mostra número nenhum de categoria.
+type BudgetTreeSubcategoryDTO = {
+  budgetId: string; subcategoryId: string; subcategoryName: string
+  plannedAmount: number; actualAmount: number; status: "OK" | "EXCEEDED"
+  fixedExpenses: FixedExpenseDTO[]
+}
+type BudgetTreeCategoryDTO = {
+  categoryId: string; categoryName: string; icon: string | null
+  budget: { id: string; plannedAmount: number; actualAmount: number; status: "OK" | "EXCEEDED" } | null
+  subcategories: BudgetTreeSubcategoryDTO[]   // sempre linhas reais
+  directFixedExpenses: FixedExpenseDTO[]      // implica budget !== null, por construção
+}
+
+// getBudgetMonthWindow() — quais meses podem ser planejados agora e de onde "clonar" copia.
+type BudgetMonthWindowDTO = {
+  currentMonth: string; nextMonth: string
+  hasCurrentMonthBudget: boolean; lastRegisteredMonth: string | null
+}
+
 type CardSummaryDTO = {
   accountId: string; creditLimit: number | null
   usedThroughCurrentMonth: number // = getCardBalanceThroughMonth(cardId, todayMonth) — sempre ancorado no mês real de hoje, alimenta a sugestão do "Pagar fatura"
@@ -453,7 +520,7 @@ type AccountDTO = {
   overdraftLimit?: number   // BANK
   closingDay?: number       // CREDIT_CARD
   dueDay?: number           // CREDIT_CARD
-  creditLimit?: number | null // CREDIT_CARD — opcional, soft-enforced (só aviso na UI, nunca bloqueia)
+  creditLimit?: number | null // CREDIT_CARD — obrigatório e sempre > 0 (migration 0008); nulo só em contas não-CREDIT_CARD. Soft-enforced é só o excesso de compra contra o limite, nunca a presença do limite em si
 }
 
 type FinancialInstitutionDTO = { id: string; name: string; color: string | null }
@@ -469,6 +536,13 @@ type SubcategoryDTO = { id: string; categoryId: string; name: string; active: bo
 type CategoryUsageDTO = {
   count: number; preview: TransactionViewDTO[]
   budgetsCount: number; fixedExpensesCount: number; reservoirsCount: number
+}
+
+type CategoryImportOptionDTO = {
+  id: string; name: string; type: CategoryType; color: string; icon: string | null
+  alreadyImported: boolean
+  userCategoryId: string | null  // set quando alreadyImported — a cópia já existente do usuário
+  subcategories: { id: string; name: string; alreadyImported: boolean }[]
 }
 ```
 

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import type { CategoryRow, SubcategoryRow, CategoryType } from "@/types/database";
-import type { CategoryDTO, CategoryUsageDTO, SubcategoryDTO, TransactionViewDTO } from "@/types/dto";
+import type { CategoryDTO, CategoryImportOptionDTO, CategoryUsageDTO, SubcategoryDTO, TransactionViewDTO } from "@/types/dto";
 import type { CategoryInput, SubcategoryInput, ReassignCategoryInput } from "@/lib/validations/categories";
 
 function toSubcategoryDTO(row: SubcategoryRow): SubcategoryDTO {
@@ -85,51 +85,94 @@ export async function getDefaultCategoryOptions(): Promise<CategoryDTO[]> {
 }
 
 /**
- * Same starter pack as `getDefaultCategoryOptions`, minus whatever the user already imported.
+ * Full starter pack (same as `getDefaultCategoryOptions`), annotated with what the user already
+ * has. Unlike the old behavior of hiding already-imported categories entirely, the picker always
+ * shows the complete `is_default` catalog — already-imported categories/subcategories render
+ * checked+disabled (visible, not removable), while anything still missing (a whole new category,
+ * or just a subcategory the user skipped under a category they already imported) stays selectable.
  * There's no FK linking a copy back to its `is_default` source (see AI_CONTEXT.md), so "already
- * imported" is judged the same way the copy itself is informal about: matching (type, name). This
- * is what lets onboarding be safely re-opened later from Settings to import categories the user
- * skipped the first time (e.g. "Transporte" once they buy a car) — only genuinely new ones show up.
+ * imported" is judged the same way the copy itself is informal about: matching (type, name).
  */
-export async function getAvailableDefaultCategories(): Promise<CategoryDTO[]> {
+export async function getDefaultCategoryImportOptions(): Promise<CategoryImportOptionDTO[]> {
   const supabase = await createClient();
   const user = await getUser();
 
-  const [allDefaults, ownCategories] = await Promise.all([
+  const [allDefaults, ownCategoriesRes] = await Promise.all([
     getDefaultCategoryOptions(),
-    supabase.from("categories").select("name, type").eq("user_id", user.id),
+    supabase.from("categories").select("id, name, type").eq("user_id", user.id),
   ]);
-  if (ownCategories.error) throw new Error(ownCategories.error.message);
+  if (ownCategoriesRes.error) throw new Error(ownCategoriesRes.error.message);
+  const ownCategories = ownCategoriesRes.data ?? [];
 
-  const ownKeys = new Set((ownCategories.data ?? []).map((c) => `${c.type}:${c.name}`));
-  return allDefaults.filter((c) => !ownKeys.has(`${c.type}:${c.name}`));
+  const ownCategoryIdByKey = new Map(ownCategories.map((c) => [`${c.type}:${c.name}`, c.id]));
+  const ownCategoryIds = ownCategories.map((c) => c.id);
+
+  const { data: ownSubcategories, error: subError } = ownCategoryIds.length
+    ? await supabase.from("subcategories").select("name, category_id").in("category_id", ownCategoryIds)
+    : { data: [] as { name: string; category_id: string }[], error: null };
+  if (subError) throw new Error(subError.message);
+
+  const ownSubcategoryNamesByCategoryId = new Map<string, Set<string>>();
+  for (const sub of ownSubcategories ?? []) {
+    if (!ownSubcategoryNamesByCategoryId.has(sub.category_id)) ownSubcategoryNamesByCategoryId.set(sub.category_id, new Set());
+    ownSubcategoryNamesByCategoryId.get(sub.category_id)!.add(sub.name);
+  }
+
+  return allDefaults.map((category) => {
+    const userCategoryId = ownCategoryIdByKey.get(`${category.type}:${category.name}`) ?? null;
+    const ownSubNames = userCategoryId ? ownSubcategoryNamesByCategoryId.get(userCategoryId) ?? new Set<string>() : new Set<string>();
+    return {
+      id: category.id,
+      name: category.name,
+      type: category.type,
+      color: category.color,
+      icon: category.icon,
+      alreadyImported: userCategoryId !== null,
+      userCategoryId,
+      subcategories: category.subcategories.map((sub) => ({
+        id: sub.id,
+        name: sub.name,
+        alreadyImported: ownSubNames.has(sub.name),
+      })),
+    };
+  });
 }
 
 /**
  * `selectedSubcategoryIds` lets the tree-picker (onboarding, or the Settings re-import) select a
  * category while excluding specific subcategories — e.g. keep "Moradia" but only "Aluguel", skip
- * "IPTU". Only subcategories under a category that's also in `selectedCategoryIds` are copied;
- * anything else is silently ignored (defends against a stale/tampered form).
+ * "IPTU". A selected subcategory whose parent category ISN'T in `selectedCategoryIds` means the
+ * user already has that category (its checkbox is disabled in the picker, see
+ * `getDefaultCategoryImportOptions`) and is only adding a subcategory they'd skipped before — that
+ * subcategory is attached to the user's EXISTING category copy (resolved by type+name, same
+ * informal match used everywhere else) instead of creating a duplicate category.
  */
 export async function copyDefaultCategories(selectedCategoryIds: string[], selectedSubcategoryIds: string[] = []): Promise<void> {
   const supabase = await createClient();
   const user = await getUser();
 
+  const { data: sourceSubcategories, error: subSourceError } = selectedSubcategoryIds.length
+    ? await supabase.from("subcategories").select("*").in("id", selectedSubcategoryIds)
+    : { data: [] as SubcategoryRow[], error: null };
+  if (subSourceError) throw new Error(subSourceError.message);
+
+  const sourceCategoryIds = new Set([...selectedCategoryIds, ...(sourceSubcategories ?? []).map((s) => s.category_id)]);
+  if (!sourceCategoryIds.size) return;
+
   const { data: sourceCategories, error } = await supabase
     .from("categories")
     .select("*")
-    .in("id", selectedCategoryIds)
+    .in("id", [...sourceCategoryIds])
     .eq("is_default", true);
   if (error) throw new Error(error.message);
   if (!sourceCategories?.length) return;
 
-  const { data: sourceSubcategories, error: subError } = selectedSubcategoryIds.length
-    ? await supabase.from("subcategories").select("*").in("id", selectedSubcategoryIds)
-    : { data: [] as SubcategoryRow[], error: null };
-  if (subError) throw new Error(subError.message);
+  const selectedCategorySet = new Set(selectedCategoryIds);
+  const categoriesToCreate = sourceCategories.filter((c) => selectedCategorySet.has(c.id));
+  const alreadyImportedSourceCategories = sourceCategories.filter((c) => !selectedCategorySet.has(c.id));
 
   const categoryIdMap = new Map<string, string>();
-  const newCategories = sourceCategories.map((source) => {
+  const newCategories = categoriesToCreate.map((source) => {
     const newId = crypto.randomUUID();
     categoryIdMap.set(source.id, newId);
     return {
@@ -144,8 +187,24 @@ export async function copyDefaultCategories(selectedCategoryIds: string[], selec
     };
   });
 
-  const { error: insertCategoriesError } = await supabase.from("categories").insert(newCategories);
-  if (insertCategoriesError) throw new Error(insertCategoriesError.message);
+  if (newCategories.length) {
+    const { error: insertCategoriesError } = await supabase.from("categories").insert(newCategories);
+    if (insertCategoriesError) throw new Error(insertCategoriesError.message);
+  }
+
+  if (alreadyImportedSourceCategories.length) {
+    const { data: ownCategories, error: ownError } = await supabase
+      .from("categories")
+      .select("id, name, type")
+      .eq("user_id", user.id)
+      .in("type", [...new Set(alreadyImportedSourceCategories.map((c) => c.type))]);
+    if (ownError) throw new Error(ownError.message);
+    const ownIdByKey = new Map((ownCategories ?? []).map((c) => [`${c.type}:${c.name}`, c.id]));
+    for (const source of alreadyImportedSourceCategories) {
+      const ownId = ownIdByKey.get(`${source.type}:${source.name}`);
+      if (ownId) categoryIdMap.set(source.id, ownId);
+    }
+  }
 
   const newSubcategories = (sourceSubcategories ?? [])
     .filter((source) => categoryIdMap.has(source.category_id))
@@ -299,9 +358,7 @@ export async function reassignCategory(input: ReassignCategoryInput): Promise<vo
   const patch =
     input.toCategoryId === null
       ? { category_id: null, subcategory_id: null }
-      : column === "subcategory_id"
-        ? { subcategory_id: input.toSubcategoryId ?? null }
-        : { category_id: input.toCategoryId, subcategory_id: input.toSubcategoryId ?? null };
+      : { category_id: input.toCategoryId, subcategory_id: input.toSubcategoryId ?? null };
 
   const tables = ["transactions", "card_purchases", "budgets", "fixed_expenses", "reservoirs"] as const;
   for (const table of tables) {

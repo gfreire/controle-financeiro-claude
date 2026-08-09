@@ -76,7 +76,7 @@ erDiagram
         uuid account_id PK_FK
         int closing_day
         int due_day
-        numeric credit_limit "opcional, soft-enforced na UI"
+        numeric credit_limit "obrigatorio, sempre > 0; excesso de compra contra o limite fica soft-enforced na UI"
     }
 
     CATEGORIES {
@@ -175,7 +175,8 @@ erDiagram
         uuid user_id FK
         uuid category_id FK
         uuid subcategory_id FK
-        numeric amount "alvo permanente, sem coluna de mes"
+        numeric amount
+        date month "0009: 1o dia do mes, uma linha por mes"
         boolean active
     }
 
