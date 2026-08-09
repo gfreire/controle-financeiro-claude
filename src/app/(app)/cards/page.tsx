@@ -99,45 +99,47 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
                         const description =
                           r.description || purchase?.subcategoryName || purchase?.categoryName || "Gasto com cartão";
                         return (
-                          <div key={r.id} className="flex items-center gap-3 py-2.5">
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm">
+                          <div key={r.id} className="flex flex-col gap-1 py-2.5">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <p className="min-w-0 truncate text-sm">
                                 <span className="tabular-nums opacity-60">{formatDate(r.purchaseDate)}</span> - {description}
                               </p>
-                              <p className="text-xs tabular-nums opacity-50">{r.installmentNumber}/{r.totalInstallments}</p>
+                              <span className="shrink-0 text-sm font-medium tabular-nums">{formatCurrency(r.amount)}</span>
                             </div>
-                            <div className="w-24 shrink-0 text-right text-sm font-medium tabular-nums">
-                              {formatCurrency(r.amount)}
-                            </div>
-                            <div className="w-40 shrink-0">
-                              <EditableCategoryCell
-                                row={{
-                                  id: r.id,
-                                  source: "installment",
-                                  purchaseId: r.purchaseId,
-                                  type: "EXPENSE",
-                                  categoryId: purchase?.categoryId ?? null,
-                                  subcategoryId: purchase?.subcategoryId ?? null,
-                                }}
-                                categories={categories}
-                              />
-                            </div>
-                            <div className="flex shrink-0 items-center gap-2">
-                              {purchase && (
-                                <>
-                                  <PurchaseFormDialog
-                                    cards={cards}
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="shrink-0 text-xs tabular-nums opacity-50">{r.installmentNumber}/{r.totalInstallments}</span>
+                              <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                                <div className="w-40 min-w-0 shrink">
+                                  <EditableCategoryCell
+                                    row={{
+                                      id: r.id,
+                                      source: "installment",
+                                      purchaseId: r.purchaseId,
+                                      type: "EXPENSE",
+                                      categoryId: purchase?.categoryId ?? null,
+                                      subcategoryId: purchase?.subcategoryId ?? null,
+                                    }}
                                     categories={categories}
-                                    purchase={purchase}
-                                    trigger={
-                                      <button className="text-text/40 hover:text-accent" aria-label="Editar compra">
-                                        <Pencil className="size-3.5" strokeWidth={1.5} />
-                                      </button>
-                                    }
                                   />
-                                  <DeletePurchaseButton purchaseId={purchase.id} description={purchase.description} />
-                                </>
-                              )}
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2">
+                                  {purchase && (
+                                    <>
+                                      <PurchaseFormDialog
+                                        cards={cards}
+                                        categories={categories}
+                                        purchase={purchase}
+                                        trigger={
+                                          <button className="text-text/40 hover:text-accent" aria-label="Editar compra">
+                                            <Pencil className="size-3.5" strokeWidth={1.5} />
+                                          </button>
+                                        }
+                                      />
+                                      <DeletePurchaseButton purchaseId={purchase.id} description={purchase.description} />
+                                    </>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           </div>
                         );
