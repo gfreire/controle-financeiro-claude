@@ -2,10 +2,9 @@ import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
 import { getCardInstallments, getCardPurchases, getCardSummary } from "@/services/cards.service";
 import { Card, CardKicker, CardTitle } from "@/components/ui/card";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils/currency";
-import { startOfMonth, endOfMonth, monthKey, todayIso, formatMonthLabel } from "@/lib/utils/date";
+import { startOfMonth, endOfMonth, monthKey, todayIso, formatMonthLabel, formatDate } from "@/lib/utils/date";
 import { toPercentage } from "@/lib/utils/number";
 import { PurchaseFormDialog } from "@/features/cards/components/purchase-form-dialog";
 import { PaymentFormDialog } from "@/features/cards/components/payment-form-dialog";
@@ -94,59 +93,56 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
                   {installments.length === 0 ? (
                     <p className="text-xs opacity-50">Sem compras neste mês.</p>
                   ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Descrição</TableHead>
-                          <TableHead>Categoria</TableHead>
-                          <TableHead>Parcela</TableHead>
-                          <TableHead className="text-right">Valor</TableHead>
-                          <TableHead className="w-14" />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {installments.map((r) => {
-                          const purchase = purchaseById.get(r.purchaseId);
-                          return (
-                            <TableRow key={r.id}>
-                              <TableCell>{r.description}</TableCell>
-                              <TableCell>
-                                <EditableCategoryCell
-                                  row={{
-                                    id: r.id,
-                                    source: "installment",
-                                    purchaseId: r.purchaseId,
-                                    type: "EXPENSE",
-                                    categoryId: purchase?.categoryId ?? null,
-                                    subcategoryId: purchase?.subcategoryId ?? null,
-                                  }}
-                                  categories={categories}
-                                />
-                              </TableCell>
-                              <TableCell className="text-xs opacity-70">{r.installmentNumber}/{r.totalInstallments}</TableCell>
-                              <TableCell className="text-right tabular-nums">{formatCurrency(r.amount)}</TableCell>
-                              <TableCell>
-                                {purchase && (
-                                  <div className="flex items-center gap-2">
-                                    <PurchaseFormDialog
-                                      cards={cards}
-                                      categories={categories}
-                                      purchase={purchase}
-                                      trigger={
-                                        <button className="text-text/40 hover:text-accent" aria-label="Editar compra">
-                                          <Pencil className="size-3.5" strokeWidth={1.5} />
-                                        </button>
-                                      }
-                                    />
-                                    <DeletePurchaseButton purchaseId={purchase.id} description={purchase.description} />
-                                  </div>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                    <div className="flex flex-col divide-y divide-neutral-200">
+                      {installments.map((r) => {
+                        const purchase = purchaseById.get(r.purchaseId);
+                        const description =
+                          r.description || purchase?.subcategoryName || purchase?.categoryName || "Gasto com cartão";
+                        return (
+                          <div key={r.id} className="flex items-center gap-3 py-2.5">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm">
+                                <span className="tabular-nums opacity-60">{formatDate(r.purchaseDate)}</span> - {description}
+                              </p>
+                              <p className="text-xs tabular-nums opacity-50">{r.installmentNumber}/{r.totalInstallments}</p>
+                            </div>
+                            <div className="w-24 shrink-0 text-right text-sm font-medium tabular-nums">
+                              {formatCurrency(r.amount)}
+                            </div>
+                            <div className="w-40 shrink-0">
+                              <EditableCategoryCell
+                                row={{
+                                  id: r.id,
+                                  source: "installment",
+                                  purchaseId: r.purchaseId,
+                                  type: "EXPENSE",
+                                  categoryId: purchase?.categoryId ?? null,
+                                  subcategoryId: purchase?.subcategoryId ?? null,
+                                }}
+                                categories={categories}
+                              />
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              {purchase && (
+                                <>
+                                  <PurchaseFormDialog
+                                    cards={cards}
+                                    categories={categories}
+                                    purchase={purchase}
+                                    trigger={
+                                      <button className="text-text/40 hover:text-accent" aria-label="Editar compra">
+                                        <Pencil className="size-3.5" strokeWidth={1.5} />
+                                      </button>
+                                    }
+                                  />
+                                  <DeletePurchaseButton purchaseId={purchase.id} description={purchase.description} />
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </Card>
               );

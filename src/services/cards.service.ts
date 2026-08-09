@@ -180,7 +180,7 @@ export async function getCardInstallments(cardId: string, filters: { periodStart
   const supabase = await createClient();
   let query = supabase
     .from("card_installments")
-    .select("*, card_purchases(description, installments)")
+    .select("*, card_purchases(description, installments, purchase_date)")
     .eq("credit_card_id", cardId)
     .order("competence", { ascending: true });
   if (filters.periodStart) query = query.gte("competence", filters.periodStart);
@@ -209,7 +209,8 @@ export async function getCardInstallments(cardId: string, filters: { periodStart
     sorted.forEach((row, index) => numbered.set(row.id, index + 1));
   }
 
-  return (data ?? []).map((row) => ({
+  // Compras à vista (1/1) primeiro, depois parceladas; dentro de cada grupo, ordena pela data real da compra.
+  const rows = (data ?? []).map((row) => ({
     id: row.id,
     purchaseId: row.purchase_id,
     installmentNumber: numbered.get(row.id) ?? 1,
@@ -217,7 +218,17 @@ export async function getCardInstallments(cardId: string, filters: { periodStart
     amount: row.amount,
     competenceMonth: monthKey(row.competence),
     description: row.card_purchases?.description ?? "",
+    purchaseDate: row.card_purchases?.purchase_date ?? "",
   }));
+
+  rows.sort((a, b) => {
+    const aSingle = a.totalInstallments === 1;
+    const bSingle = b.totalInstallments === 1;
+    if (aSingle !== bSingle) return aSingle ? -1 : 1;
+    return a.purchaseDate < b.purchaseDate ? -1 : a.purchaseDate > b.purchaseDate ? 1 : 0;
+  });
+
+  return rows;
 }
 
 /** Sum of installments due through (and including) `throughMonth`, minus payments already made — what a "pay the bill" action should actually suggest, not the full lifetime balance including installments still in the future. */

@@ -119,6 +119,7 @@ export type CardInstallmentDTO = {
   amount: number;
   competenceMonth: string;
   description: string;
+  purchaseDate: string; // the purchase's real date (not competence) — drives display ordering and the "dd/mm/yyyy - descrição" list line
 };
 
 export type BudgetDTO = {

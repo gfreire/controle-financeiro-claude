@@ -71,6 +71,7 @@ export function PurchaseFormDialog({
   }, [amount, selectedCard, isEdit, purchase]);
 
   function suggestCompetence(nextDate: string, cardId: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) return; // incomplete date while typing (e.g. "2026-08-")
     const card = cards.find((c) => c.id === cardId);
     if (!card?.closingDay || !card.dueDay) return;
     const suggested = monthKey(calculateInstallmentCompetences(nextDate, card.closingDay, card.dueDay, 1)[0]);
