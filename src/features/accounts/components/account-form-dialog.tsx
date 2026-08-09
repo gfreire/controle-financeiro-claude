@@ -22,8 +22,8 @@ export function AccountFormDialog({ institutions }: { institutions: FinancialIns
   const [institutionId, setInstitutionId] = useState(NONE);
   const [name, setName] = useState("");
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
-  const [initialBalance, setInitialBalance] = useState("0");
-  const [overdraftLimit, setOverdraftLimit] = useState("0");
+  const [initialBalance, setInitialBalance] = useState("");
+  const [overdraftLimit, setOverdraftLimit] = useState("");
   const [closingDay, setClosingDay] = useState("5");
   const [dueDay, setDueDay] = useState("12");
   const [creditLimit, setCreditLimit] = useState("");
@@ -50,8 +50,8 @@ export function AccountFormDialog({ institutions }: { institutions: FinancialIns
     setName("");
     setNameManuallyEdited(false);
     setInstitutionId(NONE);
-    setInitialBalance("0");
-    setOverdraftLimit("0");
+    setInitialBalance("");
+    setOverdraftLimit("");
     setCreditLimit("");
   }
 
@@ -129,13 +129,13 @@ export function AccountFormDialog({ institutions }: { institutions: FinancialIns
         {(type === "CASH" || type === "BANK") && (
           <Field>
             <Label>Saldo inicial</Label>
-            <Input type="number" step="0.01" min={type === "CASH" ? "0" : undefined} value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} />
+            <Input type="number" step="0.01" min={type === "CASH" ? "0" : undefined} value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} placeholder="0,00" />
           </Field>
         )}
         {type === "BANK" && (
           <Field>
             <Label>Limite de cheque especial</Label>
-            <Input type="number" step="0.01" min="0" value={overdraftLimit} onChange={(e) => setOverdraftLimit(e.target.value)} />
+            <Input type="number" step="0.01" min="0" value={overdraftLimit} onChange={(e) => setOverdraftLimit(e.target.value)} placeholder="0,00" />
           </Field>
         )}
         {type === "CREDIT_CARD" && (

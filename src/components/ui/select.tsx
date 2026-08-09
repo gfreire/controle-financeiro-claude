@@ -22,7 +22,7 @@ export function SelectTrigger({ className, children, ...props }: React.Component
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "flex h-9 w-full items-center justify-between border border-divider bg-surface px-2.5 text-sm",
+        "flex h-9 w-full items-center justify-between border border-divider bg-surface px-2.5 text-base sm:text-sm",
         "hover:border-text/45 focus-visible:border-accent focus-visible:outline-none data-[placeholder]:text-text/40",
         className
       )}

@@ -64,9 +64,15 @@ export async function getAccounts(): Promise<AccountDTO[]> {
     .order("name");
   if (error) throw new Error(error.message);
 
-  const balances = await Promise.all((accounts ?? []).map((a) => getAccountBalance(a.id)));
+  const typeOrder: Record<string, number> = { CASH: 0, BANK: 1, CREDIT_CARD: 2 };
+  const sorted = [...(accounts ?? [])].sort((a, b) => {
+    const diff = (typeOrder[a.type] ?? 99) - (typeOrder[b.type] ?? 99);
+    return diff !== 0 ? diff : a.name.localeCompare(b.name);
+  });
 
-  return (accounts ?? []).map((row, index) => ({
+  const balances = await Promise.all(sorted.map((a) => getAccountBalance(a.id)));
+
+  return sorted.map((row, index) => ({
     id: row.id,
     type: row.type,
     name: row.name,
