@@ -12,7 +12,16 @@ const UNCATEGORIZED = "UNCATEGORIZED";
 // a card_purchases row directly) reuse this without fabricating unrelated DTO fields like date/account.
 type EditableCategoryRow = Pick<TransactionViewDTO, "id" | "source" | "type" | "categoryId" | "subcategoryId" | "purchaseId">;
 
-export function EditableCategoryCell({ row, categories: initialCategories }: { row: EditableCategoryRow; categories: CategoryDTO[] }) {
+export function EditableCategoryCell({
+  row,
+  categories: initialCategories,
+  layout = "stack",
+}: {
+  row: EditableCategoryRow;
+  categories: CategoryDTO[];
+  /** "row" places category/subcategory side by side (2-col grid) instead of stacked — used by the Cards page's mobile-only line 2. */
+  layout?: "stack" | "row";
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [categories, setCategories] = useState(initialCategories);
@@ -46,7 +55,7 @@ export function EditableCategoryCell({ row, categories: initialCategories }: { r
   }
 
   return (
-    <div className="flex flex-col gap-1 min-w-[9rem]">
+    <div className={layout === "row" ? "grid grid-cols-2 gap-1" : "flex flex-col gap-1 min-w-[9rem]"}>
       <CategorySelect
         categories={categories}
         type={row.type}

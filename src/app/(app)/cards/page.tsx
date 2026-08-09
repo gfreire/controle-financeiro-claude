@@ -98,48 +98,61 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
                         const purchase = purchaseById.get(r.purchaseId);
                         const description =
                           r.description || purchase?.subcategoryName || purchase?.categoryName || "Gasto com cartão";
+                        const editActions = purchase && (
+                          <>
+                            <PurchaseFormDialog
+                              cards={cards}
+                              categories={categories}
+                              purchase={purchase}
+                              trigger={
+                                <button className="text-text/40 hover:text-accent" aria-label="Editar compra">
+                                  <Pencil className="size-3.5" strokeWidth={1.5} />
+                                </button>
+                              }
+                            />
+                            <DeletePurchaseButton purchaseId={purchase.id} description={purchase.description} />
+                          </>
+                        );
+                        const categoryRow = {
+                          id: r.id,
+                          source: "installment" as const,
+                          purchaseId: r.purchaseId,
+                          type: "EXPENSE" as const,
+                          categoryId: purchase?.categoryId ?? null,
+                          subcategoryId: purchase?.subcategoryId ?? null,
+                        };
                         return (
-                          <div key={r.id} className="flex flex-col gap-1 py-2.5">
-                            <div className="flex items-baseline justify-between gap-2">
-                              <p className="min-w-0 truncate text-sm">
-                                <span className="tabular-nums opacity-60">{formatDate(r.purchaseDate)}</span> - {description}
-                              </p>
-                              <span className="shrink-0 text-sm font-medium tabular-nums">{formatCurrency(r.amount)}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="shrink-0 text-xs tabular-nums opacity-50">{r.installmentNumber}/{r.totalInstallments}</span>
-                              <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-                                <div className="w-40 min-w-0 shrink">
-                                  <EditableCategoryCell
-                                    row={{
-                                      id: r.id,
-                                      source: "installment",
-                                      purchaseId: r.purchaseId,
-                                      type: "EXPENSE",
-                                      categoryId: purchase?.categoryId ?? null,
-                                      subcategoryId: purchase?.subcategoryId ?? null,
-                                    }}
-                                    categories={categories}
-                                  />
+                          <div key={r.id} className="py-2.5">
+                            {/* Mobile-only: linha 1 = data/descrição+parcela | valor | ações; linha 2 = categoria | subcategoria */}
+                            <div className="flex flex-col gap-2 sm:hidden">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm">
+                                    <span className="tabular-nums opacity-60">{formatDate(r.purchaseDate)}</span> - {description}
+                                  </p>
+                                  <p className="text-xs tabular-nums opacity-50">{r.installmentNumber}/{r.totalInstallments}</p>
                                 </div>
-                                <div className="flex shrink-0 items-center gap-2">
-                                  {purchase && (
-                                    <>
-                                      <PurchaseFormDialog
-                                        cards={cards}
-                                        categories={categories}
-                                        purchase={purchase}
-                                        trigger={
-                                          <button className="text-text/40 hover:text-accent" aria-label="Editar compra">
-                                            <Pencil className="size-3.5" strokeWidth={1.5} />
-                                          </button>
-                                        }
-                                      />
-                                      <DeletePurchaseButton purchaseId={purchase.id} description={purchase.description} />
-                                    </>
-                                  )}
-                                </div>
+                                <span className="shrink-0 text-sm font-medium tabular-nums">{formatCurrency(r.amount)}</span>
+                                <div className="flex shrink-0 items-center gap-2">{editActions}</div>
                               </div>
+                              <EditableCategoryCell row={categoryRow} categories={categories} layout="row" />
+                            </div>
+
+                            {/* Desktop/tablet: linha única */}
+                            <div className="hidden items-center gap-3 sm:flex">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm">
+                                  <span className="tabular-nums opacity-60">{formatDate(r.purchaseDate)}</span> - {description}
+                                </p>
+                                <p className="text-xs tabular-nums opacity-50">{r.installmentNumber}/{r.totalInstallments}</p>
+                              </div>
+                              <div className="w-24 shrink-0 text-right text-sm font-medium tabular-nums">
+                                {formatCurrency(r.amount)}
+                              </div>
+                              <div className="w-40 shrink-0">
+                                <EditableCategoryCell row={categoryRow} categories={categories} />
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">{editActions}</div>
                             </div>
                           </div>
                         );
