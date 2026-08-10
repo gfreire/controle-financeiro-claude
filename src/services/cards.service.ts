@@ -40,6 +40,7 @@ export async function createCardPurchase(input: CardPurchaseInput): Promise<stri
       subcategory_id: input.subcategoryId ?? null,
       installments: input.installments,
       is_reservoir: input.isReservoir ?? false,
+      fixed_expense_id: input.fixedExpenseId ?? null,
     })
     .select("id")
     .single();

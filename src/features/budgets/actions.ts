@@ -74,4 +74,13 @@ export async function payFixedExpenseAction(input: {
   revalidatePath("/budgets");
   revalidatePath("/dashboard");
   revalidatePath("/accounts");
+  revalidatePath("/cards");
+}
+
+export async function cancelFixedExpensePaymentAction(fixedExpenseId: string, month: string) {
+  await fixedExpensesService.cancelFixedExpensePayment(fixedExpenseId, month);
+  revalidatePath("/budgets");
+  revalidatePath("/dashboard");
+  revalidatePath("/accounts");
+  revalidatePath("/cards");
 }

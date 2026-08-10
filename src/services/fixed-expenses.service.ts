@@ -1,15 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { startOfMonth, endOfMonth } from "@/lib/utils/date";
+import { sumMoney } from "@/lib/utils/money";
 import { reconcileFixedExpenseFloors } from "./_shared";
 import { createTransaction } from "./transactions.service";
+import { createCardPurchase } from "./cards.service";
 import type { FixedExpenseInput } from "@/lib/validations/fixed-expenses";
 import type { FixedExpenseDTO } from "@/types/dto";
 
 /**
  * Before the real payment lands this month, `projectedAmount` shows the planned amount as a
- * placeholder; once a real transaction is linked via fixed_expense_id, it switches to the real
- * value — this is what avoids ever double-counting the placeholder and the real transaction.
+ * placeholder; once a real transaction (or, for a card-paid fixed expense, a linked
+ * card_purchase's installment) is registered, it switches to the real value — this is what
+ * avoids ever double-counting the placeholder and the real payment.
  */
 export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]> {
   const supabase = await createClient();
@@ -27,17 +30,39 @@ export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]
 
   const results: FixedExpenseDTO[] = [];
   for (const row of fixedExpenses ?? []) {
-    const { data: linked, error: linkedError } = await supabase
-      .from("transactions")
-      .select("amount")
-      .eq("fixed_expense_id", row.id)
-      .gte("date", monthStart)
-      .lte("date", monthEnd);
+    const [{ data: linked, error: linkedError }, { data: cardPurchases, error: purchaseError }] = await Promise.all([
+      supabase.from("transactions").select("amount, date").eq("fixed_expense_id", row.id).gte("date", monthStart).lte("date", monthEnd),
+      supabase.from("card_purchases").select("id, purchase_date").eq("fixed_expense_id", row.id),
+    ]);
     if (linkedError) throw new Error(linkedError.message);
+    if (purchaseError) throw new Error(purchaseError.message);
 
-    const actualAmount = (linked ?? []).reduce((sum, t) => sum + t.amount, 0);
+    // Card-paid fixed expenses are tracked by installment competence, never purchase_date —
+    // same rule as every other credit card analytic (AI_CONTEXT.md "Credit Card Purchases").
+    const purchaseIds = (cardPurchases ?? []).map((p) => p.id);
+    let cardAmount = 0;
+    let matchedPurchaseIds: string[] = [];
+    if (purchaseIds.length) {
+      const { data: installments, error: installmentError } = await supabase
+        .from("card_installments")
+        .select("amount, purchase_id")
+        .in("purchase_id", purchaseIds)
+        .gte("competence", monthStart)
+        .lte("competence", monthEnd);
+      if (installmentError) throw new Error(installmentError.message);
+      cardAmount = sumMoney((installments ?? []).map((i) => i.amount));
+      matchedPurchaseIds = [...new Set((installments ?? []).map((i) => i.purchase_id))];
+    }
+
+    const actualAmount = sumMoney([sumMoney((linked ?? []).map((t) => t.amount)), cardAmount]);
     const isPaidThisMonth = actualAmount > 0;
     const projectedAmount = isPaidThisMonth ? actualAmount : row.amount;
+    const paidDate = isPaidThisMonth
+      ? [
+          ...(linked ?? []).map((t) => t.date),
+          ...(cardPurchases ?? []).filter((p) => matchedPurchaseIds.includes(p.id)).map((p) => p.purchase_date),
+        ].sort().at(-1)
+      : undefined;
 
     results.push({
       id: row.id,
@@ -52,6 +77,7 @@ export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]
       actualAmount,
       projectedAmount,
       isPaidThisMonth,
+      paidDate,
       status: actualAmount > row.amount ? "EXCEEDED" : "OK",
     });
   }
@@ -120,6 +146,15 @@ export async function updateFixedExpense(id: string, input: Partial<FixedExpense
  * Registers the real payment for a fixed expense, linked via fixed_expense_id — switches its
  * projectedAmount from planned to actual (see getFixedExpenses above). Defaults the description
  * server-side when left blank, same pattern as registerCardPayment/addDebtTransaction.
+ *
+ * The account's own type — never the client's say-so — decides how the payment is recorded:
+ * a CASH/BANK account gets a plain EXPENSE transaction, exactly as before. A CREDIT_CARD account
+ * instead registers a single-installment (1x) card purchase dated `input.date`, so it flows
+ * through the normal card_purchases -> card_installments pipeline (competence-driven, same as
+ * any other card purchase) instead of a fake plain expense against an account type transactions
+ * was never meant to touch directly. The competence month is never computed here — it's whatever
+ * createCardPurchase already derives from the card's closing_day/due_day (see AI_CONTEXT.md
+ * "Credit Card Purchases": a purchase made after the invoice already closed rolls to next month).
  */
 export async function payFixedExpense(input: {
   fixedExpenseId: string;
@@ -131,8 +166,26 @@ export async function payFixedExpense(input: {
   subcategoryId?: string | null;
 }): Promise<void> {
   const supabase = await createClient();
-  const { data: expense } = await supabase.from("fixed_expenses").select("name").eq("id", input.fixedExpenseId).single();
+  const [{ data: expense }, { data: account, error: accountError }] = await Promise.all([
+    supabase.from("fixed_expenses").select("name").eq("id", input.fixedExpenseId).single(),
+    supabase.from("accounts").select("type").eq("id", input.originAccountId).single(),
+  ]);
+  if (accountError) throw new Error(accountError.message);
   const description = input.description || `Pagamento — ${expense?.name ?? ""}`.trim();
+
+  if (account.type === "CREDIT_CARD") {
+    await createCardPurchase({
+      creditCardId: input.originAccountId,
+      amount: input.amount,
+      purchaseDate: input.date,
+      description,
+      categoryId: input.categoryId ?? undefined,
+      subcategoryId: input.subcategoryId ?? undefined,
+      installments: 1,
+      fixedExpenseId: input.fixedExpenseId,
+    });
+    return;
+  }
 
   await createTransaction({
     type: "EXPENSE",
@@ -144,6 +197,54 @@ export async function payFixedExpense(input: {
     subcategoryId: input.subcategoryId ?? undefined,
     fixedExpenseId: input.fixedExpenseId,
   });
+}
+
+/**
+ * Rolls back this month's payment for a fixed expense — the counterpart to payFixedExpense,
+ * for when a payment was registered by mistake (wrong test data, wrong account, etc.) and the
+ * fixed expense needs to go back to "not paid" rather than staying wrongly marked as settled.
+ * Deletes whatever real record(s) made getFixedExpenses() compute isPaidThisMonth = true for
+ * that month: linked `transactions` rows (CASH/BANK payments) and linked `card_purchases` rows
+ * whose installment competence falls in the month (CREDIT_CARD payments) — card_installments
+ * cascade-delete with their purchase (schema.sql), so no separate cleanup is needed there.
+ */
+export async function cancelFixedExpensePayment(fixedExpenseId: string, month: string): Promise<void> {
+  const supabase = await createClient();
+  const monthStart = startOfMonth(month);
+  const monthEnd = endOfMonth(month);
+
+  const { data: linkedTx, error: txError } = await supabase
+    .from("transactions")
+    .select("id")
+    .eq("fixed_expense_id", fixedExpenseId)
+    .gte("date", monthStart)
+    .lte("date", monthEnd);
+  if (txError) throw new Error(txError.message);
+  if (linkedTx?.length) {
+    const { error } = await supabase.from("transactions").delete().in("id", linkedTx.map((t) => t.id));
+    if (error) throw new Error(error.message);
+  }
+
+  const { data: cardPurchases, error: cpError } = await supabase
+    .from("card_purchases")
+    .select("id")
+    .eq("fixed_expense_id", fixedExpenseId);
+  if (cpError) throw new Error(cpError.message);
+  const purchaseIds = (cardPurchases ?? []).map((p) => p.id);
+  if (purchaseIds.length) {
+    const { data: installments, error: instError } = await supabase
+      .from("card_installments")
+      .select("purchase_id")
+      .in("purchase_id", purchaseIds)
+      .gte("competence", monthStart)
+      .lte("competence", monthEnd);
+    if (instError) throw new Error(instError.message);
+    const matchedPurchaseIds = [...new Set((installments ?? []).map((i) => i.purchase_id))];
+    if (matchedPurchaseIds.length) {
+      const { error } = await supabase.from("card_purchases").delete().in("id", matchedPurchaseIds);
+      if (error) throw new Error(error.message);
+    }
+  }
 }
 
 export async function deactivateFixedExpense(id: string): Promise<void> {

@@ -114,6 +114,7 @@ export interface CardPurchaseRow {
   subcategory_id: string | null;
   installments: number;
   is_reservoir: boolean;
+  fixed_expense_id: string | null;
   created_at: string;
 }
 

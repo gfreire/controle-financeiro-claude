@@ -33,8 +33,6 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
     getBudgets(monthDate),
     getTransactionsFiltered({ periodStart: startOfMonth(monthDate), periodEnd: endOfMonth(monthDate) }),
   ]);
-  const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
-
   // AI_CONTEXT.md "Budgets": only the current real month and the next one (once the current
   // month has a budget) can be created/edited/cloned — every other month is read-only history.
   const isCurrentMonth = month === monthKey(monthWindow.currentMonth);
@@ -64,7 +62,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
       <div className="flex flex-wrap justify-end gap-2">
         {isEditableMonth && canClone && <CloneBudgetButton fromMonth={monthWindow.lastRegisteredMonth!} toMonth={monthDate} />}
         {isEditableMonth && <BudgetTreeEditor categories={categories} budgets={budgets} fixedExpenses={fixedExpenses} month={monthDate} />}
-        <FixedExpenseFormDialog categories={categories} accounts={liquidAccounts} />
+        <FixedExpenseFormDialog categories={categories} accounts={accounts} />
         {isEditableMonth && <BudgetFormDialog categories={categories} month={monthDate} />}
       </div>
 
@@ -106,14 +104,20 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
         }
         renderFixedExpenseActions={(f) => (
           <div className="flex items-center gap-2">
-            {!f.isPaidThisMonth && (
-              <PayFixedExpenseDialog
-                expense={f}
-                accounts={liquidAccounts}
-                trigger={<button className="text-text/40 hover:text-accent" aria-label="Registrar pagamento"><CreditCard className="size-3.5" strokeWidth={1.5} /></button>}
-              />
-            )}
-            <FixedExpenseFormDialog categories={categories} accounts={liquidAccounts} expense={f} />
+            <PayFixedExpenseDialog
+              expense={f}
+              accounts={accounts}
+              month={monthDate}
+              trigger={
+                <button
+                  className={f.isPaidThisMonth ? "text-success-600 hover:text-success-600/70" : "text-text/40 hover:text-accent"}
+                  aria-label={f.isPaidThisMonth ? "Ver pagamento" : "Registrar pagamento"}
+                >
+                  <CreditCard className="size-3.5" strokeWidth={1.5} />
+                </button>
+              }
+            />
+            <FixedExpenseFormDialog categories={categories} accounts={accounts} expense={f} />
             <DeactivateFixedExpenseButton fixedExpenseId={f.id} name={f.name} />
           </div>
         )}

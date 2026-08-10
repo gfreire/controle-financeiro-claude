@@ -54,6 +54,10 @@ Full app is built and running (Next.js 16, App Router, Turbopack) — this isn't
 - Found live during Budgets verification (fixed 2026-08-08): `cards.service.ts#updateCardPurchase` merged `categoryId`/`subcategoryId` with `input.categoryId ?? current.category_id` — since `??` treats an explicit `null` (meaning "clear this field") the same as `undefined` (meaning "not part of this update"), clearing a card purchase's category to "Sem categoria" via inline edit silently never persisted; the UI showed the change optimistically but a fresh page load always reverted to the old category. Fixed by switching to `input.categoryId !== undefined ? input.categoryId : current.category_id`, the same pattern already used elsewhere (e.g. `updateBudget`) for partial updates where `null` is a meaningful value. Also added the missing `revalidatePath("/budgets")` to `inlineEditTransaction` — editing a transaction/purchase's category can change what a budget's `actualAmount` sums, and that path wasn't being invalidated alongside `/dashboard`, `/transactions`, `/cards`.
 
 - Validation/UX pass (2026-08-09): credit card `closing_day`/`due_day` tightened from 1-31 to 1-28 everywhere (schema, zod, HTML) — see `AI_CONTEXT.md` "Accounts". Every monetary `<input type="number">` across the app now carries a `min` matching its zod rule (mostly `0.01` for `positive()` fields, `0` for `overdraftLimit`) — previously several had no HTML min at all, or `min="0"` next to a zod `positive()` rule that actually rejects zero. Budget amount inputs (`BudgetFormDialog`, `BudgetTreeFields`/`BudgetTreeEditor`, the onboarding budget step) now fetch/compute the same hierarchy floor the server already enforced (`AI_CONTEXT.md` "Budget hierarchy") and apply it as the input's `min` plus a pre-submit check, instead of the floor only surfacing as a post-submit error. The category/subcategory picker was unified into a single `CategorySelect`/`SubcategorySelect` component (`src/features/categories/components/category-select.tsx`) used by every form that assigns a category — including ones that had no create-inline affordance before (Budget, Fixed Expense, Receita Programada, and the dashboard/Cards inline table-cell editor) — replacing the old `InlineCategoryCreate` Popover-button pattern (which only existed in Lançamentos/Compra no Cartão) with a "Nova categoria/subcategoria" item at the end of the dropdown itself. The dashboard's category pie chart gained an explicit "voltar" button next to its title (visible only when a category filter is active) alongside the existing click-the-same-slice-again toggle.
+- **Fixed-expense-to-budget reconciliation no longer bubbles a subcategory-level fixed expense up to the category (2026-08-10, at the user's request)** — see `AI_CONTEXT.md` → "Budget hierarchy" for the 4 worked cases. Previously, registering a fixed expense under a subcategory could auto-create or auto-raise the *category's* budget too (via `getCategoryBudgetFloor`, which sums subcategory budgets), even when the user never set a category-level number — the same "phantom ceiling" bug already fixed for subcategory-budget saves on 2026-08-08, just not extended to the fixed-expense codepath at the time. `reconcileBudgetFloors` (`_shared.ts`) now branches: a subcategory-level fixed expense only raises/creates the *subcategory's* row, then calls `deactivateCategoryBudgetIfOverCommitted` to possibly erase (never inflate) an already-existing category row. A category-level fixed expense (no subcategory) is unaffected — it still raises/creates the category directly, since there's no subcategory level to defer to. Bundled with this: `deactivateCategoryBudgetIfOverCommitted`'s threshold was tightened from "subcategory sum strictly exceeds the category amount" to "subcategory sum reaches *or* exceeds it" — an exact fill (zero headroom left) now also erases the category row, matching what `AI_CONTEXT.md` already described but the code hadn't actually implemented. `reconcileFixedExpenseFloors`'s next-month propagation check was also fixed to look for an existing budget at the *same level* the fixed expense targets (subcategory or category), instead of always checking for a category-level row even when reconciling a subcategory.
+
+- **Fixed expense payments now support every account type, `CREDIT_CARD` included (2026-08-10, at the user's request)** — see `AI_CONTEXT.md` → "Fixed Expenses" for the full reasoning. `/budgets` used to pass a `liquidAccounts` (non-`CREDIT_CARD`) list into both `FixedExpenseFormDialog`'s "Conta padrão" and `PayFixedExpenseDialog`'s "Conta," so a fixed bill that's actually charged to a card (e.g. a streaming subscription) had no valid way to be registered. Both now receive the full `accounts` list, rendered through the new shared `AccountSelect` (`src/components/ui/account-select.tsx`) — grouped by type in `CASH → BANK → CREDIT_CARD` order with each account's type icon shown, since a bank account and a card can share the same name. `payFixedExpense` (`fixed-expenses.service.ts`) now looks up the chosen account's `type` server-side and branches: `CASH`/`BANK` still creates a plain `EXPENSE` transaction (unchanged); `CREDIT_CARD` creates a single-installment (1x) `card_purchases` row instead, linked via a new `card_purchases.fixed_expense_id` column (migration `0012`) — competence is derived the normal way from the card's `closing_day`/`due_day`, no bespoke logic added. `getFixedExpenses`'s `actualAmount` now also sums the linked purchase's `card_installments.amount` by competence.
+- **The "Registrar pagamento" trigger on a fixed expense's row is now always visible, and doubles as a payment-cancel affordance (2026-08-10, at the user's request, after a test payment left real `/budgets` data in a wrongly-"paid" state with no visible way to undo it).** Previously `PayFixedExpenseDialog`'s trigger only rendered when `!f.isPaidThisMonth` — once paid, there was no UI path back to "not paid" short of a manual DB fix. The same icon now always renders (`src/app/(app)/budgets/page.tsx`); `PayFixedExpenseDialog` branches on `expense.isPaidThisMonth`: unpaid still opens the original account/amount/date form, but paid opens a plain-text summary — `"{nome} pago no valor de {actualAmount} no dia {paidDate}"` — with "OK" (close) and "Cancelar pagamento" (rollback) instead. `FixedExpenseDTO.paidDate` is new (`getFixedExpenses`, `fixed-expenses.service.ts`) — the date of whichever real record made `isPaidThisMonth` true that month. "Cancelar pagamento" calls the new `cancelFixedExpensePaymentAction` → `fixed-expenses.service.ts#cancelFixedExpensePayment(fixedExpenseId, month)`, which deletes that month's linked `transactions` row(s) and/or linked `card_purchases` row(s) (installments cascade) — the exact inverse of whichever branch `payFixedExpense` took, scoped to the viewed month only so cancelling doesn't touch a different month's separate payment.
 
 **Known gaps** (not started, don't assume otherwise): no automated tests yet (see "Testing & Migrations" in `AI_GENERATION_RULES.md` for the intended scope); still no *general* account-level edit dialog (name/institution) — only the type-specific actions (balance, yield/reconcile, limit) exist, by design; OFX import remains out of scope per `AI_CONTEXT.md`; no reservoir-edit flow yet — `default_percentage`/`default_destination_account_id` are only settable at creation time.
 
@@ -71,6 +75,8 @@ Applied in order; each is additive (no destructive rewrites of an already-shippe
 8. `0008_credit_card_limit_required.sql` — makes `credit_cards.credit_limit` `NOT NULL` + `CHECK (> 0)`.
 9. `0009_monthly_budgets.sql` — `budgets.month`, `NOT NULL` + a **partial** unique index `NULLS NOT DISTINCT (user_id, category_id, subcategory_id, month) WHERE active = true` (not a plain constraint — must coexist with the `active` soft-delete convention) + a `(user_id, month)` index.
 10. `0010_reservoir_defaults.sql` — `reservoirs.default_percentage`, `reservoirs.default_destination_account_id`.
+11. `0011_reservoir_transaction_date.sql` — `reservoir_transactions.date`, backfilled from `created_at` (the AccrualDialog's date picker was silently discarded before this — the column didn't exist).
+12. `0012_card_purchase_fixed_expense.sql` — `card_purchases.fixed_expense_id`, `ON DELETE SET NULL` — lets a fixed expense be paid on a credit card as a single-installment (1x) purchase, tracked through `card_installments` like any other card purchase, instead of only supporting a plain `transactions` row against a CASH/BANK account.
 
 ---
 
@@ -142,7 +148,7 @@ src
  │  ├ budgets/components (budget-form-dialog [create+edit, month-scoped], fixed-expense-form-dialog [create+edit], budget-tree-editor ["Planejar orçamentos" — whole category+subcategory tree in one screen for one month, reuses onboarding's tree pattern; clearing an existing field deletes that row, same guards as the single-row delete], budget-tree-fields [the reusable amount-input tree, shared with the onboarding budget step], budget-tree [the ONLY list on /budgets now — no separate fixed-expense tab; renders category/subcategory boxes plus a `renderFixedExpenseActions` slot per nested fixed-expense row for pay/edit/delete, shared read-only (no action slots passed) by the dashboard panel], progress-row [shared planned-vs-actual bar], clone-budget-button, deactivate-budget-button [hidden by the caller when fixed expenses are attached; deactivateBudget itself also blocks it server-side], deactivate-fixed-expense-button, pay-fixed-expense-dialog)
  │  └ categories/components (category-form-dialog, subcategory-form-dialog, category-tree-item [onboarding/Settings re-import — always renders the full is_default catalog, already-imported items checked+disabled], category-select [CategorySelect/SubcategorySelect — standard picker used everywhere a category/subcategory is assigned, with a "Nova categoria/subcategoria" item at the end of the same dropdown instead of a separate button; replaced the old inline-category-create.tsx, decided 2026-08-09], delete-category-dialog)
  ├ components
- │  ├ ui (button, card, input/field/label/textarea, dialog, select [incl. SelectGroup/SelectLabel for grouped options], tabs, checkbox, switch, dropdown-menu, popover, table, badge, icon-picker + icon-set, account-type-icon [CASH/BANK/CREDIT_CARD → Banknote/Wallet/CreditCard, shared by Accounts + transaction lists], month-picker [prev/next + click-anywhere-on-label native month picker, shared by Dashboard/Cards/Transactions month navigators], confirm-delete-dialog, corner-marks — the Industry blueprint frame)
+ │  ├ ui (button, card, input/field/label/textarea, dialog, select [incl. SelectGroup/SelectLabel for grouped options], tabs, checkbox, switch, dropdown-menu, popover, table, badge, icon-picker + icon-set, account-type-icon [CASH/BANK/CREDIT_CARD → Banknote/Wallet/CreditCard, shared by Accounts + transaction lists], account-select [standard account picker grouped by type in CASH→BANK→CREDIT_CARD order with the type icon per row, used wherever an account of any type — including CREDIT_CARD — can be picked, e.g. Fixed Expenses], month-picker [prev/next + click-anywhere-on-label native month picker, shared by Dashboard/Cards/Transactions month navigators], confirm-delete-dialog, corner-marks — the Industry blueprint frame)
  │  └ layout (sidebar, header, bottom-navigation, nav-items)
  ├ types (database.ts — raw row shapes; dto.ts — the DTOs below, source of truth)
  └ app
@@ -373,17 +379,35 @@ getBudgetFloor(categoryId, subcategoryId, month) → number
 createFixedExpense(data) → { id, notices[] }
 updateFixedExpense(id, data) → { notices[] }
   -- uma despesa fixa é um piso comprometido do orçamento da sua categoria/subcategoria —
-  -- nunca bloqueia; ambas chamam reconcileFixedExpenseFloors (_shared.ts, não mais
-  -- reconcileBudgetFloors direto) depois de salvar, que cria/aumenta o(s) orçamento(s) do
-  -- mês corrente sempre, e do próximo mês também se ele já existir — devolve `notices[]`
-  -- com o texto pronto
+  -- nunca bloqueia; ambas chamam reconcileFixedExpenseFloors (_shared.ts) depois de salvar,
+  -- pro mês corrente sempre + o próximo mês também se já existir orçamento NAQUELE MESMO
+  -- NÍVEL (categoria OU subcategoria, o que a despesa fixa realmente usa) — devolve
+  -- `notices[]` com o texto pronto. Despesa fixa direto na CATEGORIA (sem subcategoria)
+  -- ainda cria/aumenta o orçamento da categoria normalmente; despesa fixa numa
+  -- SUBCATEGORIA (revisado 2026-08-10) só cria/aumenta o orçamento da subcategoria — nunca
+  -- o da categoria, que só pode ser desativado (nunca criado/aumentado) por reflexo, ver
+  -- reconcileBudgetFloors abaixo
 deactivateFixedExpense(id)  -- soft delete
 getFixedExpenses(month) → FixedExpenseDTO[]
-payFixedExpense(data)  -- NOVO (2026-08-09): registra o pagamento real (createTransaction com
-  -- fixedExpenseId), defaultando description pra "Pagamento — {nome}" no servidor quando vem
-  -- vazio — fecha a lacuna que só existia hardcoded no client (PayFixedExpenseDialog), mesmo
-  -- padrão de registerCardPayment/addDebtTransaction. payFixedExpenseAction (budgets/actions.ts)
-  -- chama isso em vez de createTransaction direto.
+  -- actualAmount soma transactions.fixed_expense_id (por date) + card_installments das
+  -- card_purchases.fixed_expense_id (por competence, NUNCA purchase_date — atualizado 2026-08-10
+  -- junto com o suporte a pagar despesa fixa no cartão, ver payFixedExpense abaixo)
+payFixedExpense(data)  -- NOVO (2026-08-09), estendido 2026-08-10 pra aceitar CREDIT_CARD: o
+  -- tipo da conta (lido do banco, nunca confiado do client) decide o lançamento — CASH/BANK
+  -- continua criando uma transaction EXPENSE (createTransaction com fixedExpenseId); CREDIT_CARD
+  -- agora cria uma card_purchases de 1x (createCardPurchase com fixedExpenseId, installments: 1),
+  -- competência derivada normalmente do closing_day/due_day do cartão (nenhuma lógica de
+  -- competência própria — reaproveita a mesma de qualquer outra compra). Ambos os caminhos
+  -- defaultam description pra "Pagamento — {nome}" no servidor quando vem vazio, mesmo padrão de
+  -- registerCardPayment/addDebtTransaction. payFixedExpenseAction (budgets/actions.ts) chama isso
+  -- em vez de createTransaction/createCardPurchase direto.
+cancelFixedExpensePayment(fixedExpenseId, month)  -- NOVO (2026-08-10): contraparte de
+  -- payFixedExpense, pro rollback de um pagamento registrado por engano. Apaga os registros
+  -- reais de UM mês específico que fazem getFixedExpenses() computar isPaidThisMonth = true
+  -- pra aquela despesa: transactions.fixed_expense_id no intervalo do mês, e card_purchases.
+  -- fixed_expense_id cujas installments têm competence no mês (card_installments cascateiam
+  -- com a purchase, nenhuma limpeza extra). cancelFixedExpensePaymentAction (budgets/actions.ts)
+  -- chama isso a partir de PayFixedExpenseDialog quando o usuário clica "Cancelar pagamento".
 ```
 
 ## _shared.ts
@@ -395,19 +419,26 @@ getCategoryBudgetFloor(supabase, userId, categoryId, month) → number
 getSubcategoryBudgetFloor(supabase, userId, subcategoryId) → number
   -- SUM(fixed_expenses ativas daquela subcategoria) — sem parâmetro month, só lê fixed_expenses
 reconcileBudgetFloors(supabase, userId, categoryId, subcategoryId, month) → string[]
-  -- auto-raise/create pra UM mês específico — comportamento inalterado desde 2026-08-07,
-  -- mas hoje só é chamada a partir de reconcileFixedExpenseFloors (nunca mais direto do
-  -- fluxo de orçamento de subcategoria)
+  -- auto-raise/create pra UM mês específico, só chamada a partir de reconcileFixedExpenseFloors.
+  -- REVISADO (2026-08-10): com subcategoryId setado, só cria/aumenta a SUBcategoria — nunca
+  -- mais bubbling automático pra categoria (esse era o comportamento antigo, que contradizia
+  -- "category ceilings are never computed"); em seguida chama
+  -- deactivateCategoryBudgetIfOverCommitted pra só DESATIVAR a categoria se perdeu o espaço
+  -- vago. Com subcategoryId null (despesa fixa direto na categoria) mantém o comportamento
+  -- original: cria/aumenta a categoria a partir de getCategoryBudgetFloor
 reconcileFixedExpenseFloors(supabase, userId, categoryId, subcategoryId) → string[]
-  -- NOVO (2026-08-08): decide os meses (mês corrente sempre + próximo mês se ele já
-  -- existir) e chama reconcileBudgetFloors pra cada um — é o único chamador que ainda
-  -- pode auto-criar/aumentar uma categoria, porque despesa fixa é comprometida de verdade
+  -- decide os meses (mês corrente sempre + próximo mês se já existir orçamento NAQUELE MESMO
+  -- NÍVEL — categoria ou subcategoria, fixed 2026-08-10, antes checava sempre o nível
+  -- categoria mesmo quando a despesa era de subcategoria) e chama reconcileBudgetFloors pra
+  -- cada um
 deactivateCategoryBudgetIfOverCommitted(supabase, userId, categoryId, month) → string | null
-  -- NOVO (2026-08-08): o fix do bug. Chamada depois de criar/editar um orçamento de
-  -- SUBcategoria — nunca cria nem aumenta a categoria, só desativa a linha ativa da
-  -- categoria (nesse month) se ela ficou menor que a soma das subcategorias, e devolve o
-  -- aviso pronto pra UI. Nunca desativa se a categoria tem fixed_expenses diretas (o piso
-  -- delas nunca pode ficar órfão)
+  -- chamada depois de criar/editar um orçamento de SUBcategoria OU de aumentar uma
+  -- subcategoria via despesa fixa (unificado 2026-08-10) — nunca cria nem aumenta a
+  -- categoria, só desativa a linha ativa da categoria (nesse month) se ela não sobrou MAIOR
+  -- que a soma das subcategorias — um empate (preenchimento exato, sem sobra) também
+  -- desativa agora (tightened 2026-08-10, antes só desativava se a soma ULTRAPASSASSE) — e
+  -- devolve o aviso pronto pra UI. Nunca desativa se a categoria tem fixed_expenses diretas
+  -- (o piso delas nunca pode ficar órfão)
 ```
 
 ---
@@ -496,6 +527,7 @@ type FixedExpenseDTO = {
   actualAmount: number         // soma da(s) transaction(s) do mês vinculada(s) via fixed_expense_id
   projectedAmount: number      // exibido no dashboard: actualAmount > 0 ? actualAmount : plannedAmount
   isPaidThisMonth: boolean     // actualAmount > 0
+  paidDate?: string            // NOVO (2026-08-10): só setado quando isPaidThisMonth — data da transaction/card_purchase que pagou naquele mês, pro texto do "já pago"
   status: "OK" | "EXCEEDED"
 }
 

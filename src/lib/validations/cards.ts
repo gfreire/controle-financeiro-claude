@@ -12,6 +12,9 @@ export const cardPurchaseSchema = z.object({
   // "YYYY-MM" override for the first installment's competence month — defaults to the
   // closing_day-derived month, but the user can pick a different one directly.
   firstCompetenceMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  // Set only when this purchase is how a fixed expense gets paid on this card (always 1x) —
+  // see fixed-expenses.service.ts#payFixedExpense.
+  fixedExpenseId: z.string().uuid().optional().nullable(),
 });
 export type CardPurchaseInput = z.infer<typeof cardPurchaseSchema>;
 

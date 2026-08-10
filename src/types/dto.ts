@@ -146,6 +146,7 @@ export type FixedExpenseDTO = {
   actualAmount: number;
   projectedAmount: number;
   isPaidThisMonth: boolean;
+  paidDate?: string; // set only when isPaidThisMonth — date of the linked transaction/card purchase that paid it this month
   status: "OK" | "EXCEEDED";
 };
 

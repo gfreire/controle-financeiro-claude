@@ -245,12 +245,15 @@ CREATE TABLE public.card_purchases (
   subcategory_id uuid,
   installments integer NOT NULL,
   is_reservoir boolean DEFAULT false,
+  fixed_expense_id uuid, -- NOVO (0012): liga a compra (sempre 1x) à despesa fixa que ela quita,
+                          -- pra despesas fixas pagas no cartão (ex: streaming na fatura)
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT card_purchases_pkey PRIMARY KEY (id),
   CONSTRAINT card_purchases_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
   CONSTRAINT card_purchases_credit_card_id_fkey FOREIGN KEY (credit_card_id) REFERENCES public.accounts(id),
   CONSTRAINT card_purchases_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
-  CONSTRAINT card_purchases_subcategory_id_fkey FOREIGN KEY (subcategory_id) REFERENCES public.subcategories(id)
+  CONSTRAINT card_purchases_subcategory_id_fkey FOREIGN KEY (subcategory_id) REFERENCES public.subcategories(id),
+  CONSTRAINT card_purchases_fixed_expense_id_fkey FOREIGN KEY (fixed_expense_id) REFERENCES public.fixed_expenses(id) ON DELETE SET NULL
 );
 
 CREATE TABLE public.card_installments (
@@ -403,8 +406,9 @@ CREATE INDEX IF NOT EXISTS budgets_user_month_idx ON public.budgets (user_id, mo
 -- - card_installments, subcategories, reservoir_transactions,
 --   debt_transactions: CASCADE — não têm sentido sem o pai.
 -- - reservoir_transactions.linked_*, debt_transactions.linked_transaction_id,
---   transactions.fixed_expense_id: SET NULL — apagar a transaction real ou
---   a despesa fixa não deve travar nem arrastar o outro lado, só solta o link.
+--   transactions.fixed_expense_id, card_purchases.fixed_expense_id: SET NULL —
+--   apagar a transaction/compra real ou a despesa fixa não deve travar nem
+--   arrastar o outro lado, só solta o link.
 -- - category_id/subcategory_id em transactions, card_purchases, budgets,
 --   fixed_expenses, reservoirs: DE PROPÓSITO sem ON DELETE (RESTRICT padrão
 --   do Postgres). Apagar uma categoria/subcategoria só pode acontecer depois

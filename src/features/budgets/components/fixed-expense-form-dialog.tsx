@@ -3,10 +3,10 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { CategorySelect, SubcategorySelect } from "@/features/categories/components/category-select";
+import { AccountSelect } from "@/components/ui/account-select";
 import { Plus, Pencil } from "lucide-react";
 import { createFixedExpenseAction, updateFixedExpenseAction } from "../actions";
 import { fixedExpenseSchema } from "@/lib/validations/fixed-expenses";
@@ -143,13 +143,14 @@ export function FixedExpenseFormDialog({
             )}
             <Field>
               <Label>Conta padrão (opcional)</Label>
-              <Select value={defaultAccountId} onValueChange={setDefaultAccountId}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>Nenhuma</SelectItem>
-                  {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <AccountSelect
+                accounts={accounts}
+                value={defaultAccountId}
+                onChange={setDefaultAccountId}
+                noneValue={NONE}
+                noneLabel="Nenhuma"
+              />
+              <p className="mt-1 text-[11px] opacity-50">Se for uma conta de cartão de crédito, o pagamento é lançado como uma compra de 1x, na competência da fatura.</p>
             </Field>
             <FieldError>{error}</FieldError>
             <DialogActions>

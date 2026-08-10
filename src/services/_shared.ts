@@ -121,11 +121,18 @@ async function raiseOrCreateBudgetToFloor(
 }
 
 /**
- * Called after any fixed-expense create/update, or after saving a subcategory budget — never
- * blocks, only raises (or creates) the budget(s) whose committed children now exceed them, for one
- * specific `month`, and returns human-readable notices for the UI to surface. `subcategoryId`
- * should be the level that was just touched (a fixed expense's own subcategory, if any); pass
- * `null` when only bubbling up to the category.
+ * Called after any fixed-expense create/update, for one specific `month`, and returns
+ * human-readable notices for the UI to surface. Never blocks. `subcategoryId` is the level a
+ * fixed expense actually lands on:
+ *
+ * - When set, only the SUBCATEGORY's own floor is raised/created — a subcategory-level fixed
+ *   expense never raises or creates the category's row (decided 2026-08-10, at the user's
+ *   request — see AI_CONTEXT.md "Budget hierarchy" for the 4 worked cases). The category is only
+ *   ever *deactivated* afterward, via `deactivateCategoryBudgetIfOverCommitted`, if the raised
+ *   subcategory sum has caught up to (or passed) an already-existing category row; a category
+ *   with no row of its own stays that way.
+ * - When `null` (a fixed expense attached directly to the category, no subcategory), the
+ *   category's own floor is raised/created as before — there's no subcategory level to defer to.
  */
 export async function reconcileBudgetFloors(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -137,16 +144,19 @@ export async function reconcileBudgetFloors(
   if (!categoryId) return [];
   const notices: string[] = [];
 
-  const { data: category } = await supabase.from("categories").select("name").eq("id", categoryId).single();
-  const categoryName = category?.name ?? "categoria";
-
   if (subcategoryId) {
     const { data: subcategory } = await supabase.from("subcategories").select("name").eq("id", subcategoryId).single();
     const subFloor = await getSubcategoryBudgetFloor(supabase, userId, subcategoryId);
     const subNotice = await raiseOrCreateBudgetToFloor(supabase, userId, categoryId, subcategoryId, month, subcategory?.name ?? "subcategoria", subFloor);
     if (subNotice) notices.push(subNotice);
+
+    const deactivateNotice = await deactivateCategoryBudgetIfOverCommitted(supabase, userId, categoryId, month);
+    if (deactivateNotice) notices.push(deactivateNotice);
+    return notices;
   }
 
+  const { data: category } = await supabase.from("categories").select("name").eq("id", categoryId).single();
+  const categoryName = category?.name ?? "categoria";
   const catFloor = await getCategoryBudgetFloor(supabase, userId, categoryId, month);
   const catNotice = await raiseOrCreateBudgetToFloor(supabase, userId, categoryId, null, month, categoryName, catFloor);
   if (catNotice) notices.push(catNotice);
@@ -157,11 +167,13 @@ export async function reconcileBudgetFloors(
 /**
  * Fixed-expense-driven floor propagation, scoped to the two months a user can actually be
  * planning at once (decided 2026-08-08, AI_CONTEXT.md "Budgets"): always reconciles the current
- * real month, and — only if a budget for next month already exists for this category — reconciles
- * next month too, so a fixed expense registered today doesn't silently skip a plan the user already
- * made ahead of time. This is the sole remaining caller path that still auto-raises/creates a
- * category or subcategory budget; subcategory-budget saves use `deactivateCategoryBudgetIfOverCommitted`
- * instead (see below) — the two are deliberately different mechanisms for two different floors.
+ * real month, and — only if a budget already exists for next month **at the same level** this
+ * fixed expense targets (the subcategory's row when `subcategoryId` is set, the category's row
+ * otherwise) — reconciles next month too, so a fixed expense registered today doesn't silently
+ * skip a plan the user already made ahead of time. Checking the matching level (fixed
+ * 2026-08-10) matters now that a subcategory-level fixed expense never touches the category: a
+ * user who only pre-planned next month's subcategory budget (no category row) must still get
+ * that subcategory raised, not be skipped because no category row existed to gate on.
  */
 export async function reconcileFixedExpenseFloors(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -175,15 +187,15 @@ export async function reconcileFixedExpenseFloors(
 
   const notices = await reconcileBudgetFloors(supabase, userId, categoryId, subcategoryId, currentMonth);
 
-  const { data: nextMonthBudget, error } = await supabase
+  let nextMonthQuery = supabase
     .from("budgets")
     .select("id")
     .eq("user_id", userId)
     .eq("category_id", categoryId)
     .eq("month", nextMonth)
-    .eq("active", true)
-    .is("subcategory_id", null)
-    .maybeSingle();
+    .eq("active", true);
+  nextMonthQuery = subcategoryId ? nextMonthQuery.eq("subcategory_id", subcategoryId) : nextMonthQuery.is("subcategory_id", null);
+  const { data: nextMonthBudget, error } = await nextMonthQuery.maybeSingle();
   if (error) throw new Error(error.message);
 
   if (nextMonthBudget) {
@@ -195,12 +207,16 @@ export async function reconcileFixedExpenseFloors(
 
 /**
  * The actual fix for the "budget gets set to the sum of its subcategories" bug (AI_CONTEXT.md
- * "Budgets"): saving a subcategory budget never raises or creates the parent category's row — it
- * can only invalidate an existing one. If the category has an active explicit row for `month` and
- * the subcategory budgets under it now sum to >= that row's amount, the category row is
- * deactivated (never a "clamp"/silent value change) and a notice is returned. A category with
- * direct fixed expenses (no subcategory) is never touched here — the fixed-expense auto-create
- * guarantees its row exists for a real floor, and that floor must never be silently orphaned.
+ * "Budgets"): saving a subcategory budget (or raising one via a subcategory-level fixed expense)
+ * never raises or creates the parent category's row — it can only invalidate an existing one. If
+ * the category has an active explicit row for `month` and the subcategory budgets under it now
+ * sum to **at least** that row's amount — including an exact fill with zero headroom left, not
+ * only strictly exceeding it (tightened 2026-08-10 at the user's request: a category number is
+ * only meaningful while it still represents real unallocated headroom over its subcategories) —
+ * the category row is deactivated (never a "clamp"/silent value change) and a notice is returned.
+ * A category with direct fixed expenses (no subcategory) is never touched here — the
+ * fixed-expense auto-create guarantees its row exists for a real floor, and that floor must never
+ * be silently orphaned.
  */
 export async function deactivateCategoryBudgetIfOverCommitted(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -232,11 +248,11 @@ export async function deactivateCategoryBudgetIfOverCommitted(
   if ((directFixedExpenses ?? []).length > 0) return null; // never orphan a direct fixed-expense floor
 
   const subcategorySum = sumMoney((subBudgets ?? []).map((b) => b.amount));
-  if (categoryBudget.amount >= subcategorySum) return null;
+  if (categoryBudget.amount > subcategorySum) return null;
 
   const { data: category } = await supabase.from("categories").select("name").eq("id", categoryId).single();
   const { error: deactivateError } = await supabase.from("budgets").update({ active: false }).eq("id", categoryBudget.id);
   if (deactivateError) throw new Error(deactivateError.message);
 
-  return `O orçamento de ${category?.name ?? "categoria"} foi removido porque as subcategorias já somam mais que o valor cadastrado (${formatCurrency(subcategorySum)}).`;
+  return `O orçamento de ${category?.name ?? "categoria"} foi removido porque as subcategorias já ocupam todo o valor cadastrado (${formatCurrency(subcategorySum)}), sem espaço livre.`;
 }

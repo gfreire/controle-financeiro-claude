@@ -1,15 +1,15 @@
-import { Banknote, Wallet, CreditCard, type LucideIcon } from "lucide-react";
+import { Banknote, Landmark, CreditCard, type LucideIcon } from "lucide-react";
 import type { AccountType } from "@/types/database";
 
 /**
- * Presentational only — no business logic depends on this. CASH gets "cédulas"
- * (Banknote), BANK gets a "saquinho de dinheiro" (Wallet), CREDIT_CARD gets CreditCard.
- * Shared between the Accounts page and the transaction lists so the same account always
- * reads the same way everywhere.
+ * Presentational only — no business logic depends on this. CASH gets "cédulas" (Banknote),
+ * BANK gets a bank building (Landmark — Wallet read too much like cash itself, confusing
+ * against CASH's own icon), CREDIT_CARD gets CreditCard. Shared between the Accounts page and
+ * the transaction lists so the same account always reads the same way everywhere.
  */
 export const ACCOUNT_TYPE_ICON: Record<AccountType, LucideIcon> = {
   CASH: Banknote,
-  BANK: Wallet,
+  BANK: Landmark,
   CREDIT_CARD: CreditCard,
 };
 
