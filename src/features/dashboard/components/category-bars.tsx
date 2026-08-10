@@ -1,6 +1,6 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, CardTitle } from "@/components/ui/card";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils/currency";
 import type { CategoryComparisonDTO } from "@/types/dto";
@@ -24,7 +24,11 @@ export function CategoryBars({ data }: { data: CategoryComparisonDTO[] }) {
                 formatter={(value) => formatCurrency(Number(value))}
                 contentStyle={{ background: "var(--color-surface)", border: "1px solid var(--color-divider)", borderRadius: 0, fontSize: 12 }}
               />
-              <Bar dataKey="total" fill="var(--color-accent)" radius={[0, 1, 1, 0]} />
+              <Bar dataKey="total" radius={[0, 1, 1, 0]}>
+                {chartData.map((entry) => (
+                  <Cell key={entry.categoryId} fill={entry.color} />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>

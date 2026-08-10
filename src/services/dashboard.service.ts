@@ -197,7 +197,7 @@ export async function getCategoryDistribution(filters: DashboardFilters): Promis
 
 export async function getCategoryComparison(filters: DashboardFilters): Promise<CategoryComparisonDTO[]> {
   const distribution = await getCategoryDistribution(filters);
-  return distribution.map((d) => ({ categoryName: d.categoryName, total: d.total }));
+  return distribution.map((d) => ({ categoryId: d.categoryId, categoryName: d.categoryName, total: d.total, color: d.color }));
 }
 
 export async function getTransactionsFiltered(filters: DashboardFilters): Promise<TransactionViewDTO[]> {
