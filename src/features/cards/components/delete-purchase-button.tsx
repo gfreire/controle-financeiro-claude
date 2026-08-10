@@ -11,7 +11,7 @@ export function DeletePurchaseButton({ purchaseId, description }: { purchaseId: 
   return (
     <ConfirmDeleteDialog
       trigger={
-        <button className="text-text/40 hover:text-danger-600" aria-label="Excluir compra">
+        <button className="p-1.5 -m-1.5 text-text/40 hover:text-danger-600" aria-label="Excluir compra">
           <Trash2 className="size-3.5" strokeWidth={1.5} />
         </button>
       }

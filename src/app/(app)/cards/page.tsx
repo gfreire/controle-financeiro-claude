@@ -125,7 +125,7 @@ export default async function CardsPage({
                               categories={categories}
                               purchase={purchase}
                               trigger={
-                                <button className="text-text/40 hover:text-accent" aria-label="Editar compra">
+                                <button className="p-1.5 -m-1.5 text-text/40 hover:text-accent" aria-label="Editar compra">
                                   <Pencil className="size-3.5" strokeWidth={1.5} />
                                 </button>
                               }

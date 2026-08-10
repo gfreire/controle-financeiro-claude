@@ -79,7 +79,9 @@ export function FixedExpenseFormDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         {isEdit ? (
-          <button className="text-text/40 hover:text-accent"><Pencil className="size-3.5" strokeWidth={1.5} /></button>
+          <button className="p-1.5 -m-1.5 text-text/40 hover:text-accent" aria-label="Editar despesa fixa">
+            <Pencil className="size-3.5" strokeWidth={1.5} />
+          </button>
         ) : (
           <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova despesa fixa</Button>
         )}

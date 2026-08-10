@@ -30,7 +30,7 @@ export function CategoryPie({ data }: { data: CategoryDistributionDTO[] }) {
           <button
             type="button"
             onClick={() => handleClick(activeCategoryId)}
-            className="flex items-center gap-1 text-text/50 hover:text-accent"
+            className="flex items-center gap-1 p-1.5 -m-1.5 text-text/50 hover:text-accent"
             aria-label="Voltar (limpar filtro de categoria)"
           >
             <ArrowLeft className="size-4" strokeWidth={1.5} />

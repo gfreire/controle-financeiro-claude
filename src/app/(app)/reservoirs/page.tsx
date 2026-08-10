@@ -44,7 +44,7 @@ export default async function ReservoirsPage() {
                           accounts={liquidAccounts}
                           reservoir={reservoir}
                           trigger={
-                            <button type="button" className="opacity-50 hover:opacity-100" aria-label="Editar receita programada">
+                            <button type="button" className="p-1.5 -m-1.5 opacity-50 hover:opacity-100" aria-label="Editar receita programada">
                               <Pencil className="size-3.5" strokeWidth={1.5} />
                             </button>
                           }
@@ -83,7 +83,7 @@ export default async function ReservoirsPage() {
                                   defaultPercentage={reservoir.defaultPercentage}
                                   entry={entry}
                                   trigger={
-                                    <button type="button" className="opacity-60 hover:opacity-100" aria-label="Editar acúmulo">
+                                    <button type="button" className="p-1.5 -m-1.5 opacity-60 hover:opacity-100" aria-label="Editar acúmulo">
                                       <Pencil className="size-3" strokeWidth={1.5} />
                                     </button>
                                   }

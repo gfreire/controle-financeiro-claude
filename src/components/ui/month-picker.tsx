@@ -56,7 +56,7 @@ export function MonthPicker({ month, onChange }: { month: string; onChange: (mon
         </button>
       </div>
       {!isCurrentMonth && (
-        <button onClick={() => onChange(monthKey(todayIso()))} className="text-xs text-accent hover:underline">
+        <button onClick={() => onChange(monthKey(todayIso()))} className="p-1.5 -m-1.5 text-xs text-accent hover:underline">
           Hoje
         </button>
       )}

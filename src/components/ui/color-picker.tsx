@@ -19,6 +19,8 @@ export function ColorPicker({ value, onChange, size = "size-6" }: { value: strin
           onClick={() => onChange(c)}
           className={cn(size, value === c && "ring-2 ring-offset-2 ring-offset-bg ring-accent")}
           style={{ background: c }}
+          aria-label={`Cor ${c}`}
+          aria-pressed={value === c}
         />
       ))}
       <label
@@ -35,6 +37,7 @@ export function ColorPicker({ value, onChange, size = "size-6" }: { value: strin
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="absolute inset-0 size-full cursor-pointer opacity-0"
+          aria-label="Escolher cor personalizada"
         />
       </label>
     </div>

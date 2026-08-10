@@ -38,7 +38,7 @@ export function SubcategoryFormDialog({ categoryId }: { categoryId: string }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="flex items-center gap-1 text-[11px] text-accent hover:underline">
+        <button className="flex items-center gap-1 p-1.5 -m-1.5 text-[11px] text-accent hover:underline">
           <Plus className="size-3" strokeWidth={1.5} /> Subcategoria
         </button>
       </DialogTrigger>

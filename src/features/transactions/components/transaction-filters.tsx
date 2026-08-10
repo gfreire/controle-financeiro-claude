@@ -97,7 +97,7 @@ export function TransactionFilters({ accounts, categories }: { accounts: Account
             params.delete("subcategoryId");
             router.push(`${pathname}?${params.toString()}`);
           }}
-          className="text-xs text-accent hover:underline"
+          className="p-1.5 -m-1.5 text-xs text-accent hover:underline"
         >
           Limpar filtros
         </button>

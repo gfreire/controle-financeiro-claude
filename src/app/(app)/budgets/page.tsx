@@ -4,6 +4,7 @@ import { getCategories } from "@/services/categories.service";
 import { getAccounts } from "@/services/accounts.service";
 import { getTransactionsFiltered } from "@/services/dashboard.service";
 import { monthKey, todayIso, startOfMonth, endOfMonth } from "@/lib/utils/date";
+import { cn } from "@/lib/utils/cn";
 import { BudgetFormDialog } from "@/features/budgets/components/budget-form-dialog";
 import { BudgetTreeEditor } from "@/features/budgets/components/budget-tree-editor";
 import { BudgetTree } from "@/features/budgets/components/budget-tree";
@@ -110,7 +111,10 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
               month={monthDate}
               trigger={
                 <button
-                  className={f.isPaidThisMonth ? "text-success-600 hover:text-success-600/70" : "text-text/40 hover:text-accent"}
+                  className={cn(
+                    "p-1.5 -m-1.5",
+                    f.isPaidThisMonth ? "text-success-600 hover:text-success-600/70" : "text-text/40 hover:text-accent"
+                  )}
                   aria-label={f.isPaidThisMonth ? "Ver pagamento" : "Registrar pagamento"}
                 >
                   <CreditCard className="size-3.5" strokeWidth={1.5} />

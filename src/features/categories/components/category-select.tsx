@@ -105,7 +105,7 @@ export function CategorySelect({
               <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
             </Field>
           </div>
-          <ColorPicker value={color} onChange={setColor} size="size-5" />
+          <ColorPicker value={color} onChange={setColor} />
           <FieldError>{error}</FieldError>
           <Button size="sm" disabled={pending || !name} onClick={handleCreate}>{pending ? "Criando..." : "Criar categoria"}</Button>
         </DialogContent>

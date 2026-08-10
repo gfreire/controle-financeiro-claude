@@ -21,6 +21,8 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (icon
               type="button"
               onClick={() => onChange(icon)}
               className={cn("flex size-7 items-center justify-center text-base hover:bg-accent/10", value === icon && "bg-accent/20")}
+              aria-label={`Ícone ${icon}`}
+              aria-pressed={value === icon}
             >
               {icon}
             </button>

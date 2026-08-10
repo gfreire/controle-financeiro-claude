@@ -73,7 +73,12 @@ export function DeleteCategoryDialog({ target, categories }: { target: Target; c
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="text-text/40 hover:text-danger-600"><Trash2 className="size-3.5" strokeWidth={1.5} /></button>
+        <button
+          className="p-1.5 -m-1.5 text-text/40 hover:text-danger-600"
+          aria-label={target.kind === "category" ? "Excluir categoria" : "Excluir subcategoria"}
+        >
+          <Trash2 className="size-3.5" strokeWidth={1.5} />
+        </button>
       </DialogTrigger>
       <DialogContent>
         <DialogTitle>Excluir &quot;{target.name}&quot;</DialogTitle>
