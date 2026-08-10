@@ -136,7 +136,8 @@ export async function getFinancialSummary(filters: DashboardFilters): Promise<Fi
 
   const accounts = await getAccounts();
   const relevantAccounts = filters.accounts?.length ? accounts.filter((a) => filters.accounts!.includes(a.id)) : accounts;
-  const balance = sumMoney(relevantAccounts.map((a) => a.balance));
+  const liquidAccounts = relevantAccounts.filter((a) => a.type !== "CREDIT_CARD");
+  const balance = sumMoney(liquidAccounts.map((a) => a.balance));
 
   const adjustmentTotal = sumMoney(entries.filter((e) => e.categoryName === "Ajuste").map((e) => e.amount));
   const periodTotal = sumMoney([income, expense]);
