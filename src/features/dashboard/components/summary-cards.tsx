@@ -29,7 +29,7 @@ export function SummaryCards({ summary }: { summary: FinancialSummaryDTO }) {
       </Card>
 
       <Card elevation="sm">
-        <CardKicker className="flex items-center gap-1"><Scale className="size-3" strokeWidth={1.5} /> Resultado</CardKicker>
+        <CardKicker className="flex items-center gap-1"><Scale className="size-3" strokeWidth={1.5} /> Balanço Mensal</CardKicker>
         <CardTitle className={resultPositive ? "text-2xl text-success-600" : "text-2xl text-danger-600"}>
           {formatCurrency(summary.result)}
         </CardTitle>
