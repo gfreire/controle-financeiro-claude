@@ -6,7 +6,7 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
 /** Bottom nav (mobile): Dashboard, Transactions, Accounts, Cards, More. Sidebar (desktop) adds Receita Programada, Debts, Budgets, Settings. */
 export const PRIMARY_NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/transactions", label: "Lançamentos", icon: ArrowLeftRight },
+  { href: "/transactions", label: "Movimentações", icon: ArrowLeftRight },
   { href: "/accounts", label: "Contas", icon: Wallet },
   { href: "/cards", label: "Cartões", icon: CreditCard },
 ];

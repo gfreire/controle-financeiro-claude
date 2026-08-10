@@ -20,7 +20,7 @@ export function TransactionExplorer({ transactions, categories }: { transactions
   return (
     <Card elevation="sm" className="gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <CardTitle>Lançamentos ({filtered.length})</CardTitle>
+        <CardTitle>Movimentações ({filtered.length})</CardTitle>
         <Input placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-40" />
       </div>
 

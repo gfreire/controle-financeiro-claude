@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, Textarea, FieldError } from "@/components/ui/input";
 import { CategorySelect, SubcategorySelect } from "@/features/categories/components/category-select";
+import { AccountSelect } from "@/components/ui/account-select";
 import { Plus } from "lucide-react";
 import { createTransactionAction } from "../actions";
 import { transactionSchema, type TransactionType } from "@/lib/validations/transactions";
@@ -70,10 +71,10 @@ export function TransactionFormDialog({ accounts, categories: initialCategories 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Novo lançamento</Button>
+        <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova movimentação</Button>
       </DialogTrigger>
       <DialogContent>
-        <DialogTitle>Novo lançamento</DialogTitle>
+        <DialogTitle>Nova movimentação</DialogTitle>
 
         <Field>
           <Label>Tipo</Label>
@@ -102,24 +103,14 @@ export function TransactionFormDialog({ accounts, categories: initialCategories 
         {(type === "EXPENSE" || type === "TRANSFER") && (
           <Field>
             <Label>Conta de origem</Label>
-            <Select value={originAccountId} onValueChange={setOriginAccountId}>
-              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-              <SelectContent>
-                {liquidAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <AccountSelect accounts={liquidAccounts} value={originAccountId} onChange={setOriginAccountId} />
           </Field>
         )}
 
         {(type === "INCOME" || type === "TRANSFER") && (
           <Field>
             <Label>Conta de destino</Label>
-            <Select value={destinationAccountId} onValueChange={setDestinationAccountId}>
-              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-              <SelectContent>
-                {liquidAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <AccountSelect accounts={liquidAccounts} value={destinationAccountId} onChange={setDestinationAccountId} />
           </Field>
         )}
 

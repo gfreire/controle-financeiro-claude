@@ -10,16 +10,24 @@ import { PurchaseFormDialog } from "@/features/cards/components/purchase-form-di
 import { PaymentFormDialog } from "@/features/cards/components/payment-form-dialog";
 import { DeletePurchaseButton } from "@/features/cards/components/delete-purchase-button";
 import { MonthNav } from "@/features/cards/components/month-nav";
+import { CardFilters } from "@/features/cards/components/card-filters";
 import { EditableCategoryCell } from "@/features/dashboard/components/editable-category-cell";
 import { Button } from "@/components/ui/button";
 import { CreditCard, Receipt, Pencil } from "lucide-react";
+import { textIncludes } from "@/lib/utils/normalize";
 
-export default async function CardsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+export default async function CardsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string; cardId?: string; categoryId?: string; subcategoryId?: string; q?: string }>;
+}) {
   const resolvedSearchParams = await searchParams;
   const month = resolvedSearchParams.month ?? monthKey(todayIso());
+  const { cardId, categoryId, subcategoryId, q } = resolvedSearchParams;
 
   const [accounts, categories] = await Promise.all([getAccounts(), getCategories()]);
-  const cards = accounts.filter((a) => a.type === "CREDIT_CARD");
+  const allCards = accounts.filter((a) => a.type === "CREDIT_CARD");
+  const cards = cardId ? allCards.filter((c) => c.id === cardId) : allCards;
   const payerAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
 
   const periodStart = startOfMonth(`${month}-01`);
@@ -31,17 +39,19 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
         <h1 className="font-heading text-2xl font-semibold">Cartões</h1>
         <div className="flex items-center gap-2">
           <MonthNav />
-          <PurchaseFormDialog cards={cards} categories={categories} />
+          <PurchaseFormDialog cards={allCards} categories={categories} />
         </div>
       </div>
 
-      {cards.length === 0 ? (
+      <CardFilters cards={allCards} categories={categories} />
+
+      {allCards.length === 0 ? (
         <p className="text-sm opacity-60">Nenhum cartão cadastrado. Crie um cartão de crédito na página de Contas.</p>
       ) : (
         <div className="flex flex-col gap-4">
           {await Promise.all(
             cards.map(async (card) => {
-              const [installments, purchases, summary] = await Promise.all([
+              const [installmentsRaw, purchases, summary] = await Promise.all([
                 getCardInstallments(card.id, { periodStart, periodEnd }),
                 getCardPurchases(card.id),
                 // `month` here is the page's viewed/filtered month — drives `currentMonthInvoice`.
@@ -49,6 +59,16 @@ export default async function CardsPage({ searchParams }: { searchParams: Promis
                 getCardSummary(card.id, month, card.creditLimit ?? null),
               ]);
               const purchaseById = new Map(purchases.map((p) => [p.id, p]));
+              const installments = installmentsRaw.filter((r) => {
+                const purchase = purchaseById.get(r.purchaseId);
+                if (categoryId && purchase?.categoryId !== categoryId) return false;
+                if (subcategoryId && purchase?.subcategoryId !== subcategoryId) return false;
+                if (q) {
+                  const description = r.description || purchase?.subcategoryName || purchase?.categoryName || "";
+                  if (!textIncludes(description, q)) return false;
+                }
+                return true;
+              });
               // Against-the-limit usage must include future not-yet-due installments too — see
               // `getCardTotalCommitted`'s comment for why `usedThroughCurrentMonth` alone undercounts it.
               const usagePercent = summary.creditLimit ? toPercentage(summary.totalCommitted, summary.creditLimit) : null;

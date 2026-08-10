@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardKicker, CardTitle, CardMeta } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { formatMonthLabel } from "@/lib/utils/date";
 import { toPercentage } from "@/lib/utils/number";
 import { deactivateAccountAction } from "../actions";
-import { MoreVertical } from "lucide-react";
+import { MoreVertical, ArrowLeftRight, CreditCard as CreditCardIcon } from "lucide-react";
 import { AccountTypeIcon, ACCOUNT_TYPE_LABEL } from "@/components/ui/account-type-icon";
 import type { AccountDTO, CardSummaryDTO } from "@/types/dto";
 
@@ -28,36 +29,54 @@ export function AccountCard({ account, cardSummary, cardSummaryMonth }: { accoun
           <AccountTypeIcon type={account.type} className="size-3" />
           {ACCOUNT_TYPE_LABEL[account.type]}
         </CardKicker>
-        <DropdownMenu>
-          <DropdownMenuTrigger className="text-text/50 hover:text-text"><MoreVertical className="size-4" /></DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {account.type === "BANK" && (
-              <BalanceAdjustDialog account={account} mode="yield" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Informar Rendimento</DropdownMenuItem>} />
-            )}
-            {account.type !== "CREDIT_CARD" && (
-              <BalanceAdjustDialog account={account} mode="reconcile" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Ajustar Saldo</DropdownMenuItem>} />
-            )}
-            {(account.type === "BANK" || account.type === "CREDIT_CARD") && (
-              <LimitAdjustDialog
-                account={account}
-                trigger={
-                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                    {account.type === "CREDIT_CARD" ? "Ajustar Cartão" : "Ajustar Limite"}
-                  </DropdownMenuItem>
-                }
-              />
-            )}
-            <DropdownMenuItem
-              disabled={pending}
-              onSelect={() => startTransition(async () => {
-                await deactivateAccountAction(account.id);
-                router.refresh();
-              })}
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/transactions?accountId=${account.id}`}
+            title="Ver movimentações desta conta"
+            className="text-text/50 hover:text-accent"
+          >
+            <ArrowLeftRight className="size-3.5" strokeWidth={1.5} />
+          </Link>
+          {account.type === "CREDIT_CARD" && (
+            <Link
+              href={`/cards?cardId=${account.id}`}
+              title="Ver fatura deste cartão"
+              className="text-text/50 hover:text-accent"
             >
-              Desativar conta
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <CreditCardIcon className="size-3.5" strokeWidth={1.5} />
+            </Link>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger className="text-text/50 hover:text-text"><MoreVertical className="size-4" /></DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {account.type === "BANK" && (
+                <BalanceAdjustDialog account={account} mode="yield" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Informar Rendimento</DropdownMenuItem>} />
+              )}
+              {account.type !== "CREDIT_CARD" && (
+                <BalanceAdjustDialog account={account} mode="reconcile" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Ajustar Saldo</DropdownMenuItem>} />
+              )}
+              {(account.type === "BANK" || account.type === "CREDIT_CARD") && (
+                <LimitAdjustDialog
+                  account={account}
+                  trigger={
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                      {account.type === "CREDIT_CARD" ? "Ajustar Cartão" : "Ajustar Limite"}
+                    </DropdownMenuItem>
+                  }
+                />
+              )}
+              <DropdownMenuItem
+                disabled={pending}
+                onSelect={() => startTransition(async () => {
+                  await deactivateAccountAction(account.id);
+                  router.refresh();
+                })}
+              >
+                Desativar conta
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
       <CardTitle>{account.name}</CardTitle>
       {account.type === "CREDIT_CARD" && cardSummary ? (
