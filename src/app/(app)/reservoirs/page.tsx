@@ -5,7 +5,7 @@ import { Card, CardKicker, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDate } from "@/lib/utils/date";
-import { Vault, Plus, ArrowDownToLine } from "lucide-react";
+import { Vault, Plus, ArrowDownToLine, Pencil } from "lucide-react";
 import { ReservoirFormDialog } from "@/features/reservoirs/components/reservoir-form-dialog";
 import { AccrualDialog } from "@/features/reservoirs/components/accrual-dialog";
 import { WithdrawalDialog } from "@/features/reservoirs/components/withdrawal-dialog";
@@ -37,7 +37,19 @@ export default async function ReservoirsPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <CardKicker className="flex items-center gap-1"><Vault className="size-3" strokeWidth={1.5} /> {reservoir.categoryName ?? "Sem categoria padrão"}</CardKicker>
-                      <CardTitle>{reservoir.name}</CardTitle>
+                      <div className="flex items-center gap-1.5">
+                        <CardTitle>{reservoir.name}</CardTitle>
+                        <ReservoirFormDialog
+                          categories={categories}
+                          accounts={liquidAccounts}
+                          reservoir={reservoir}
+                          trigger={
+                            <button type="button" className="opacity-50 hover:opacity-100" aria-label="Editar receita programada">
+                              <Pencil className="size-3.5" strokeWidth={1.5} />
+                            </button>
+                          }
+                        />
+                      </div>
                       <div className="text-xl font-semibold tabular-nums">{formatCurrency(reservoir.balance)}</div>
                     </div>
                     <div className="flex gap-2">
@@ -58,14 +70,32 @@ export default async function ReservoirsPage() {
 
                   {entries.length > 0 && (
                     <ul className="flex flex-col gap-1 text-sm">
-                      {entries.slice(0, 8).map((entry) => (
-                        <li key={entry.id} className="flex items-center justify-between border-b border-text/[0.06] py-1">
-                          <span className="opacity-70">{formatDate(entry.date)} {entry.description && `· ${entry.description}`}</span>
-                          <span className={entry.amount >= 0 ? "text-success-600 tabular-nums" : "text-danger-600 tabular-nums"}>
-                            {formatCurrency(entry.amount)}
-                          </span>
-                        </li>
-                      ))}
+                      {entries.slice(0, 8).map((entry) => {
+                        const isEditableAccrual = entry.amount >= 0 && !entry.linkedTransactionId && !entry.linkedCardPurchaseId;
+                        return (
+                          <li key={entry.id} className="flex items-center justify-between gap-2 border-b border-text/[0.06] py-1">
+                            <span className="flex items-center gap-1 opacity-70">
+                              {formatDate(entry.date)} {entry.description && `· ${entry.description}`}
+                              {isEditableAccrual && (
+                                <AccrualDialog
+                                  reservoirId={reservoir.id}
+                                  reservoirName={reservoir.name}
+                                  defaultPercentage={reservoir.defaultPercentage}
+                                  entry={entry}
+                                  trigger={
+                                    <button type="button" className="opacity-60 hover:opacity-100" aria-label="Editar acúmulo">
+                                      <Pencil className="size-3" strokeWidth={1.5} />
+                                    </button>
+                                  }
+                                />
+                              )}
+                            </span>
+                            <span className={entry.amount >= 0 ? "text-success-600 tabular-nums" : "text-danger-600 tabular-nums"}>
+                              {formatCurrency(entry.amount)}
+                            </span>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </Card>

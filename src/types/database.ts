@@ -175,6 +175,7 @@ export interface ReservoirTransactionRow {
   description: string | null;
   linked_transaction_id: string | null;
   linked_card_purchase_id: string | null;
+  date: string;
   created_at: string;
 }
 

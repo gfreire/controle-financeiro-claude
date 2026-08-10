@@ -350,6 +350,7 @@ CREATE TABLE public.reservoir_transactions (
   description text,
   linked_transaction_id uuid,
   linked_card_purchase_id uuid,
+  date date NOT NULL DEFAULT CURRENT_DATE, -- NOVO (0011): editável — antes só existia created_at, e o date picker do AccrualDialog era descartado
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT reservoir_transactions_pkey PRIMARY KEY (id),
   CONSTRAINT reservoir_transactions_reservoir_id_fkey FOREIGN KEY (reservoir_id) REFERENCES public.reservoirs(id) ON DELETE CASCADE,

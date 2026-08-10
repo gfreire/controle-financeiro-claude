@@ -4,10 +4,14 @@ import { revalidatePath } from "next/cache";
 import * as reservoirsService from "@/services/reservoirs.service";
 import {
   reservoirSchema,
+  updateReservoirSchema,
   reservoirAccrualSchema,
+  updateReservoirAccrualSchema,
   reservoirWithdrawalSchema,
   type ReservoirInput,
+  type UpdateReservoirInput,
   type ReservoirAccrualInput,
+  type UpdateReservoirAccrualInput,
   type ReservoirWithdrawalInput,
 } from "@/lib/validations/reservoirs";
 
@@ -17,9 +21,21 @@ export async function createReservoirAction(input: ReservoirInput) {
   revalidatePath("/reservoirs");
 }
 
+export async function updateReservoirAction(input: UpdateReservoirInput) {
+  const parsed = updateReservoirSchema.parse(input);
+  await reservoirsService.updateReservoir(parsed);
+  revalidatePath("/reservoirs");
+}
+
 export async function addReservoirAccrualAction(input: ReservoirAccrualInput) {
   const parsed = reservoirAccrualSchema.parse(input);
   await reservoirsService.addReservoirTransaction(parsed);
+  revalidatePath("/reservoirs");
+}
+
+export async function updateReservoirAccrualAction(input: UpdateReservoirAccrualInput) {
+  const parsed = updateReservoirAccrualSchema.parse(input);
+  await reservoirsService.updateReservoirTransaction(parsed);
   revalidatePath("/reservoirs");
 }
 

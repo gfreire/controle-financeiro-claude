@@ -1,7 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { sumMoney } from "@/lib/utils/money";
-import type { ReservoirAccrualInput, ReservoirInput, ReservoirWithdrawalInput } from "@/lib/validations/reservoirs";
+import type {
+  ReservoirAccrualInput,
+  ReservoirInput,
+  ReservoirWithdrawalInput,
+  UpdateReservoirAccrualInput,
+  UpdateReservoirInput,
+} from "@/lib/validations/reservoirs";
 import type { ReservoirDTO, ReservoirTransactionDTO } from "@/types/dto";
 
 export async function getReservoirs(): Promise<ReservoirDTO[]> {
@@ -51,19 +57,34 @@ export async function createReservoir(input: ReservoirInput): Promise<string> {
   return data.id;
 }
 
+export async function updateReservoir(input: UpdateReservoirInput): Promise<void> {
+  const supabase = await createClient();
+  const { id, ...rest } = input;
+  const updates: Record<string, unknown> = {};
+  if (rest.name !== undefined) updates.name = rest.name;
+  if (rest.categoryId !== undefined) updates.category_id = rest.categoryId;
+  if (rest.subcategoryId !== undefined) updates.subcategory_id = rest.subcategoryId;
+  if (rest.defaultPercentage !== undefined) updates.default_percentage = rest.defaultPercentage;
+  if (rest.defaultDestinationAccountId !== undefined) updates.default_destination_account_id = rest.defaultDestinationAccountId;
+
+  const { error } = await supabase.from("reservoirs").update(updates).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
 export async function getReservoirTransactions(reservoirId: string): Promise<ReservoirTransactionDTO[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("reservoir_transactions")
     .select("*")
     .eq("reservoir_id", reservoirId)
+    .order("date", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
 
   return (data ?? []).map((row) => ({
     id: row.id,
     reservoirId: row.reservoir_id,
-    date: row.created_at.slice(0, 10),
+    date: row.date,
     description: row.description,
     amount: row.amount,
     grossAmount: row.gross_amount ?? undefined,
@@ -85,7 +106,35 @@ export async function addReservoirTransaction(input: ReservoirAccrualInput): Pro
     gross_amount: input.grossAmount ?? null,
     percentage: input.percentage ?? null,
     description,
+    date: input.date,
   });
+  if (error) throw new Error(error.message);
+}
+
+/** Edits an accrual entry (date/amount/grossAmount/percentage/description). Withdrawals stay
+ * linked to their transaction and are never edited through this path. */
+export async function updateReservoirTransaction(input: UpdateReservoirAccrualInput): Promise<void> {
+  const supabase = await createClient();
+  const { data: existing, error: fetchError } = await supabase
+    .from("reservoir_transactions")
+    .select("linked_transaction_id, linked_card_purchase_id")
+    .eq("id", input.id)
+    .single();
+  if (fetchError) throw new Error(fetchError.message);
+  if (existing.linked_transaction_id || existing.linked_card_purchase_id) {
+    throw new Error("Não é possível editar um lançamento de saque.");
+  }
+
+  const { error } = await supabase
+    .from("reservoir_transactions")
+    .update({
+      date: input.date,
+      amount: input.amount,
+      gross_amount: input.grossAmount ?? null,
+      percentage: input.percentage ?? null,
+      description: input.description ?? null,
+    })
+    .eq("id", input.id);
   if (error) throw new Error(error.message);
 }
 
@@ -122,6 +171,7 @@ export async function withdrawReservoir(input: ReservoirWithdrawalInput): Promis
     reservoir_id: input.reservoirId,
     amount: -input.amount,
     description,
+    date: input.date,
     linked_transaction_id: transaction.id,
   });
   if (error) throw new Error(error.message);

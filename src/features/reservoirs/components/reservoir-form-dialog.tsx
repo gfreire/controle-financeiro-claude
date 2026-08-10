@@ -8,43 +8,62 @@ import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { CategorySelect } from "@/features/categories/components/category-select";
 import { Plus } from "lucide-react";
-import { createReservoirAction } from "../actions";
-import { reservoirSchema } from "@/lib/validations/reservoirs";
-import type { AccountDTO, CategoryDTO } from "@/types/dto";
+import { createReservoirAction, updateReservoirAction } from "../actions";
+import { reservoirSchema, updateReservoirSchema } from "@/lib/validations/reservoirs";
+import type { AccountDTO, CategoryDTO, ReservoirDTO } from "@/types/dto";
 
 const NONE = "NONE";
 
-export function ReservoirFormDialog({ categories: initialCategories, accounts }: { categories: CategoryDTO[]; accounts: AccountDTO[] }) {
+export function ReservoirFormDialog({
+  categories: initialCategories,
+  accounts,
+  reservoir,
+  trigger,
+}: {
+  categories: CategoryDTO[];
+  accounts: AccountDTO[];
+  /** Present → edit mode: prefills from this reservoir and saves via updateReservoirAction. */
+  reservoir?: ReservoirDTO;
+  trigger?: React.ReactNode;
+}) {
+  const isEdit = !!reservoir;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState(initialCategories);
-  const [name, setName] = useState("");
-  const [categoryId, setCategoryId] = useState(NONE);
-  const [defaultPercentage, setDefaultPercentage] = useState("");
-  const [defaultDestinationAccountId, setDefaultDestinationAccountId] = useState(NONE);
+  const [name, setName] = useState(reservoir?.name ?? "");
+  const [categoryId, setCategoryId] = useState(reservoir?.categoryId ?? NONE);
+  const [defaultPercentage, setDefaultPercentage] = useState(reservoir?.defaultPercentage !== undefined ? String(reservoir.defaultPercentage) : "");
+  const [defaultDestinationAccountId, setDefaultDestinationAccountId] = useState(reservoir?.defaultDestinationAccountId ?? NONE);
 
   function handleSubmit() {
     setError(null);
-    const parsed = reservoirSchema.safeParse({
+    const payload = {
       name,
       categoryId: categoryId === NONE ? undefined : categoryId,
       defaultPercentage: defaultPercentage ? Number(defaultPercentage) : undefined,
       defaultDestinationAccountId: defaultDestinationAccountId === NONE ? undefined : defaultDestinationAccountId,
-    });
+    };
+    const parsed = isEdit
+      ? updateReservoirSchema.safeParse({ id: reservoir!.id, ...payload })
+      : reservoirSchema.safeParse(payload);
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
       return;
     }
     startTransition(async () => {
       try {
-        await createReservoirAction(parsed.data);
+        if (isEdit) {
+          await updateReservoirAction(parsed.data as Parameters<typeof updateReservoirAction>[0]);
+        } else {
+          await createReservoirAction(parsed.data as Parameters<typeof createReservoirAction>[0]);
+          setName("");
+        }
         router.refresh();
         setOpen(false);
-        setName("");
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Erro ao criar receita programada");
+        setError(e instanceof Error ? e.message : `Erro ao ${isEdit ? "editar" : "criar"} receita programada`);
       }
     });
   }
@@ -52,10 +71,12 @@ export function ReservoirFormDialog({ categories: initialCategories, accounts }:
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova receita programada</Button>
+        {trigger ?? (
+          <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova receita programada</Button>
+        )}
       </DialogTrigger>
       <DialogContent>
-        <DialogTitle>Nova receita programada</DialogTitle>
+        <DialogTitle>{isEdit ? "Editar receita programada" : "Nova receita programada"}</DialogTitle>
         <Field>
           <Label>Nome</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Poker, Freelance..." />
