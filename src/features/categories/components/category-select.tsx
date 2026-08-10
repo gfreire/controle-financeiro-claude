@@ -7,12 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { IconPicker } from "@/components/ui/icon-picker";
 import { CATEGORY_ICONS } from "@/components/ui/icon-set";
+import { ColorPicker, CATEGORY_COLORS } from "@/components/ui/color-picker";
 import { Plus } from "lucide-react";
 import { createCategoryAction, createSubcategoryAction } from "../actions";
 import { categorySchema, subcategorySchema } from "@/lib/validations/categories";
 import type { CategoryDTO, SubcategoryDTO } from "@/types/dto";
-
-const COLORS = ["#5980a6", "#4a7a5c", "#9a4f37", "#a87e2e", "#728fab", "#7a3d2b"];
 
 const CREATE_CATEGORY = "__create_category__";
 const CREATE_SUBCATEGORY = "__create_subcategory__";
@@ -51,7 +50,7 @@ export function CategorySelect({
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState(CATEGORY_ICONS[0]);
-  const [color, setColor] = useState(COLORS[0]);
+  const [color, setColor] = useState(CATEGORY_COLORS[0]);
 
   const relevantCategories = categories.filter((c) => c.type === type);
 
@@ -106,17 +105,7 @@ export function CategorySelect({
               <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
             </Field>
           </div>
-          <div className="flex gap-1.5">
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setColor(c)}
-                className={color === c ? "size-5 ring-2 ring-offset-1 ring-offset-bg ring-accent" : "size-5"}
-                style={{ background: c }}
-              />
-            ))}
-          </div>
+          <ColorPicker value={color} onChange={setColor} size="size-5" />
           <FieldError>{error}</FieldError>
           <Button size="sm" disabled={pending || !name} onClick={handleCreate}>{pending ? "Criando..." : "Criar categoria"}</Button>
         </DialogContent>

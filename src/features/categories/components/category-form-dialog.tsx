@@ -8,11 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { IconPicker } from "@/components/ui/icon-picker";
 import { CATEGORY_ICONS } from "@/components/ui/icon-set";
+import { ColorPicker, CATEGORY_COLORS } from "@/components/ui/color-picker";
 import { Plus } from "lucide-react";
 import { createCategoryAction } from "../actions";
 import { categorySchema } from "@/lib/validations/categories";
-
-const COLORS = ["#5980a6", "#4a7a5c", "#9a4f37", "#a87e2e", "#728fab", "#7a3d2b"];
 
 export function CategoryFormDialog({ defaultType = "EXPENSE" as "INCOME" | "EXPENSE" }: { defaultType?: "INCOME" | "EXPENSE" }) {
   const router = useRouter();
@@ -22,7 +21,7 @@ export function CategoryFormDialog({ defaultType = "EXPENSE" as "INCOME" | "EXPE
   const [name, setName] = useState("");
   const [type, setType] = useState<"INCOME" | "EXPENSE">(defaultType);
   const [icon, setIcon] = useState(CATEGORY_ICONS[0]);
-  const [color, setColor] = useState(COLORS[0]);
+  const [color, setColor] = useState(CATEGORY_COLORS[0]);
 
   function handleSubmit() {
     setError(null);
@@ -72,17 +71,7 @@ export function CategoryFormDialog({ defaultType = "EXPENSE" as "INCOME" | "EXPE
         </div>
         <Field>
           <Label>Cor</Label>
-          <div className="flex gap-1.5">
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setColor(c)}
-                className={color === c ? "size-6 ring-2 ring-offset-2 ring-offset-bg ring-accent" : "size-6"}
-                style={{ background: c }}
-              />
-            ))}
-          </div>
+          <ColorPicker value={color} onChange={setColor} />
         </Field>
         <FieldError>{error}</FieldError>
         <DialogActions>
