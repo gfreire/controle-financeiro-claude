@@ -1,13 +1,14 @@
 "use client";
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useState, useEffect } from "react";
 import type { AccountDTO, CategoryDTO } from "@/types/dto";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { useNavigationProgress } from "@/components/providers/navigation-progress";
 
 export function CardFilters({ cards, categories }: { cards: AccountDTO[]; categories: CategoryDTO[] }) {
-  const router = useRouter();
+  const { navigate } = useNavigationProgress();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -17,9 +18,9 @@ export function CardFilters({ cards, categories }: { cards: AccountDTO[]; catego
       if (value === null || value === "") params.delete(key);
       else params.set(key, value);
       if (key === "categoryId") params.delete("subcategoryId");
-      router.push(`${pathname}?${params.toString()}`);
+      navigate(`${pathname}?${params.toString()}`);
     },
-    [pathname, router, searchParams]
+    [pathname, navigate, searchParams]
   );
 
   const activeCard = searchParams.get("cardId") ?? "";
@@ -83,7 +84,7 @@ export function CardFilters({ cards, categories }: { cards: AccountDTO[]; catego
             params.delete("categoryId");
             params.delete("subcategoryId");
             params.delete("q");
-            router.push(`${pathname}?${params.toString()}`);
+            navigate(`${pathname}?${params.toString()}`);
           }}
           className="p-1.5 -m-1.5 text-xs text-accent hover:underline"
         >

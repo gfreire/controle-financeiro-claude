@@ -1,13 +1,14 @@
 "use client";
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 import type { AccountDTO, CategoryDTO } from "@/types/dto";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AccountTypeIcon } from "@/components/ui/account-type-icon";
+import { useNavigationProgress } from "@/components/providers/navigation-progress";
 
 export function TransactionFilters({ accounts, categories }: { accounts: AccountDTO[]; categories: CategoryDTO[] }) {
-  const router = useRouter();
+  const { navigate } = useNavigationProgress();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -17,9 +18,9 @@ export function TransactionFilters({ accounts, categories }: { accounts: Account
       if (value === null || value === "") params.delete(key);
       else params.set(key, value);
       if (key === "categoryId") params.delete("subcategoryId");
-      router.push(`${pathname}?${params.toString()}`);
+      navigate(`${pathname}?${params.toString()}`);
     },
-    [pathname, router, searchParams]
+    [pathname, navigate, searchParams]
   );
 
   const activeType = searchParams.get("type") ?? "";
@@ -95,7 +96,7 @@ export function TransactionFilters({ accounts, categories }: { accounts: Account
             params.delete("accountId");
             params.delete("categoryId");
             params.delete("subcategoryId");
-            router.push(`${pathname}?${params.toString()}`);
+            navigate(`${pathname}?${params.toString()}`);
           }}
           className="p-1.5 -m-1.5 text-xs text-accent hover:underline"
         >

@@ -397,6 +397,44 @@ CREATE UNIQUE INDEX IF NOT EXISTS budgets_user_category_subcategory_month_unique
 CREATE INDEX IF NOT EXISTS budgets_user_month_idx ON public.budgets (user_id, month);
 
 -- ============================================================
+-- ÍNDICES DE PERFORMANCE (migration 0013, 2026-08-10)
+-- Postgres nunca indexa FK automaticamente (só PRIMARY KEY/UNIQUE ganham índice de graça) —
+-- antes desta migration só existia o índice de budgets acima. Cobrem as colunas que os
+-- services de fato filtram/joinam (confirmado grepando .eq()/.gte()/.lte()/.in() em
+-- src/services/*.ts): o auth.uid() = user_id de toda RLS, mais os filtros de data/categoria/
+-- conta/despesa fixa em cima disso. Com o volume atual de linhas o planner majoritariamente
+-- faz seq scan de qualquer forma — não é isto que explica a lentidão percebida hoje (ver
+-- getOptionalUser() com React cache() em src/lib/auth/getUser.ts e os loops for-await
+-- paralelizados em debts/reservoirs/fixed-expenses/budgets.service.ts) — mas são caminhos de
+-- join/filtro reais que degradam conforme o histórico cresce.
+-- ============================================================
+CREATE INDEX IF NOT EXISTS transactions_user_date_idx ON public.transactions (user_id, date);
+CREATE INDEX IF NOT EXISTS transactions_category_id_idx ON public.transactions (category_id) WHERE category_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS transactions_subcategory_id_idx ON public.transactions (subcategory_id) WHERE subcategory_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS transactions_origin_account_id_idx ON public.transactions (origin_account_id) WHERE origin_account_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS transactions_destination_account_id_idx ON public.transactions (destination_account_id) WHERE destination_account_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS transactions_fixed_expense_id_idx ON public.transactions (fixed_expense_id) WHERE fixed_expense_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS card_purchases_credit_card_id_idx ON public.card_purchases (credit_card_id);
+CREATE INDEX IF NOT EXISTS card_purchases_category_id_idx ON public.card_purchases (category_id) WHERE category_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS card_purchases_subcategory_id_idx ON public.card_purchases (subcategory_id) WHERE subcategory_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS card_purchases_fixed_expense_id_idx ON public.card_purchases (fixed_expense_id) WHERE fixed_expense_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS card_installments_purchase_id_idx ON public.card_installments (purchase_id);
+CREATE INDEX IF NOT EXISTS card_installments_credit_card_competence_idx ON public.card_installments (credit_card_id, competence);
+
+CREATE INDEX IF NOT EXISTS reservoir_transactions_reservoir_id_idx ON public.reservoir_transactions (reservoir_id);
+CREATE INDEX IF NOT EXISTS debt_transactions_debt_id_idx ON public.debt_transactions (debt_id);
+
+CREATE INDEX IF NOT EXISTS fixed_expenses_user_id_idx ON public.fixed_expenses (user_id);
+CREATE INDEX IF NOT EXISTS fixed_expenses_category_id_idx ON public.fixed_expenses (category_id) WHERE category_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS fixed_expenses_subcategory_id_idx ON public.fixed_expenses (subcategory_id) WHERE subcategory_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS accounts_user_id_idx ON public.accounts (user_id);
+CREATE INDEX IF NOT EXISTS debts_user_id_idx ON public.debts (user_id);
+CREATE INDEX IF NOT EXISTS reservoirs_user_id_idx ON public.reservoirs (user_id);
+
+-- ============================================================
 -- POLÍTICA DE DELEÇÃO (CORRIGIDO: estava implícita, agora explícita)
 -- - accounts, categories, subcategories, debts, fixed_expenses, reservoirs,
 --   budgets: têm `active`. Preferir desativar (active=false) a apagar de

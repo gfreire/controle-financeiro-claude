@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 import type { AccountDTO, CategoryDTO } from "@/types/dto";
 import { monthKey, todayIso, type DashboardPeriodPreset } from "@/lib/utils/date";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { MonthPicker } from "@/components/ui/month-picker";
 import { AccountTypeIcon } from "@/components/ui/account-type-icon";
+import { useNavigationProgress } from "@/components/providers/navigation-progress";
 
 const PRESETS: { value: DashboardPeriodPreset; label: string }[] = [
   { value: "month", label: "Mês" },
@@ -35,7 +36,7 @@ export function DashboardFilters({
   accounts: AccountDTO[];
   categories: CategoryDTO[];
 }) {
-  const router = useRouter();
+  const { navigate } = useNavigationProgress();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -44,9 +45,9 @@ export function DashboardFilters({
       const params = new URLSearchParams(searchParams.toString());
       if (value === null || value === "") params.delete(key);
       else params.set(key, value);
-      router.push(`${pathname}?${params.toString()}`);
+      navigate(`${pathname}?${params.toString()}`);
     },
-    [pathname, router, searchParams]
+    [pathname, navigate, searchParams]
   );
 
   const activeAccount = searchParams.get("accounts") ?? "";
@@ -61,14 +62,14 @@ export function DashboardFilters({
     params.set("period", "custom");
     if (nextStart) params.set("periodStart", nextStart);
     if (nextEnd) params.set("periodEnd", nextEnd);
-    router.push(`${pathname}?${params.toString()}`);
+    navigate(`${pathname}?${params.toString()}`);
   }
 
   function setMonth(value: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("period", "month");
     params.set("month", value);
-    router.push(`${pathname}?${params.toString()}`);
+    navigate(`${pathname}?${params.toString()}`);
   }
 
   return (
@@ -161,7 +162,7 @@ export function DashboardFilters({
             params.delete("categories");
             params.delete("subcategories");
             params.delete("type");
-            router.push(`${pathname}?${params.toString()}`);
+            navigate(`${pathname}?${params.toString()}`);
           }}
           className="p-1.5 -m-1.5 text-xs text-accent hover:underline"
         >

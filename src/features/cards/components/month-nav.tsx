@@ -1,11 +1,12 @@
 "use client";
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { monthKey, todayIso } from "@/lib/utils/date";
 import { MonthPicker } from "@/components/ui/month-picker";
+import { useNavigationProgress } from "@/components/providers/navigation-progress";
 
 export function MonthNav() {
-  const router = useRouter();
+  const { navigate } = useNavigationProgress();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentMonth = searchParams.get("month") ?? monthKey(todayIso());
@@ -13,7 +14,7 @@ export function MonthNav() {
   function setMonth(value: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("month", value);
-    router.push(`${pathname}?${params.toString()}`);
+    navigate(`${pathname}?${params.toString()}`);
   }
 
   return <MonthPicker month={currentMonth} onChange={setMonth} />;

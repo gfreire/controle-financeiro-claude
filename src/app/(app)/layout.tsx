@@ -4,6 +4,7 @@ import { getProfile } from "@/services/profile.service";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { BottomNavigation } from "@/components/layout/bottom-navigation";
+import { NavigationProgressProvider } from "@/components/providers/navigation-progress";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getUser();
@@ -16,13 +17,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex min-h-svh">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header userEmail={user.email ?? null} />
-        <main className="flex-1 overflow-x-hidden p-4 pb-20 md:p-6 md:pb-6">{children}</main>
+    <NavigationProgressProvider>
+      <div className="flex min-h-svh">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Header userEmail={user.email ?? null} />
+          <main className="flex-1 overflow-x-hidden p-4 pb-20 md:p-6 md:pb-6">{children}</main>
+        </div>
+        <BottomNavigation />
       </div>
-      <BottomNavigation />
-    </div>
+    </NavigationProgressProvider>
   );
 }

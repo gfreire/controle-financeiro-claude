@@ -26,21 +26,23 @@ export async function getBudgets(month: string): Promise<BudgetDTO[]> {
     .eq("active", true);
   if (error) throw new Error(error.message);
 
-  const results: BudgetDTO[] = [];
-  for (const row of budgets ?? []) {
-    if (!row.category_id) continue;
-    const actualAmount = await getActualAmountForCategory(supabase, user.id, row.category_id, row.subcategory_id, monthStart, monthEnd);
-    results.push({
-      id: row.id,
-      categoryId: row.category_id,
-      categoryName: row.categories?.name ?? "",
-      subcategoryId: row.subcategory_id ?? undefined,
-      subcategoryName: row.subcategories?.name ?? undefined,
-      plannedAmount: row.amount,
-      actualAmount,
-      status: actualAmount > row.amount ? "EXCEEDED" : "OK",
-    });
-  }
+  const results = await Promise.all(
+    (budgets ?? [])
+      .filter((row) => row.category_id)
+      .map(async (row) => {
+        const actualAmount = await getActualAmountForCategory(supabase, user.id, row.category_id!, row.subcategory_id, monthStart, monthEnd);
+        return {
+          id: row.id,
+          categoryId: row.category_id!,
+          categoryName: row.categories?.name ?? "",
+          subcategoryId: row.subcategory_id ?? undefined,
+          subcategoryName: row.subcategories?.name ?? undefined,
+          plannedAmount: row.amount,
+          actualAmount,
+          status: actualAmount > row.amount ? "EXCEEDED" : "OK",
+        } satisfies BudgetDTO;
+      })
+  );
   return results;
 }
 
@@ -84,37 +86,43 @@ export async function getBudgetTree(month: string, fixedExpenses: FixedExpenseDT
     ...subcategoryRows.map((r) => r.category_id as string),
   ]);
 
-  const tree: BudgetTreeCategoryDTO[] = [];
-  for (const categoryId of categoryIds) {
-    const categoryRow = categoryRows.find((r) => r.category_id === categoryId);
-    const subRowsHere = subcategoryRows.filter((r) => r.category_id === categoryId);
-    const directFixedExpenses = fixedExpenses.filter((f) => f.categoryId === categoryId && !f.subcategoryId);
+  const tree = await Promise.all(
+    [...categoryIds].map(async (categoryId) => {
+      const categoryRow = categoryRows.find((r) => r.category_id === categoryId);
+      const subRowsHere = subcategoryRows.filter((r) => r.category_id === categoryId);
+      const directFixedExpenses = fixedExpenses.filter((f) => f.categoryId === categoryId && !f.subcategoryId);
 
-    const categoryName = categoryRow?.categories?.name ?? subRowsHere[0]?.categories?.name ?? "";
-    const icon = categoryRow?.categories?.icon ?? subRowsHere[0]?.categories?.icon ?? null;
+      const categoryName = categoryRow?.categories?.name ?? subRowsHere[0]?.categories?.name ?? "";
+      const icon = categoryRow?.categories?.icon ?? subRowsHere[0]?.categories?.icon ?? null;
 
-    let budget: BudgetTreeCategoryDTO["budget"] = null;
-    if (categoryRow) {
-      const actualAmount = await getActualAmountForCategory(supabase, user.id, categoryId, undefined, monthStart, monthEnd);
-      budget = { id: categoryRow.id, plannedAmount: categoryRow.amount, actualAmount, status: actualAmount > categoryRow.amount ? "EXCEEDED" : "OK" };
-    }
+      const [categoryActual, subcategories] = await Promise.all([
+        categoryRow
+          ? getActualAmountForCategory(supabase, user.id, categoryId, undefined, monthStart, monthEnd)
+          : Promise.resolve(null),
+        Promise.all(
+          subRowsHere.map(async (sr) => {
+            const actualAmount = await getActualAmountForCategory(supabase, user.id, categoryId, sr.subcategory_id, monthStart, monthEnd);
+            return {
+              budgetId: sr.id,
+              subcategoryId: sr.subcategory_id as string,
+              subcategoryName: sr.subcategories?.name ?? "",
+              plannedAmount: sr.amount,
+              actualAmount,
+              status: actualAmount > sr.amount ? "EXCEEDED" : "OK",
+              fixedExpenses: fixedExpenses.filter((f) => f.subcategoryId === sr.subcategory_id),
+            } satisfies BudgetTreeSubcategoryDTO;
+          })
+        ),
+      ]);
 
-    const subcategories: BudgetTreeSubcategoryDTO[] = [];
-    for (const sr of subRowsHere) {
-      const actualAmount = await getActualAmountForCategory(supabase, user.id, categoryId, sr.subcategory_id, monthStart, monthEnd);
-      subcategories.push({
-        budgetId: sr.id,
-        subcategoryId: sr.subcategory_id as string,
-        subcategoryName: sr.subcategories?.name ?? "",
-        plannedAmount: sr.amount,
-        actualAmount,
-        status: actualAmount > sr.amount ? "EXCEEDED" : "OK",
-        fixedExpenses: fixedExpenses.filter((f) => f.subcategoryId === sr.subcategory_id),
-      });
-    }
+      const budget: BudgetTreeCategoryDTO["budget"] =
+        categoryRow && categoryActual !== null
+          ? { id: categoryRow.id, plannedAmount: categoryRow.amount, actualAmount: categoryActual, status: categoryActual > categoryRow.amount ? "EXCEEDED" : "OK" }
+          : null;
 
-    tree.push({ categoryId, categoryName, icon, budget, subcategories, directFixedExpenses });
-  }
+      return { categoryId, categoryName, icon, budget, subcategories, directFixedExpenses } satisfies BudgetTreeCategoryDTO;
+    })
+  );
 
   return tree;
 }

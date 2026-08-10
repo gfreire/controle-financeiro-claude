@@ -28,59 +28,60 @@ export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]
     .order("due_day");
   if (error) throw new Error(error.message);
 
-  const results: FixedExpenseDTO[] = [];
-  for (const row of fixedExpenses ?? []) {
-    const [{ data: linked, error: linkedError }, { data: cardPurchases, error: purchaseError }] = await Promise.all([
-      supabase.from("transactions").select("amount, date").eq("fixed_expense_id", row.id).gte("date", monthStart).lte("date", monthEnd),
-      supabase.from("card_purchases").select("id, purchase_date").eq("fixed_expense_id", row.id),
-    ]);
-    if (linkedError) throw new Error(linkedError.message);
-    if (purchaseError) throw new Error(purchaseError.message);
+  const results = await Promise.all(
+    (fixedExpenses ?? []).map(async (row) => {
+      const [{ data: linked, error: linkedError }, { data: cardPurchases, error: purchaseError }] = await Promise.all([
+        supabase.from("transactions").select("amount, date").eq("fixed_expense_id", row.id).gte("date", monthStart).lte("date", monthEnd),
+        supabase.from("card_purchases").select("id, purchase_date").eq("fixed_expense_id", row.id),
+      ]);
+      if (linkedError) throw new Error(linkedError.message);
+      if (purchaseError) throw new Error(purchaseError.message);
 
-    // Card-paid fixed expenses are tracked by installment competence, never purchase_date —
-    // same rule as every other credit card analytic (AI_CONTEXT.md "Credit Card Purchases").
-    const purchaseIds = (cardPurchases ?? []).map((p) => p.id);
-    let cardAmount = 0;
-    let matchedPurchaseIds: string[] = [];
-    if (purchaseIds.length) {
-      const { data: installments, error: installmentError } = await supabase
-        .from("card_installments")
-        .select("amount, purchase_id")
-        .in("purchase_id", purchaseIds)
-        .gte("competence", monthStart)
-        .lte("competence", monthEnd);
-      if (installmentError) throw new Error(installmentError.message);
-      cardAmount = sumMoney((installments ?? []).map((i) => i.amount));
-      matchedPurchaseIds = [...new Set((installments ?? []).map((i) => i.purchase_id))];
-    }
+      // Card-paid fixed expenses are tracked by installment competence, never purchase_date —
+      // same rule as every other credit card analytic (AI_CONTEXT.md "Credit Card Purchases").
+      const purchaseIds = (cardPurchases ?? []).map((p) => p.id);
+      let cardAmount = 0;
+      let matchedPurchaseIds: string[] = [];
+      if (purchaseIds.length) {
+        const { data: installments, error: installmentError } = await supabase
+          .from("card_installments")
+          .select("amount, purchase_id")
+          .in("purchase_id", purchaseIds)
+          .gte("competence", monthStart)
+          .lte("competence", monthEnd);
+        if (installmentError) throw new Error(installmentError.message);
+        cardAmount = sumMoney((installments ?? []).map((i) => i.amount));
+        matchedPurchaseIds = [...new Set((installments ?? []).map((i) => i.purchase_id))];
+      }
 
-    const actualAmount = sumMoney([sumMoney((linked ?? []).map((t) => t.amount)), cardAmount]);
-    const isPaidThisMonth = actualAmount > 0;
-    const projectedAmount = isPaidThisMonth ? actualAmount : row.amount;
-    const paidDate = isPaidThisMonth
-      ? [
-          ...(linked ?? []).map((t) => t.date),
-          ...(cardPurchases ?? []).filter((p) => matchedPurchaseIds.includes(p.id)).map((p) => p.purchase_date),
-        ].sort().at(-1)
-      : undefined;
+      const actualAmount = sumMoney([sumMoney((linked ?? []).map((t) => t.amount)), cardAmount]);
+      const isPaidThisMonth = actualAmount > 0;
+      const projectedAmount = isPaidThisMonth ? actualAmount : row.amount;
+      const paidDate = isPaidThisMonth
+        ? [
+            ...(linked ?? []).map((t) => t.date),
+            ...(cardPurchases ?? []).filter((p) => matchedPurchaseIds.includes(p.id)).map((p) => p.purchase_date),
+          ].sort().at(-1)
+        : undefined;
 
-    results.push({
-      id: row.id,
-      name: row.name,
-      categoryId: row.category_id ?? "",
-      categoryName: row.categories?.name ?? "",
-      subcategoryId: row.subcategory_id ?? undefined,
-      subcategoryName: row.subcategories?.name ?? undefined,
-      plannedAmount: row.amount,
-      dueDay: row.due_day,
-      defaultAccountId: row.default_account_id ?? undefined,
-      actualAmount,
-      projectedAmount,
-      isPaidThisMonth,
-      paidDate,
-      status: actualAmount > row.amount ? "EXCEEDED" : "OK",
-    });
-  }
+      return {
+        id: row.id,
+        name: row.name,
+        categoryId: row.category_id ?? "",
+        categoryName: row.categories?.name ?? "",
+        subcategoryId: row.subcategory_id ?? undefined,
+        subcategoryName: row.subcategories?.name ?? undefined,
+        plannedAmount: row.amount,
+        dueDay: row.due_day,
+        defaultAccountId: row.default_account_id ?? undefined,
+        actualAmount,
+        projectedAmount,
+        isPaidThisMonth,
+        paidDate,
+        status: actualAmount > row.amount ? "EXCEEDED" : "OK",
+      } satisfies FixedExpenseDTO;
+    })
+  );
   return results;
 }
 

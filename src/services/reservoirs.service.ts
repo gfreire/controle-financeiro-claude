@@ -22,19 +22,20 @@ export async function getReservoirs(): Promise<ReservoirDTO[]> {
     .order("name");
   if (error) throw new Error(error.message);
 
-  const results: ReservoirDTO[] = [];
-  for (const row of reservoirs ?? []) {
-    const { data: entries } = await supabase.from("reservoir_transactions").select("amount").eq("reservoir_id", row.id);
-    results.push({
-      id: row.id,
-      name: row.name,
-      balance: sumMoney((entries ?? []).map((e) => e.amount)),
-      categoryId: row.category_id,
-      categoryName: row.categories?.name ?? null,
-      defaultPercentage: row.default_percentage ?? undefined,
-      defaultDestinationAccountId: row.default_destination_account_id ?? undefined,
-    });
-  }
+  const results = await Promise.all(
+    (reservoirs ?? []).map(async (row) => {
+      const { data: entries } = await supabase.from("reservoir_transactions").select("amount").eq("reservoir_id", row.id);
+      return {
+        id: row.id,
+        name: row.name,
+        balance: sumMoney((entries ?? []).map((e) => e.amount)),
+        categoryId: row.category_id,
+        categoryName: row.categories?.name ?? null,
+        defaultPercentage: row.default_percentage ?? undefined,
+        defaultDestinationAccountId: row.default_destination_account_id ?? undefined,
+      };
+    })
+  );
   return results;
 }
 

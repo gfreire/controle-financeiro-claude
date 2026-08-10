@@ -1,15 +1,16 @@
 "use client";
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils/currency";
 import { toPercentage } from "@/lib/utils/number";
 import { ArrowLeft } from "lucide-react";
 import type { CategoryDistributionDTO } from "@/types/dto";
+import { useNavigationProgress } from "@/components/providers/navigation-progress";
 
 export function CategoryPie({ data }: { data: CategoryDistributionDTO[] }) {
-  const router = useRouter();
+  const { navigate } = useNavigationProgress();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const total = data.reduce((sum, d) => sum + d.total, 0);
@@ -20,7 +21,7 @@ export function CategoryPie({ data }: { data: CategoryDistributionDTO[] }) {
     const current = params.get("categories");
     if (current === categoryId) params.delete("categories");
     else params.set("categories", categoryId);
-    router.push(`${pathname}?${params.toString()}`);
+    navigate(`${pathname}?${params.toString()}`);
   }
 
   return (

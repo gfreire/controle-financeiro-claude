@@ -16,18 +16,19 @@ export async function getDebts(): Promise<DebtDTO[]> {
     .order("agent");
   if (error) throw new Error(error.message);
 
-  const results: DebtDTO[] = [];
-  for (const row of debts ?? []) {
-    const { data: entries } = await supabase.from("debt_transactions").select("amount").eq("debt_id", row.id);
-    results.push({
-      id: row.id,
-      side: row.side,
-      agent: row.agent,
-      originalAmount: row.initial_balance,
-      remainingBalance: addMoney(row.initial_balance, sumMoney((entries ?? []).map((e) => e.amount))),
-      active: row.active,
-    });
-  }
+  const results = await Promise.all(
+    (debts ?? []).map(async (row) => {
+      const { data: entries } = await supabase.from("debt_transactions").select("amount").eq("debt_id", row.id);
+      return {
+        id: row.id,
+        side: row.side,
+        agent: row.agent,
+        originalAmount: row.initial_balance,
+        remainingBalance: addMoney(row.initial_balance, sumMoney((entries ?? []).map((e) => e.amount))),
+        active: row.active,
+      };
+    })
+  );
   return results;
 }
 
