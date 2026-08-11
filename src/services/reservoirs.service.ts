@@ -178,8 +178,35 @@ export async function withdrawReservoir(input: ReservoirWithdrawalInput): Promis
   if (error) throw new Error(error.message);
 }
 
-export async function deactivateReservoir(id: string): Promise<void> {
+/** Deletes a ledger entry. A withdrawal's linked transaction/card purchase is deleted along
+ * with it — otherwise the real money movement it represents would stay while the ledger no
+ * longer shows the withdrawal that caused it. */
+export async function deleteReservoirTransaction(id: string): Promise<void> {
   const supabase = await createClient();
-  const { error } = await supabase.from("reservoirs").update({ active: false }).eq("id", id);
+  const { data: existing, error: fetchError } = await supabase
+    .from("reservoir_transactions")
+    .select("linked_transaction_id, linked_card_purchase_id")
+    .eq("id", id)
+    .single();
+  if (fetchError) throw new Error(fetchError.message);
+
+  const { error } = await supabase.from("reservoir_transactions").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
+  if (existing.linked_transaction_id) {
+    await supabase.from("transactions").delete().eq("id", existing.linked_transaction_id);
+  }
+  if (existing.linked_card_purchase_id) {
+    await supabase.from("card_purchases").delete().eq("id", existing.linked_card_purchase_id);
+  }
+}
+
+/** Hard delete — a reservoir needs no guided-reassignment flow (unlike categories): its ledger
+ * (reservoir_transactions) cascades away with it (ON DELETE CASCADE), but a withdrawal's real
+ * linked `transactions` row is never touched by that cascade — the FK points the other way — so
+ * real money history always survives even though the reservoir and its ledger don't. */
+export async function deleteReservoir(id: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("reservoirs").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }

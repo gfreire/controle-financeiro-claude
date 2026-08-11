@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AccountSelect } from "@/components/ui/account-select";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { CategorySelect } from "@/features/categories/components/category-select";
@@ -100,13 +100,13 @@ export function ReservoirFormDialog({
           </Field>
           <Field>
             <Label>Conta de destino padrão (opcional)</Label>
-            <Select value={defaultDestinationAccountId} onValueChange={setDefaultDestinationAccountId}>
-              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>Nenhuma</SelectItem>
-                {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <AccountSelect
+              accounts={accounts}
+              value={defaultDestinationAccountId}
+              onChange={setDefaultDestinationAccountId}
+              noneValue={NONE}
+              noneLabel="Nenhuma"
+            />
           </Field>
         </div>
         <FieldError>{error}</FieldError>

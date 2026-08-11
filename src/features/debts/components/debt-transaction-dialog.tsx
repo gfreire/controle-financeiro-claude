@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AccountSelect } from "@/components/ui/account-select";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
@@ -119,12 +119,7 @@ export function DebtTransactionDialog({
         {createLinkedTransaction && (
           <Field>
             <Label>Conta</Label>
-            <Select value={linkedAccountId} onValueChange={setLinkedAccountId}>
-              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-              <SelectContent>
-                {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <AccountSelect accounts={accounts} value={linkedAccountId} onChange={setLinkedAccountId} />
           </Field>
         )}
         {willSettle && confirmingSettle && (

@@ -150,7 +150,10 @@ export default async function CardsPage({
                                   <p className="truncate text-sm">
                                     <span className="tabular-nums opacity-60">{formatDate(r.purchaseDate)}</span> - {description}
                                   </p>
-                                  <p className="text-xs tabular-nums opacity-50">{r.installmentNumber}/{r.totalInstallments}</p>
+                                  <p className="text-xs tabular-nums opacity-50">
+                                    {r.installmentNumber}/{r.totalInstallments}
+                                    {r.paidBeforeSystem && <Badge variant="outline" className="ml-2">paga antes do sistema</Badge>}
+                                  </p>
                                 </div>
                                 <span className="shrink-0 text-sm font-medium tabular-nums">{formatCurrency(r.amount)}</span>
                                 <div className="flex shrink-0 items-center gap-2">{editActions}</div>
@@ -164,7 +167,10 @@ export default async function CardsPage({
                                 <p className="truncate text-sm">
                                   <span className="tabular-nums opacity-60">{formatDate(r.purchaseDate)}</span> - {description}
                                 </p>
-                                <p className="text-xs tabular-nums opacity-50">{r.installmentNumber}/{r.totalInstallments}</p>
+                                <p className="text-xs tabular-nums opacity-50">
+                                  {r.installmentNumber}/{r.totalInstallments}
+                                  {r.paidBeforeSystem && <Badge variant="outline" className="ml-2">paga antes do sistema</Badge>}
+                                </p>
                               </div>
                               <div className="w-24 shrink-0 text-right text-sm font-medium tabular-nums">
                                 {formatCurrency(r.amount)}

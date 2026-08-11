@@ -44,6 +44,9 @@ export function TransactionExplorer({ transactions, categories }: { transactions
                 {t.source === "installment" && (
                   <Badge variant="neutral" className="ml-2">cartão</Badge>
                 )}
+                {t.paidBeforeSystem && (
+                  <Badge variant="outline" className="ml-2">paga antes do sistema</Badge>
+                )}
               </TableCell>
               <TableCell><EditableCategoryCell row={t} categories={categories} /></TableCell>
               <TableCell className="whitespace-nowrap text-xs opacity-70">

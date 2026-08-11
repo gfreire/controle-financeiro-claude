@@ -247,6 +247,8 @@ CREATE TABLE public.card_purchases (
   is_reservoir boolean DEFAULT false,
   fixed_expense_id uuid, -- NOVO (0012): liga a compra (sempre 1x) à despesa fixa que ela quita,
                           -- pra despesas fixas pagas no cartão (ex: streaming na fatura)
+  paid_through_competence date, -- NOVO (0014): compra retroativa ("já paguei até este mês") —
+                                 -- define quais parcelas geradas nascem com card_installments.paid_before_system = true
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT card_purchases_pkey PRIMARY KEY (id),
   CONSTRAINT card_purchases_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
@@ -262,6 +264,10 @@ CREATE TABLE public.card_installments (
   credit_card_id uuid NOT NULL,
   competence date NOT NULL, -- calculada a partir de purchase_date + closing_day/due_day do cartão
   amount numeric(14,2) NOT NULL,
+  paid_before_system boolean NOT NULL DEFAULT false, -- NOVO (0014): parcela de compra retroativa
+                                                       -- já paga antes do usuário usar o sistema —
+                                                       -- some do saldo/fatura em aberto do cartão, mas
+                                                       -- continua contando normal em despesa por categoria
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT card_installments_pkey PRIMARY KEY (id),
   CONSTRAINT card_installments_purchase_id_fkey FOREIGN KEY (purchase_id) REFERENCES public.card_purchases(id) ON DELETE CASCADE,

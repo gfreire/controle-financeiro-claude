@@ -23,10 +23,25 @@ function resolveCompetences(
     : calculateInstallmentCompetences(purchaseDate, cycle.closing_day, cycle.due_day, installments);
 }
 
+/**
+ * Backfilled/retroactive purchase: every installment whose competence falls at or before
+ * `paidThroughCompetence` ("já paguei até este mês") is already settled outside the system —
+ * always a contiguous prefix of the generated installments, never an arbitrary subset. See
+ * AI_CONTEXT.md "Compras retroativas".
+ */
+function resolvePaidBeforeSystemFlags(competences: string[], paidThroughCompetence?: string | null): boolean[] {
+  if (!paidThroughCompetence) return competences.map(() => false);
+  return competences.map((c) => monthKey(c) <= paidThroughCompetence);
+}
+
 export async function createCardPurchase(input: CardPurchaseInput): Promise<string> {
   const supabase = await createClient();
   const user = await getUser();
   const cycle = await getCardCycle(supabase, input.creditCardId);
+
+  if (input.paidThroughCompetence && input.paidThroughCompetence > monthKey(todayIso())) {
+    throw new Error("'Pago até' não pode ser um mês futuro.");
+  }
 
   const { data: purchase, error } = await supabase
     .from("card_purchases")
@@ -41,6 +56,7 @@ export async function createCardPurchase(input: CardPurchaseInput): Promise<stri
       installments: input.installments,
       is_reservoir: input.isReservoir ?? false,
       fixed_expense_id: input.fixedExpenseId ?? null,
+      paid_through_competence: input.paidThroughCompetence ? `${input.paidThroughCompetence}-01` : null,
     })
     .select("id")
     .single();
@@ -48,12 +64,14 @@ export async function createCardPurchase(input: CardPurchaseInput): Promise<stri
 
   const amounts = splitInstallments(input.amount, input.installments);
   const competences = resolveCompetences(cycle, input.purchaseDate, input.installments, input.firstCompetenceMonth);
+  const paidBeforeSystemFlags = resolvePaidBeforeSystemFlags(competences, input.paidThroughCompetence);
 
   const installmentRows = amounts.map((amount, index) => ({
     purchase_id: purchase.id,
     credit_card_id: input.creditCardId,
     competence: competences[index],
     amount,
+    paid_before_system: paidBeforeSystemFlags[index],
   }));
 
   const { error: installmentsError } = await supabase.from("card_installments").insert(installmentRows);
@@ -84,7 +102,17 @@ export async function updateCardPurchase(id: string, input: Partial<CardPurchase
     description: input.description ?? current.description,
     categoryId: input.categoryId !== undefined ? input.categoryId : current.category_id,
     subcategoryId: input.subcategoryId !== undefined ? input.subcategoryId : current.subcategory_id,
+    paidThroughCompetence:
+      input.paidThroughCompetence !== undefined
+        ? input.paidThroughCompetence
+        : current.paid_through_competence
+          ? monthKey(current.paid_through_competence)
+          : null,
   };
+
+  if (merged.paidThroughCompetence && merged.paidThroughCompetence > monthKey(todayIso())) {
+    throw new Error("'Pago até' não pode ser um mês futuro.");
+  }
 
   const { error } = await supabase
     .from("card_purchases")
@@ -96,6 +124,7 @@ export async function updateCardPurchase(id: string, input: Partial<CardPurchase
       description: merged.description,
       category_id: merged.categoryId,
       subcategory_id: merged.subcategoryId,
+      paid_through_competence: merged.paidThroughCompetence ? `${merged.paidThroughCompetence}-01` : null,
     })
     .eq("id", id);
   if (error) throw new Error(error.message);
@@ -105,12 +134,14 @@ export async function updateCardPurchase(id: string, input: Partial<CardPurchase
     input.purchaseDate !== undefined ||
     input.installments !== undefined ||
     input.creditCardId !== undefined ||
-    input.firstCompetenceMonth !== undefined;
+    input.firstCompetenceMonth !== undefined ||
+    input.paidThroughCompetence !== undefined;
   if (!needsRegeneration) return;
 
   const cycle = await getCardCycle(supabase, merged.creditCardId);
   const amounts = splitInstallments(merged.amount, merged.installments);
   const competences = resolveCompetences(cycle, merged.purchaseDate, merged.installments, input.firstCompetenceMonth);
+  const paidBeforeSystemFlags = resolvePaidBeforeSystemFlags(competences, merged.paidThroughCompetence);
 
   const { error: deleteError } = await supabase.from("card_installments").delete().eq("purchase_id", id);
   if (deleteError) throw new Error(deleteError.message);
@@ -120,6 +151,7 @@ export async function updateCardPurchase(id: string, input: Partial<CardPurchase
     credit_card_id: merged.creditCardId,
     competence: competences[index],
     amount,
+    paid_before_system: paidBeforeSystemFlags[index],
   }));
   const { error: insertError } = await supabase.from("card_installments").insert(installmentRows);
   if (insertError) throw new Error(insertError.message);
@@ -168,6 +200,7 @@ export async function getCardPurchases(cardId: string): Promise<CardPurchaseDTO[
     categoryName: row.categories?.name ?? null,
     subcategoryId: row.subcategory_id,
     subcategoryName: row.subcategories?.name ?? null,
+    paidThroughCompetence: row.paid_through_competence ? monthKey(row.paid_through_competence) : undefined,
   }));
 }
 
@@ -220,6 +253,7 @@ export async function getCardInstallments(cardId: string, filters: { periodStart
     competenceMonth: monthKey(row.competence),
     description: row.card_purchases?.description ?? "",
     purchaseDate: row.card_purchases?.purchase_date ?? "",
+    paidBeforeSystem: row.paid_before_system,
   }));
 
   rows.sort((a, b) => {
@@ -232,13 +266,18 @@ export async function getCardInstallments(cardId: string, filters: { periodStart
   return rows;
 }
 
-/** Sum of installments due through (and including) `throughMonth`, minus payments already made — what a "pay the bill" action should actually suggest, not the full lifetime balance including installments still in the future. */
+/** Sum of installments due through (and including) `throughMonth`, minus payments already made — what a "pay the bill" action should actually suggest, not the full lifetime balance including installments still in the future. Excludes `paid_before_system` installments — a backfilled/retroactive purchase already settled outside the system, see AI_CONTEXT.md "Compras retroativas". */
 export async function getCardBalanceThroughMonth(creditCardId: string, throughMonth: string): Promise<number> {
   const supabase = await createClient();
   const periodEnd = endOfMonth(`${throughMonth}-01`);
 
   const [{ data: installments }, { data: payments }] = await Promise.all([
-    supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).lte("competence", periodEnd),
+    supabase
+      .from("card_installments")
+      .select("amount")
+      .eq("credit_card_id", creditCardId)
+      .eq("paid_before_system", false)
+      .lte("competence", periodEnd),
     supabase.from("card_payments").select("amount").eq("credit_card_id", creditCardId),
   ]);
   const totalInstallments = sumMoney((installments ?? []).map((i) => i.amount));
@@ -250,11 +289,12 @@ export async function getCardBalanceThroughMonth(creditCardId: string, throughMo
  * payment ever made — the true "against the limit" figure. Deliberately different from
  * `getCardBalanceThroughMonth`, which excludes future installments not yet due (see AI_CONTEXT.md
  * "CREDIT_CARD_PAYMENT" — that one drives the "Pagar fatura" suggestion, not the limit-usage display).
+ * Also excludes `paid_before_system` installments, same reasoning as `getCardBalanceThroughMonth`.
  */
 export async function getCardTotalCommitted(creditCardId: string): Promise<number> {
   const supabase = await createClient();
   const [{ data: installments }, { data: payments }] = await Promise.all([
-    supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId),
+    supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).eq("paid_before_system", false),
     supabase.from("card_payments").select("amount").eq("credit_card_id", creditCardId),
   ]);
   const totalInstallments = sumMoney((installments ?? []).map((i) => i.amount));
@@ -273,6 +313,12 @@ export async function getCardTotalCommitted(creditCardId: string): Promise<numbe
  * - `totalCommitted` (see `getCardTotalCommitted`) is the full outstanding balance including
  *   future not-yet-due installments — the correct figure for "used against the limit," since
  *   `usedThroughCurrentMonth` alone would undercount scheduled-but-not-yet-billed installments.
+ *
+ * `currentMonthInvoice`/`todayInvoice` (below) deliberately do NOT exclude `paid_before_system`
+ * installments — they represent the historical fact "what was billed that month," which doesn't
+ * change just because the user later logged that bill as already paid outside the system. Only
+ * `usedThroughCurrentMonth`/`totalCommitted` (via the two functions above) answer "what's still
+ * owed," so only those exclude them.
  */
 export async function getCardSummary(creditCardId: string, viewedMonth: string, creditLimit: number | null): Promise<CardSummaryDTO> {
   const supabase = await createClient();

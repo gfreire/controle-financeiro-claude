@@ -9,6 +9,8 @@ import { Vault, Plus, ArrowDownToLine, Pencil } from "lucide-react";
 import { ReservoirFormDialog } from "@/features/reservoirs/components/reservoir-form-dialog";
 import { AccrualDialog } from "@/features/reservoirs/components/accrual-dialog";
 import { WithdrawalDialog } from "@/features/reservoirs/components/withdrawal-dialog";
+import { DeleteReservoirTransactionButton } from "@/features/reservoirs/components/delete-reservoir-transaction-button";
+import { DeleteReservoirButton } from "@/features/reservoirs/components/delete-reservoir-button";
 
 export default async function ReservoirsPage() {
   const [reservoirs, accounts, categories] = await Promise.all([getReservoirs(), getAccounts(), getCategories()]);
@@ -49,6 +51,7 @@ export default async function ReservoirsPage() {
                             </button>
                           }
                         />
+                        <DeleteReservoirButton reservoirId={reservoir.id} name={reservoir.name} />
                       </div>
                       <div className="text-xl font-semibold tabular-nums">{formatCurrency(reservoir.balance)}</div>
                     </div>
@@ -74,24 +77,33 @@ export default async function ReservoirsPage() {
                         const isEditableAccrual = entry.amount >= 0 && !entry.linkedTransactionId && !entry.linkedCardPurchaseId;
                         return (
                           <li key={entry.id} className="flex items-center justify-between gap-2 border-b border-text/[0.06] py-1">
-                            <span className="flex items-center gap-1 opacity-70">
+                            <span className="opacity-70">
                               {formatDate(entry.date)} {entry.description && `· ${entry.description}`}
-                              {isEditableAccrual && (
-                                <AccrualDialog
-                                  reservoirId={reservoir.id}
-                                  reservoirName={reservoir.name}
-                                  defaultPercentage={reservoir.defaultPercentage}
-                                  entry={entry}
-                                  trigger={
-                                    <button type="button" className="p-1.5 -m-1.5 opacity-60 hover:opacity-100" aria-label="Editar acúmulo">
-                                      <Pencil className="size-3" strokeWidth={1.5} />
-                                    </button>
-                                  }
-                                />
-                              )}
                             </span>
-                            <span className={entry.amount >= 0 ? "text-success-600 tabular-nums" : "text-danger-600 tabular-nums"}>
-                              {formatCurrency(entry.amount)}
+                            <span className="flex items-center gap-2">
+                              <span className={entry.amount >= 0 ? "text-success-600 tabular-nums" : "text-danger-600 tabular-nums"}>
+                                {formatCurrency(entry.amount)}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                {isEditableAccrual && (
+                                  <AccrualDialog
+                                    reservoirId={reservoir.id}
+                                    reservoirName={reservoir.name}
+                                    defaultPercentage={reservoir.defaultPercentage}
+                                    entry={entry}
+                                    trigger={
+                                      <button type="button" className="p-1.5 -m-1.5 opacity-60 hover:opacity-100" aria-label="Editar acúmulo">
+                                        <Pencil className="size-3" strokeWidth={1.5} />
+                                      </button>
+                                    }
+                                  />
+                                )}
+                                <DeleteReservoirTransactionButton
+                                  entryId={entry.id}
+                                  description={entry.description ?? ""}
+                                  isWithdrawal={Boolean(entry.linkedTransactionId || entry.linkedCardPurchaseId)}
+                                />
+                              </span>
                             </span>
                           </li>
                         );

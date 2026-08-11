@@ -46,3 +46,15 @@ export async function withdrawReservoirAction(input: ReservoirWithdrawalInput) {
   revalidatePath("/dashboard");
   revalidatePath("/accounts");
 }
+
+export async function deleteReservoirTransactionAction(id: string) {
+  await reservoirsService.deleteReservoirTransaction(id);
+  revalidatePath("/reservoirs");
+  revalidatePath("/dashboard");
+  revalidatePath("/accounts");
+}
+
+export async function deleteReservoirAction(id: string) {
+  await reservoirsService.deleteReservoir(id);
+  revalidatePath("/reservoirs");
+}

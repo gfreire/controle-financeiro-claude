@@ -22,6 +22,7 @@ export type FinancialSummaryDTO = {
   expense: number;
   result: number;
   adjustmentShare: number; // % of period total sitting under "Ajuste" — bookkeeping-looseness signal
+  retroactiveIncomeShare: number; // % of period total from paid-before-system installments — distinct signal from adjustmentShare, see AI_CONTEXT.md "Compras retroativas"
 };
 
 export type MonthlyEvolutionDTO = { month: string; income: number; expense: number };
@@ -51,6 +52,7 @@ export type TransactionViewDTO = {
   amount: number;
   source: "transaction" | "installment";
   purchaseId?: string; // set only when source === "installment" — the category/subcategory live on card_purchases, not the installment row, so edits must target this id
+  paidBeforeSystem?: boolean; // set only when source === "installment" — backfilled/retroactive purchase installment already paid outside the system, see AI_CONTEXT.md "Compras retroativas"
 };
 
 export type ReservoirDTO = {
@@ -100,6 +102,7 @@ export type CardPurchaseDTO = {
   categoryName: string | null;
   subcategoryId: string | null;
   subcategoryName: string | null;
+  paidThroughCompetence?: string; // "YYYY-MM" — set for a backfilled/retroactive purchase; every generated installment with competence <= this month is flagged card_installments.paid_before_system, see AI_CONTEXT.md "Compras retroativas"
 };
 
 export type CardSummaryDTO = {
@@ -120,6 +123,7 @@ export type CardInstallmentDTO = {
   competenceMonth: string;
   description: string;
   purchaseDate: string; // the purchase's real date (not competence) — drives display ordering and the "dd/mm/yyyy - descrição" list line
+  paidBeforeSystem: boolean; // backfilled/retroactive purchase installment already paid outside the system — excluded from the card's outstanding/committed balance, see AI_CONTEXT.md "Compras retroativas"
 };
 
 export type BudgetDTO = {

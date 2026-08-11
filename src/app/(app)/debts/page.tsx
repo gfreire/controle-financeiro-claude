@@ -34,11 +34,13 @@ export default async function DebtsPage() {
                 <Card key={debt.id} elevation="sm" className="gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <CardKicker className="flex items-center gap-1">
-                        <HandCoins className="size-3" strokeWidth={1.5} />
+                      <CardKicker>
                         <Badge variant={debt.side === "PAYABLE" ? "danger" : "success"}>{debt.side === "PAYABLE" ? "A pagar" : "A receber"}</Badge>
                       </CardKicker>
-                      <CardTitle>{debt.agent}</CardTitle>
+                      <CardTitle className="flex items-center gap-1">
+                        <HandCoins className={`size-3 ${debt.side === "PAYABLE" ? "text-danger-600" : "text-success-600"}`} strokeWidth={1.5} />
+                        {debt.agent}
+                      </CardTitle>
                       <div className="text-xl font-semibold tabular-nums">{formatCurrency(debt.remainingBalance)}</div>
                     </div>
                     <div className="flex gap-2">

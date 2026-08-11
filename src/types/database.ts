@@ -115,6 +115,7 @@ export interface CardPurchaseRow {
   installments: number;
   is_reservoir: boolean;
   fixed_expense_id: string | null;
+  paid_through_competence: string | null;
   created_at: string;
 }
 
@@ -124,6 +125,7 @@ export interface CardInstallmentRow {
   credit_card_id: string;
   competence: string;
   amount: number;
+  paid_before_system: boolean;
   created_at: string;
 }
 

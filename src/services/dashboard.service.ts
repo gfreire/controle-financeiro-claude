@@ -126,12 +126,57 @@ async function fetchPeriodEntries(
   return entries;
 }
 
+/**
+ * Backfilled/retroactive card purchases: installments flagged `paid_before_system` (already
+ * settled outside the system, before the user started using it — see AI_CONTEXT.md "Compras
+ * retroativas") still count as EXPENSE normally via `fetchPeriodEntries` above — no change
+ * needed there. But since real money necessarily paid for them with no tracked source, their
+ * amount also counts toward the dashboard's INCOME total for that competence month — computed
+ * here, never a real `transactions` row. Deliberately NOT folded into `fetchPeriodEntries`'s
+ * `entries`/categoryId bucketing: these have no real INCOME category, and reusing a fake
+ * categoryId risks leaking into a `category_id.in(...)` filter that expects a uuid (the same
+ * class of bug `uncategorizedOnly` exists to avoid). So this only ever feeds a plain SUM
+ * (`getFinancialSummary`/`getMonthlyEvolution`), never `getCategoryDistribution`/
+ * `getCategoryComparison`/`getTransactionsFiltered`.
+ */
+async function fetchRetroactiveIncomeEntries(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  filters: DashboardFilters
+): Promise<Array<{ amount: number; date: string }>> {
+  if (filters.transactionType === "EXPENSE") return [];
+
+  let purchaseQuery = supabase.from("card_purchases").select("id, category_id, credit_card_id").eq("user_id", userId);
+  if (filters.uncategorizedOnly) purchaseQuery = purchaseQuery.is("category_id", null);
+  else if (filters.categories?.length) purchaseQuery = purchaseQuery.in("category_id", filters.categories);
+  if (filters.subcategories?.length) purchaseQuery = purchaseQuery.in("subcategory_id", filters.subcategories);
+  if (filters.accounts?.length) purchaseQuery = purchaseQuery.in("credit_card_id", filters.accounts);
+
+  const { data: purchasesData, error: purchaseError } = await purchaseQuery;
+  if (purchaseError) throw new Error(purchaseError.message);
+  const purchaseIds = (purchasesData ?? []).map((p) => p.id);
+  if (!purchaseIds.length) return [];
+
+  const { data: installments, error: installmentError } = await supabase
+    .from("card_installments")
+    .select("amount, competence")
+    .in("purchase_id", purchaseIds)
+    .eq("paid_before_system", true)
+    .gte("competence", filters.periodStart)
+    .lte("competence", filters.periodEnd);
+  if (installmentError) throw new Error(installmentError.message);
+
+  return (installments ?? []).map((row) => ({ amount: row.amount, date: row.competence }));
+}
+
 export async function getFinancialSummary(filters: DashboardFilters): Promise<FinancialSummaryDTO> {
   const supabase = await createClient();
   const user = await getUser();
   const entries = await fetchPeriodEntries(supabase, user.id, filters);
+  const retroactiveEntries = await fetchRetroactiveIncomeEntries(supabase, user.id, filters);
 
-  const income = sumMoney(entries.filter((e) => e.type === "INCOME").map((e) => e.amount));
+  const retroactiveIncomeTotal = sumMoney(retroactiveEntries.map((e) => e.amount));
+  const income = sumMoney([...entries.filter((e) => e.type === "INCOME").map((e) => e.amount), retroactiveIncomeTotal]);
   const expense = sumMoney(entries.filter((e) => e.type === "EXPENSE").map((e) => e.amount));
 
   const accounts = await getAccounts();
@@ -142,6 +187,7 @@ export async function getFinancialSummary(filters: DashboardFilters): Promise<Fi
   const adjustmentTotal = sumMoney(entries.filter((e) => e.categoryName === "Ajuste").map((e) => e.amount));
   const periodTotal = sumMoney([income, expense]);
   const adjustmentShare = periodTotal === 0 ? 0 : Math.round((adjustmentTotal / periodTotal) * 1000) / 10;
+  const retroactiveIncomeShare = periodTotal === 0 ? 0 : Math.round((retroactiveIncomeTotal / periodTotal) * 1000) / 10;
 
   return {
     balance,
@@ -149,6 +195,7 @@ export async function getFinancialSummary(filters: DashboardFilters): Promise<Fi
     expense,
     result: subtractMoney(income, expense),
     adjustmentShare,
+    retroactiveIncomeShare,
   };
 }
 
@@ -156,6 +203,7 @@ export async function getMonthlyEvolution(filters: DashboardFilters): Promise<Mo
   const supabase = await createClient();
   const user = await getUser();
   const entries = await fetchPeriodEntries(supabase, user.id, filters);
+  const retroactiveEntries = await fetchRetroactiveIncomeEntries(supabase, user.id, filters);
 
   const months: string[] = [];
   let cursor = filters.periodStart.slice(0, 7);
@@ -167,9 +215,10 @@ export async function getMonthlyEvolution(filters: DashboardFilters): Promise<Mo
 
   return months.map((month) => {
     const monthEntries = entries.filter((e) => monthKey(e.date) === month);
+    const monthRetroactive = retroactiveEntries.filter((e) => monthKey(e.date) === month);
     return {
       month: formatMonthLabel(month, true),
-      income: sumMoney(monthEntries.filter((e) => e.type === "INCOME").map((e) => e.amount)),
+      income: sumMoney([...monthEntries.filter((e) => e.type === "INCOME").map((e) => e.amount), ...monthRetroactive.map((e) => e.amount)]),
       expense: sumMoney(monthEntries.filter((e) => e.type === "EXPENSE").map((e) => e.amount)),
     };
   });
@@ -287,7 +336,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
 
   const { data: installments, error: installmentError } = await supabase
     .from("card_installments")
-    .select("id, amount, competence, purchase_id")
+    .select("id, amount, competence, purchase_id, paid_before_system")
     .in("purchase_id", purchaseIds)
     .gte("competence", filters.periodStart)
     .lte("competence", filters.periodEnd);
@@ -312,6 +361,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
       amount: row.amount,
       source: "installment" as const,
       purchaseId: purchase.id,
+      paidBeforeSystem: row.paid_before_system,
     });
   }
 

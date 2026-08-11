@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AccountSelect } from "@/components/ui/account-select";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { withdrawReservoirAction } from "../actions";
@@ -57,12 +57,7 @@ export function WithdrawalDialog({
         <p className="text-xs opacity-70">O valor sacado não precisa bater exatamente com o acumulado — a diferença fica no saldo.</p>
         <Field>
           <Label>Conta de destino</Label>
-          <Select value={destinationAccountId} onValueChange={setDestinationAccountId}>
-            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-            <SelectContent>
-              {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <AccountSelect accounts={accounts} value={destinationAccountId} onChange={setDestinationAccountId} />
         </Field>
         <div className="grid grid-cols-2 gap-2">
           <Field>

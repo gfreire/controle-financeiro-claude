@@ -15,6 +15,12 @@ export const cardPurchaseSchema = z.object({
   // Set only when this purchase is how a fixed expense gets paid on this card (always 1x) —
   // see fixed-expenses.service.ts#payFixedExpense.
   fixedExpenseId: z.string().uuid().optional().nullable(),
+  // "YYYY-MM" — set only for a backfilled/retroactive purchase ("já paguei até este mês").
+  // Marks a contiguous prefix of the generated installments (by competence) as already paid
+  // outside the system — see cards.service.ts#createCardPurchase and AI_CONTEXT.md "Compras
+  // retroativas". No cross-field .refine() here on purpose — a schema with .superRefine()/
+  // .refine() can't itself be .partial()'d, which updateCardPurchaseSchema below relies on.
+  paidThroughCompetence: z.string().regex(/^\d{4}-\d{2}$/).optional().nullable(),
 });
 export type CardPurchaseInput = z.infer<typeof cardPurchaseSchema>;
 

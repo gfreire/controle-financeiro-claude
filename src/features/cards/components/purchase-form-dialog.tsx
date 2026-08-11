@@ -12,7 +12,7 @@ import { Plus, TriangleAlert } from "lucide-react";
 import { createCardPurchaseAction, updateCardPurchaseAction } from "../actions";
 import { cardPurchaseSchema } from "@/lib/validations/cards";
 import { splitInstallments } from "@/lib/utils/money";
-import { calculateInstallmentCompetences, monthKey, todayIso } from "@/lib/utils/date";
+import { calculateInstallmentCompetences, calculateInstallmentCompetencesFromAnchorMonth, monthKey, todayIso } from "@/lib/utils/date";
 import { formatCurrency } from "@/lib/utils/currency";
 import type { AccountDTO, CardPurchaseDTO, CategoryDTO } from "@/types/dto";
 
@@ -46,6 +46,8 @@ export function PurchaseFormDialog({
   const [firstCompetenceMonth, setFirstCompetenceMonth] = useState(purchase?.firstCompetenceMonth ?? monthKey(todayIso()));
   const [competenceManuallyEdited, setCompetenceManuallyEdited] = useState(false);
   const [overLimitAcknowledged, setOverLimitAcknowledged] = useState(false);
+  const [isBackfill, setIsBackfill] = useState(!!purchase?.paidThroughCompetence);
+  const [paidThroughCompetence, setPaidThroughCompetence] = useState(purchase?.paidThroughCompetence ?? "");
 
   const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
   const selectedCategory = expenseCategories.find((c) => c.id === categoryId);
@@ -57,6 +59,21 @@ export function PurchaseFormDialog({
     if (!Number.isFinite(value) || value <= 0 || !Number.isFinite(count) || count < 1) return null;
     return splitInstallments(value, count);
   }, [amount, installments]);
+
+  // Mirrors resolveCompetences in cards.service.ts — this form always sends firstCompetenceMonth,
+  // so the server always takes the anchor-month path, never the purchaseDate-derived one.
+  const competencesPreview = useMemo(() => {
+    const count = Number(installments);
+    if (!selectedCard?.dueDay || !Number.isFinite(count) || count < 1) return null;
+    return calculateInstallmentCompetencesFromAnchorMonth(firstCompetenceMonth, selectedCard.dueDay, count);
+  }, [firstCompetenceMonth, installments, selectedCard]);
+
+  const paidInstallmentsCount = useMemo(() => {
+    if (!isBackfill || !paidThroughCompetence || !competencesPreview) return 0;
+    return competencesPreview.filter((c) => monthKey(c) <= paidThroughCompetence).length;
+  }, [isBackfill, paidThroughCompetence, competencesPreview]);
+
+  const paidThroughInFuture = isBackfill && !!paidThroughCompetence && paidThroughCompetence > monthKey(todayIso());
 
   // Soft-enforced (never blocks the insert) — a real invoice payment not yet logged, or a
   // genuine mistake in this purchase, are both things the user should see and decide about.
@@ -93,6 +110,8 @@ export function PurchaseFormDialog({
     setCompetenceManuallyEdited(false);
     setFirstCompetenceMonth(monthKey(todayIso()));
     setOverLimitAcknowledged(false);
+    setIsBackfill(false);
+    setPaidThroughCompetence("");
   }
 
   function handleAmountChange(value: string) {
@@ -106,6 +125,10 @@ export function PurchaseFormDialog({
       setError("Confirme que quer inserir mesmo assim (marque a caixa acima).");
       return;
     }
+    if (paidThroughInFuture) {
+      setError("'Pago até' não pode ser um mês futuro.");
+      return;
+    }
     const parsed = cardPurchaseSchema.safeParse({
       creditCardId,
       amount: Number(amount),
@@ -115,6 +138,9 @@ export function PurchaseFormDialog({
       subcategoryId: subcategoryId === NONE ? undefined : subcategoryId,
       installments: Number(installments),
       firstCompetenceMonth,
+      // Explicit null (not undefined) when unchecked, so updateCardPurchase's `!== undefined`
+      // merge check treats unchecking an existing backfill as a real clear, not "not provided".
+      paidThroughCompetence: isBackfill && paidThroughCompetence ? paidThroughCompetence : null,
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
@@ -190,6 +216,36 @@ export function PurchaseFormDialog({
         )}
 
         <Field>
+          <label className="flex items-center gap-2 text-xs">
+            <Checkbox
+              checked={isBackfill}
+              onCheckedChange={(v) => { setIsBackfill(v === true); if (v !== true) setPaidThroughCompetence(""); }}
+            />
+            Compra antiga — já paguei parte das parcelas antes de usar o sistema
+          </label>
+        </Field>
+
+        {isBackfill && (
+          <Field>
+            <Label>Pago até (mês)</Label>
+            <Input
+              type="month"
+              value={paidThroughCompetence}
+              max={monthKey(todayIso())}
+              onChange={(e) => setPaidThroughCompetence(e.target.value)}
+            />
+            {paidThroughInFuture && (
+              <p className="text-xs text-danger-600">&quot;Pago até&quot; não pode ser um mês futuro.</p>
+            )}
+            {!paidThroughInFuture && paidInstallmentsCount > 0 && competencesPreview && (
+              <p className="text-xs opacity-70">
+                {paidInstallmentsCount} de {competencesPreview.length} parcelas já pagas antes do sistema — não entram na fatura, mas contam nos gastos por categoria.
+              </p>
+            )}
+          </Field>
+        )}
+
+        <Field>
           <Label>Categoria</Label>
           <CategorySelect
             categories={categories}
@@ -243,7 +299,7 @@ export function PurchaseFormDialog({
           <DialogClose asChild><Button variant="secondary" size="sm">Cancelar</Button></DialogClose>
           <Button
             size="sm"
-            disabled={pending || !amount || creditCardId === NONE || !selectedCard || (!!overLimitInfo && !overLimitAcknowledged)}
+            disabled={pending || !amount || creditCardId === NONE || !selectedCard || (!!overLimitInfo && !overLimitAcknowledged) || paidThroughInFuture}
             onClick={handleSubmit}
           >
             {pending ? "Salvando..." : "Salvar"}
