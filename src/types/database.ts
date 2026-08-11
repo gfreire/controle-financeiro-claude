@@ -146,6 +146,7 @@ export interface DebtRow {
   agent: string;
   side: DebtSide;
   initial_balance: number;
+  default_category_id: string | null;
   active: boolean;
   created_at: string;
 }
@@ -156,6 +157,7 @@ export interface DebtTransactionRow {
   amount: number;
   description: string | null;
   linked_transaction_id: string | null;
+  date: string;
   created_at: string;
 }
 

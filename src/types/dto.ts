@@ -79,6 +79,7 @@ export type DebtDTO = {
   originalAmount: number;
   remainingBalance: number;
   active: boolean;
+  defaultCategoryId?: string; // pré-preenche (sobrescrevível) a categoria de um pagamento registrado contra a dívida
 };
 
 export type DebtTransactionDTO = {
@@ -88,6 +89,7 @@ export type DebtTransactionDTO = {
   description: string | null;
   amount: number;
   linkedTransactionId?: string;
+  categoryId?: string; // set only when linkedTransactionId is — the linked transaction's own category
 };
 
 export type CardPurchaseDTO = {
@@ -231,6 +233,7 @@ export type CategoryUsageDTO = {
   budgetsCount: number;
   fixedExpensesCount: number;
   reservoirsCount: number;
+  debtsCount: number;
 };
 
 /**

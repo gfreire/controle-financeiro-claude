@@ -276,12 +276,16 @@ export async function updateSubcategory(id: string, input: Partial<SubcategoryIn
 }
 
 async function countReferences(supabase: Awaited<ReturnType<typeof createClient>>, column: "category_id" | "subcategory_id", id: string) {
-  const [transactions, cardPurchases, budgets, fixedExpenses, reservoirs] = await Promise.all([
+  // debts has no subcategory_id column at all — default_category_id only ever mirrors category_id.
+  const [transactions, cardPurchases, budgets, fixedExpenses, reservoirs, debts] = await Promise.all([
     supabase.from("transactions").select("id", { count: "exact", head: true }).eq(column, id),
     supabase.from("card_purchases").select("id", { count: "exact", head: true }).eq(column, id),
     supabase.from("budgets").select("id", { count: "exact", head: true }).eq(column, id),
     supabase.from("fixed_expenses").select("id", { count: "exact", head: true }).eq(column, id),
     supabase.from("reservoirs").select("id", { count: "exact", head: true }).eq(column, id),
+    column === "category_id"
+      ? supabase.from("debts").select("id", { count: "exact", head: true }).eq("default_category_id", id)
+      : Promise.resolve({ count: 0 }),
   ]);
   return {
     transactions: transactions.count ?? 0,
@@ -289,6 +293,7 @@ async function countReferences(supabase: Awaited<ReturnType<typeof createClient>
     budgets: budgets.count ?? 0,
     fixedExpenses: fixedExpenses.count ?? 0,
     reservoirs: reservoirs.count ?? 0,
+    debts: debts.count ?? 0,
   };
 }
 
@@ -327,6 +332,7 @@ export async function getCategoryUsage(categoryId: string): Promise<CategoryUsag
     budgetsCount: counts.budgets,
     fixedExpensesCount: counts.fixedExpenses,
     reservoirsCount: counts.reservoirs,
+    debtsCount: counts.debts,
   };
 }
 
@@ -340,6 +346,7 @@ export async function getSubcategoryUsage(subcategoryId: string): Promise<Catego
     budgetsCount: counts.budgets,
     fixedExpensesCount: counts.fixedExpenses,
     reservoirsCount: counts.reservoirs,
+    debtsCount: counts.debts,
   };
 }
 
@@ -364,6 +371,14 @@ export async function reassignCategory(input: ReassignCategoryInput): Promise<vo
   for (const table of tables) {
     const query = supabase.from(table).update(patch);
     const { error } = fromId ? await query.eq(column, fromId) : await query.is(column, null);
+    if (error) throw new Error(error.message);
+  }
+
+  // debts has no subcategory_id column — default_category_id only ever mirrors category_id,
+  // and a subcategory-targeted reassignment has nowhere to attach on a debt, so it's skipped.
+  if (column === "category_id") {
+    const debtsQuery = supabase.from("debts").update({ default_category_id: patch.category_id });
+    const { error } = fromId ? await debtsQuery.eq("default_category_id", fromId) : await debtsQuery.is("default_category_id", null);
     if (error) throw new Error(error.message);
   }
 }

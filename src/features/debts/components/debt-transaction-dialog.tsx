@@ -7,49 +7,79 @@ import { AccountSelect } from "@/components/ui/account-select";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
-import { addDebtTransactionAction } from "../actions";
-import { debtTransactionSchema } from "@/lib/validations/debts";
+import { CategorySelect } from "@/features/categories/components/category-select";
+import { addDebtTransactionAction, updateDebtTransactionAction } from "../actions";
+import { debtTransactionSchema, updateDebtTransactionSchema } from "@/lib/validations/debts";
 import { todayIso } from "@/lib/utils/date";
 import { formatCurrency } from "@/lib/utils/currency";
 import { addMoney } from "@/lib/utils/money";
-import type { AccountDTO } from "@/types/dto";
+import type { AccountDTO, CategoryDTO, DebtTransactionDTO } from "@/types/dto";
+import type { DebtSide } from "@/types/database";
+
+const NONE = "NONE";
 
 export function DebtTransactionDialog({
   debtId,
   debtName,
+  debtSide,
   currentBalance,
   mode,
   accounts,
+  categories: initialCategories,
+  defaultCategoryId,
+  entry,
   trigger,
 }: {
   debtId: string;
   debtName: string;
+  debtSide: DebtSide;
+  /** The debt's real remaining balance, BEFORE this dialog's own effect (in edit mode, `entry`'s
+   * current contribution is backed out before projecting the new one — see baselineBalance). */
   currentBalance: number;
+  /** Must match `entry`'s own sign when editing — a payment (negative) never becomes an increase. */
   mode: "increase" | "payment";
   accounts: AccountDTO[];
+  categories: CategoryDTO[];
+  /** Only meaningful for mode="payment" — see debt-form-dialog.tsx. */
+  defaultCategoryId?: string;
+  /** Present → edit mode: prefills from this ledger entry and saves via updateDebtTransactionAction. */
+  entry?: DebtTransactionDTO;
   trigger: React.ReactNode;
 }) {
+  const isEdit = !!entry;
+  const isLinked = !!entry?.linkedTransactionId;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [date, setDate] = useState(todayIso());
-  const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState(`Movimentação da dívida ${debtName}`);
+  const [date, setDate] = useState(entry?.date ?? todayIso());
+  const [amount, setAmount] = useState(entry ? String(Math.abs(entry.amount)) : "");
+  const [description, setDescription] = useState(entry?.description ?? `Movimentação da dívida ${debtName}`);
   const [createLinkedTransaction, setCreateLinkedTransaction] = useState(true);
   const [linkedAccountId, setLinkedAccountId] = useState(accounts[0]?.id ?? "");
+  const [categories, setCategories] = useState(initialCategories);
+  const [categoryId, setCategoryId] = useState(entry?.categoryId ?? (mode === "payment" && defaultCategoryId ? defaultCategoryId : NONE));
   const [confirmingSettle, setConfirmingSettle] = useState(false);
 
   const numericAmount = Number(amount);
   const signedAmount = mode === "payment" ? -Math.abs(numericAmount) : Math.abs(numericAmount);
-  const projectedBalance = Number.isFinite(numericAmount) && amount ? addMoney(currentBalance, signedAmount) : currentBalance;
+  // Editing backs out this entry's own current contribution before projecting the new balance —
+  // otherwise it'd be double-counted (currentBalance already includes the un-edited entry).
+  const baselineBalance = isEdit ? addMoney(currentBalance, -entry!.amount) : currentBalance;
+  const projectedBalance = Number.isFinite(numericAmount) && amount ? addMoney(baselineBalance, signedAmount) : currentBalance;
   const willSettle = mode === "payment" && amount !== "" && projectedBalance <= 0;
   const isOverpayment = willSettle && projectedBalance < 0;
+  // A payment always moves money the same direction as the debt's own default category was set
+  // up for (see debt-form-dialog.tsx); "increase" is always the opposite type.
+  const isReduction = mode === "payment";
+  const categoryType = (debtSide === "PAYABLE") === isReduction ? "EXPENSE" : "INCOME";
+  const showLinkedFields = isEdit ? isLinked : createLinkedTransaction;
 
   function resetAndClose() {
     setOpen(false);
-    setAmount("");
-    setDescription(`Movimentação da dívida ${debtName}`);
+    setAmount(entry ? String(Math.abs(entry.amount)) : "");
+    setDescription(entry?.description ?? `Movimentação da dívida ${debtName}`);
+    setCategoryId(entry?.categoryId ?? (mode === "payment" && defaultCategoryId ? defaultCategoryId : NONE));
     setConfirmingSettle(false);
   }
 
@@ -64,6 +94,30 @@ export function DebtTransactionDialog({
       return;
     }
 
+    if (isEdit) {
+      const parsed = updateDebtTransactionSchema.safeParse({
+        id: entry!.id,
+        date,
+        amount: signedAmount,
+        description: description || undefined,
+        categoryId: isLinked ? (categoryId === NONE ? null : categoryId) : undefined,
+      });
+      if (!parsed.success) {
+        setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
+        return;
+      }
+      startTransition(async () => {
+        try {
+          await updateDebtTransactionAction(parsed.data);
+          router.refresh();
+          setOpen(false);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Erro ao editar lançamento");
+        }
+      });
+      return;
+    }
+
     const parsed = debtTransactionSchema.safeParse({
       debtId,
       date,
@@ -71,6 +125,7 @@ export function DebtTransactionDialog({
       description: description || undefined,
       createLinkedTransaction,
       linkedAccountId: createLinkedTransaction ? linkedAccountId : undefined,
+      categoryId: createLinkedTransaction && categoryId !== NONE ? categoryId : undefined,
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
@@ -91,7 +146,11 @@ export function DebtTransactionDialog({
     <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) resetAndClose(); }}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
-        <DialogTitle>{mode === "payment" ? "Registrar pagamento" : "Registrar novo valor"}</DialogTitle>
+        <DialogTitle>
+          {isEdit
+            ? mode === "payment" ? "Editar pagamento" : "Editar novo valor"
+            : mode === "payment" ? "Registrar pagamento" : "Registrar novo valor"}
+        </DialogTitle>
         <div className="grid grid-cols-2 gap-2">
           <Field>
             <Label>Valor</Label>
@@ -112,14 +171,30 @@ export function DebtTransactionDialog({
           <Label>Descrição</Label>
           <Input value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
-        <label className="flex items-center gap-2 text-sm">
-          <Switch checked={createLinkedTransaction} onCheckedChange={setCreateLinkedTransaction} />
-          Dinheiro passou por uma conta rastreada
-        </label>
-        {createLinkedTransaction && (
+        {!isEdit && (
+          <label className="flex items-center gap-2 text-sm">
+            <Switch checked={createLinkedTransaction} onCheckedChange={setCreateLinkedTransaction} />
+            Dinheiro passou por uma conta rastreada
+          </label>
+        )}
+        {!isEdit && createLinkedTransaction && (
           <Field>
             <Label>Conta</Label>
             <AccountSelect accounts={accounts} value={linkedAccountId} onChange={setLinkedAccountId} />
+          </Field>
+        )}
+        {showLinkedFields && (
+          <Field>
+            <Label>Categoria</Label>
+            <CategorySelect
+              categories={categories}
+              type={categoryType}
+              value={categoryId}
+              onChange={setCategoryId}
+              onCategoryCreated={(created) => setCategories((prev) => [...prev, created])}
+              noneValue={NONE}
+              noneLabel="Sem categoria"
+            />
           </Field>
         )}
         {willSettle && confirmingSettle && (
@@ -133,7 +208,7 @@ export function DebtTransactionDialog({
         <DialogActions>
           <DialogClose asChild><Button variant="secondary" size="sm">Cancelar</Button></DialogClose>
           <Button size="sm" disabled={pending || !amount} onClick={handleSubmit}>
-            {pending ? "Salvando..." : willSettle && confirmingSettle ? "Confirmar quitação" : "Confirmar"}
+            {pending ? "Salvando..." : willSettle && confirmingSettle ? "Confirmar quitação" : isEdit ? "Salvar" : "Confirmar"}
           </Button>
         </DialogActions>
       </DialogContent>

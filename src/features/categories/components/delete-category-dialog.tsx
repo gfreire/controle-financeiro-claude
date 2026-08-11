@@ -84,14 +84,14 @@ export function DeleteCategoryDialog({ target, categories }: { target: Target; c
         <DialogTitle>Excluir &quot;{target.name}&quot;</DialogTitle>
         {usage === null ? (
           <p className="text-sm opacity-60">Carregando...</p>
-        ) : usage.count === 0 && !usage.budgetsCount && !usage.fixedExpensesCount && !usage.reservoirsCount ? (
+        ) : usage.count === 0 && !usage.budgetsCount && !usage.fixedExpensesCount && !usage.reservoirsCount && !usage.debtsCount ? (
           <DialogDescription>Nada usa esta categoria — pode excluir com segurança.</DialogDescription>
         ) : (
           <>
             <DialogDescription>
               {usage.count} lançamento(s) usam esta categoria
-              {(usage.budgetsCount || usage.fixedExpensesCount || usage.reservoirsCount) > 0 &&
-                ` (além de ${usage.budgetsCount} orçamento(s), ${usage.fixedExpensesCount} despesa(s) fixa(s) e ${usage.reservoirsCount} receita(s) programada(s) configuradas com ela)`}
+              {(usage.budgetsCount || usage.fixedExpensesCount || usage.reservoirsCount || usage.debtsCount) > 0 &&
+                ` (além de ${usage.budgetsCount} orçamento(s), ${usage.fixedExpensesCount} despesa(s) fixa(s), ${usage.reservoirsCount} receita(s) programada(s) e ${usage.debtsCount} dívida(s) configuradas com ela)`}
               . Escolha o que fazer com essas referências:
             </DialogDescription>
 

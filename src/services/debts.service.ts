@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { addMoney, sumMoney } from "@/lib/utils/money";
-import type { DebtInput, DebtTransactionInput } from "@/lib/validations/debts";
+import type { DebtInput, DebtTransactionInput, UpdateDebtTransactionInput } from "@/lib/validations/debts";
 import type { DebtDTO, DebtTransactionDTO } from "@/types/dto";
 
 export async function getDebts(): Promise<DebtDTO[]> {
@@ -26,6 +26,7 @@ export async function getDebts(): Promise<DebtDTO[]> {
         originalAmount: row.initial_balance,
         remainingBalance: addMoney(row.initial_balance, sumMoney((entries ?? []).map((e) => e.amount))),
         active: row.active,
+        defaultCategoryId: row.default_category_id ?? undefined,
       };
     })
   );
@@ -37,11 +38,30 @@ export async function createDebt(input: DebtInput): Promise<string> {
   const user = await getUser();
   const { data, error } = await supabase
     .from("debts")
-    .insert({ user_id: user.id, agent: input.agent, side: input.side, initial_balance: input.initialBalance })
+    .insert({
+      user_id: user.id,
+      agent: input.agent,
+      side: input.side,
+      initial_balance: input.initialBalance,
+      default_category_id: input.defaultCategoryId ?? null,
+    })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
   return data.id;
+}
+
+/** Agent/side/initialBalance/defaultCategoryId are all freely editable after creation — only the
+ * computed remainingBalance formula (initial_balance + SUM(debt_transactions.amount)) is fixed. */
+export async function updateDebt(id: string, input: Partial<DebtInput>): Promise<void> {
+  const supabase = await createClient();
+  const updates: Record<string, unknown> = {};
+  if (input.agent !== undefined) updates.agent = input.agent;
+  if (input.side !== undefined) updates.side = input.side;
+  if (input.initialBalance !== undefined) updates.initial_balance = input.initialBalance;
+  if (input.defaultCategoryId !== undefined) updates.default_category_id = input.defaultCategoryId;
+  const { error } = await supabase.from("debts").update(updates).eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 export async function getDebtTransactions(debtId: string): Promise<DebtTransactionDTO[]> {
@@ -50,16 +70,24 @@ export async function getDebtTransactions(debtId: string): Promise<DebtTransacti
     .from("debt_transactions")
     .select("*")
     .eq("debt_id", debtId)
-    .order("created_at", { ascending: false });
+    .order("date", { ascending: false });
   if (error) throw new Error(error.message);
+
+  const linkedIds = (data ?? []).map((row) => row.linked_transaction_id).filter((id): id is string => !!id);
+  const categoryByTransactionId = new Map<string, string | null>();
+  if (linkedIds.length > 0) {
+    const { data: linkedTransactions } = await supabase.from("transactions").select("id, category_id").in("id", linkedIds);
+    for (const t of linkedTransactions ?? []) categoryByTransactionId.set(t.id, t.category_id);
+  }
 
   return (data ?? []).map((row) => ({
     id: row.id,
     debtId: row.debt_id,
-    date: row.created_at.slice(0, 10),
+    date: row.date,
     description: row.description,
     amount: row.amount,
     linkedTransactionId: row.linked_transaction_id ?? undefined,
+    categoryId: row.linked_transaction_id ? categoryByTransactionId.get(row.linked_transaction_id) ?? undefined : undefined,
   }));
 }
 
@@ -81,7 +109,7 @@ export async function addDebtTransaction(input: DebtTransactionInput): Promise<{
 
   const { data: debt, error: debtError } = await supabase
     .from("debts")
-    .select("side, agent, initial_balance")
+    .select("side, agent, initial_balance, default_category_id")
     .eq("id", input.debtId)
     .single();
   if (debtError) throw new Error(debtError.message);
@@ -98,6 +126,10 @@ export async function addDebtTransaction(input: DebtTransactionInput): Promise<{
     // An increase on a PAYABLE (borrowing more): money enters (INCOME).
     const isReduction = input.amount < 0;
     const type = (debt.side === "PAYABLE") === isReduction ? "EXPENSE" : "INCOME";
+    // The debt's own default_category_id is only meaningful for a payment (same type as a
+    // payment always is for this debt's side, see debt-form-dialog.tsx) — falling back to it
+    // on an "increase" entry (opposite type) would silently attach a mismatched category.
+    const categoryId = input.categoryId !== undefined ? input.categoryId : isReduction ? debt.default_category_id : null;
 
     const { data: transaction, error: txError } = await supabase
       .from("transactions")
@@ -108,6 +140,7 @@ export async function addDebtTransaction(input: DebtTransactionInput): Promise<{
         amount: Math.abs(input.amount),
         date: input.date,
         description,
+        category_id: categoryId,
       })
       .select("id")
       .single();
@@ -120,6 +153,7 @@ export async function addDebtTransaction(input: DebtTransactionInput): Promise<{
     amount: input.amount,
     description,
     linked_transaction_id: linkedTransactionId,
+    date: input.date,
   });
   if (error) throw new Error(error.message);
 
@@ -129,6 +163,85 @@ export async function addDebtTransaction(input: DebtTransactionInput): Promise<{
   if (settled) await deactivateDebt(input.debtId);
 
   return { settled };
+}
+
+/**
+ * Editing a ledger entry propagates to its linked `transactions` row when one exists (amount,
+ * date, description, category) — same "linked records stay consistent" rule already followed for
+ * card purchases/installments (AI_CONTEXT.md "Linked Records Consistency"). The entry's direction
+ * (increase vs payment) can never flip via edit — only DebtTransactionDialog's separate create
+ * flows decide that, by amount sign at insert time — so a sign mismatch is rejected outright.
+ * Recomputes and re-applies the same settle-to-zero auto-deactivation addDebtTransaction does,
+ * since an edit can just as well bring the balance to zero as a new entry can.
+ */
+export async function updateDebtTransaction(input: UpdateDebtTransactionInput): Promise<{ settled: boolean }> {
+  const supabase = await createClient();
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("debt_transactions")
+    .select("debt_id, linked_transaction_id, amount")
+    .eq("id", input.id)
+    .single();
+  if (fetchError) throw new Error(fetchError.message);
+
+  if (Math.sign(input.amount) !== Math.sign(existing.amount)) {
+    throw new Error("Não é possível inverter o sentido do lançamento (aumento/pagamento) na edição.");
+  }
+
+  const { data: debt, error: debtError } = await supabase
+    .from("debts")
+    .select("agent, initial_balance")
+    .eq("id", existing.debt_id)
+    .single();
+  if (debtError) throw new Error(debtError.message);
+
+  const description = input.description ?? `Movimentação da dívida ${debt.agent}`;
+
+  if (existing.linked_transaction_id) {
+    const { error: txError } = await supabase
+      .from("transactions")
+      .update({
+        amount: Math.abs(input.amount),
+        date: input.date,
+        description,
+        category_id: input.categoryId ?? null,
+      })
+      .eq("id", existing.linked_transaction_id);
+    if (txError) throw new Error(txError.message);
+  }
+
+  const { error } = await supabase
+    .from("debt_transactions")
+    .update({ amount: input.amount, date: input.date, description })
+    .eq("id", input.id);
+  if (error) throw new Error(error.message);
+
+  const { data: entries } = await supabase.from("debt_transactions").select("amount").eq("debt_id", existing.debt_id);
+  const remainingBalance = addMoney(debt.initial_balance, sumMoney((entries ?? []).map((e) => e.amount)));
+  const settled = remainingBalance <= 0;
+  if (settled) await deactivateDebt(existing.debt_id);
+
+  return { settled };
+}
+
+/** Mirrors reservoirs.service.ts#deleteReservoirTransaction: a ledger entry's only reason to
+ * exist, when linked, is to represent that specific movement — deleting it without its linked
+ * `transactions` row would leave a dangling, purposeless transaction with no ledger trace. */
+export async function deleteDebtTransaction(id: string): Promise<void> {
+  const supabase = await createClient();
+  const { data: existing, error: fetchError } = await supabase
+    .from("debt_transactions")
+    .select("linked_transaction_id")
+    .eq("id", id)
+    .single();
+  if (fetchError) throw new Error(fetchError.message);
+
+  const { error } = await supabase.from("debt_transactions").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
+  if (existing.linked_transaction_id) {
+    await supabase.from("transactions").delete().eq("id", existing.linked_transaction_id);
+  }
 }
 
 export async function deactivateDebt(id: string): Promise<void> {

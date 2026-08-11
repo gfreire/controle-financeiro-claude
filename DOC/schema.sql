@@ -308,10 +308,12 @@ CREATE TABLE public.debts (
   agent text NOT NULL,
   side debt_side NOT NULL,
   initial_balance numeric(14,2) NOT NULL,
+  default_category_id uuid, -- NOVO (0015): pré-preenche (e é sempre sobrescrevível) a categoria de um pagamento registrado contra a dívida
   active boolean DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT debts_pkey PRIMARY KEY (id),
-  CONSTRAINT debts_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+  CONSTRAINT debts_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT debts_default_category_id_fkey FOREIGN KEY (default_category_id) REFERENCES public.categories(id)
 );
 
 CREATE TABLE public.debt_transactions ( -- NOVO
@@ -320,6 +322,7 @@ CREATE TABLE public.debt_transactions ( -- NOVO
   amount numeric(14,2) NOT NULL,
   description text,
   linked_transaction_id uuid,
+  date date NOT NULL DEFAULT CURRENT_DATE, -- NOVO (0016): editável, independente de created_at
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT debt_transactions_pkey PRIMARY KEY (id),
   CONSTRAINT debt_transactions_debt_id_fkey FOREIGN KEY (debt_id) REFERENCES public.debts(id) ON DELETE CASCADE,
