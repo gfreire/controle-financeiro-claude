@@ -1,6 +1,6 @@
 import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
-import { getCardInstallments, getCardPurchases, getCardSummary } from "@/services/cards.service";
+import { getCardInstallments, getCardPurchases, getCardSummary, getCardTotalCommitted } from "@/services/cards.service";
 import { Card, CardKicker, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { InvoicePaidBadge } from "@/components/ui/invoice-paid-badge";
@@ -31,6 +31,12 @@ export default async function CardsPage({
   const cards = cardId ? allCards.filter((c) => c.id === cardId) : allCards;
   const payerAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
 
+  // Passed to PurchaseFormDialog's over-limit warning — the correct "used against the limit"
+  // figure (excludes paid_before_system installments), unlike AccountDTO.balance.
+  const cardTotals: Record<string, number> = Object.fromEntries(
+    await Promise.all(allCards.map(async (c) => [c.id, await getCardTotalCommitted(c.id)] as const))
+  );
+
   const periodStart = startOfMonth(`${month}-01`);
   const periodEnd = endOfMonth(`${month}-01`);
 
@@ -40,7 +46,7 @@ export default async function CardsPage({
         <h1 className="font-heading text-2xl font-semibold">Cartões</h1>
         <div className="flex items-center gap-2">
           <MonthNav />
-          <PurchaseFormDialog cards={allCards} categories={categories} />
+          <PurchaseFormDialog cards={allCards} cardTotals={cardTotals} categories={categories} />
         </div>
       </div>
 
@@ -124,6 +130,7 @@ export default async function CardsPage({
                           <>
                             <PurchaseFormDialog
                               cards={cards}
+                              cardTotals={cardTotals}
                               categories={categories}
                               purchase={purchase}
                               trigger={

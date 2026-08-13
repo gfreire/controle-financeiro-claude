@@ -11,20 +11,43 @@ import { CategorySelect, SubcategorySelect } from "@/features/categories/compone
 import { Plus, TriangleAlert } from "lucide-react";
 import { createCardPurchaseAction, updateCardPurchaseAction } from "../actions";
 import { cardPurchaseSchema } from "@/lib/validations/cards";
-import { splitInstallments } from "@/lib/utils/money";
+import { splitInstallments, sumMoney, subtractMoney, addMoney } from "@/lib/utils/money";
 import { calculateInstallmentCompetences, calculateInstallmentCompetencesFromAnchorMonth, monthKey, todayIso } from "@/lib/utils/date";
 import { formatCurrency } from "@/lib/utils/currency";
 import type { AccountDTO, CardPurchaseDTO, CategoryDTO } from "@/types/dto";
 
 const NONE = "NONE";
 
+// Sum of whichever installments (a contiguous prefix, per resolvePaidBeforeSystemFlags in
+// cards.service.ts) would NOT be flagged paid_before_system — the portion that actually
+// counts against the credit limit, mirroring getCardTotalCommitted's own exclusion.
+function nonPaidAmount(
+  totalAmount: number,
+  count: number,
+  firstCompetenceMonth: string,
+  paidThroughCompetence: string | undefined | null,
+  dueDay: number | undefined
+): number {
+  if (!paidThroughCompetence || !dueDay || count < 1) return totalAmount;
+  const competences = calculateInstallmentCompetencesFromAnchorMonth(firstCompetenceMonth, dueDay, count);
+  const paidCount = competences.filter((c) => monthKey(c) <= paidThroughCompetence).length;
+  if (paidCount === 0) return totalAmount;
+  const split = splitInstallments(totalAmount, count);
+  return subtractMoney(totalAmount, sumMoney(split.slice(0, paidCount)));
+}
+
 export function PurchaseFormDialog({
   cards,
+  cardTotals,
   categories: initialCategories,
   purchase,
   trigger,
 }: {
   cards: AccountDTO[];
+  // cardId -> getCardTotalCommitted(cardId) — already excludes paid_before_system installments
+  // and payments, unlike AccountDTO.balance (raw card_installments/card_payments sum, includes
+  // paid-before-system rows). Used for the soft over-limit warning below.
+  cardTotals: Record<string, number>;
   categories: CategoryDTO[];
   purchase?: CardPurchaseDTO;
   trigger?: React.ReactNode;
@@ -75,17 +98,29 @@ export function PurchaseFormDialog({
 
   const paidThroughInFuture = isBackfill && !!paidThroughCompetence && paidThroughCompetence > monthKey(todayIso());
 
+  // The existing purchase's own contribution to cardTotals, BEFORE this edit — i.e. only the
+  // portion of its original installments that weren't paid_before_system, since that's what's
+  // actually still counted in cardTotals[creditCardId] right now.
+  const existingNonPaidAmount = useMemo(() => {
+    if (!isEdit || !purchase || !selectedCard?.dueDay) return 0;
+    return nonPaidAmount(purchase.totalAmount, purchase.installmentsCount, purchase.firstCompetenceMonth, purchase.paidThroughCompetence, selectedCard.dueDay);
+  }, [isEdit, purchase, selectedCard]);
+
   // Soft-enforced (never blocks the insert) — a real invoice payment not yet logged, or a
   // genuine mistake in this purchase, are both things the user should see and decide about.
+  // Mirrors getCardTotalCommitted: only the non-paid-before-system portion of this purchase
+  // (new or edited) counts against the limit — a backfilled installment was already settled
+  // outside the system, so it shouldn't trip a "you're over the limit" warning.
   const overLimitInfo = useMemo(() => {
     const value = Number(amount);
     if (!selectedCard?.creditLimit || !Number.isFinite(value) || value <= 0) return null;
-    const currentDebt = Math.max(0, -selectedCard.balance);
-    const debtExcludingThisPurchase = isEdit && purchase ? Math.max(0, currentDebt - purchase.totalAmount) : currentDebt;
-    const projected = debtExcludingThisPurchase + value;
+    const currentDebt = cardTotals[selectedCard.id] ?? 0;
+    const debtExcludingThisPurchase = isEdit ? Math.max(0, subtractMoney(currentDebt, existingNonPaidAmount)) : currentDebt;
+    const newNonPaidAmount = nonPaidAmount(value, Number(installments), firstCompetenceMonth, isBackfill ? paidThroughCompetence : null, selectedCard.dueDay);
+    const projected = addMoney(debtExcludingThisPurchase, newNonPaidAmount);
     if (projected <= selectedCard.creditLimit) return null;
     return { projected, limit: selectedCard.creditLimit };
-  }, [amount, selectedCard, isEdit, purchase]);
+  }, [amount, selectedCard, isEdit, cardTotals, existingNonPaidAmount, installments, firstCompetenceMonth, isBackfill, paidThroughCompetence]);
 
   function suggestCompetence(nextDate: string, cardId: string) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) return; // incomplete date while typing (e.g. "2026-08-")
