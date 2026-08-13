@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Card, CardKicker, CardTitle, CardMeta } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
+import { InvoicePaidBadge } from "@/components/ui/invoice-paid-badge";
 import { BalanceAdjustDialog } from "./balance-adjust-dialog";
 import { LimitAdjustDialog } from "./limit-adjust-dialog";
 import { formatCurrency } from "@/lib/utils/currency";
@@ -101,6 +102,7 @@ export function AccountCard({ account, cardSummary, cardSummaryMonth }: { accoun
             {cardSummaryMonth && (
               <span>Fatura de {formatMonthLabel(cardSummaryMonth)}: <strong className="tabular-nums">{formatCurrency(cardSummary.currentMonthInvoice)}</strong></span>
             )}
+            <InvoicePaidBadge invoiceAmount={cardSummary.currentMonthInvoice} paidAmount={cardSummary.currentMonthPaidAmount} />
             {cardSummary.overdueAmount > 0 && <Badge variant="danger">Em atraso: {formatCurrency(cardSummary.overdueAmount)}</Badge>}
           </div>
         </>

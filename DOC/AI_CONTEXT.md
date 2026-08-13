@@ -104,6 +104,14 @@ Paying the card bill (`card_payments`) creates both a `transactions` row (`type 
 - `paid_through_competence` não pode ser um mês futuro — validado no client (`purchase-form-dialog.tsx`) e repetido no service (`createCardPurchase`/`updateCardPurchase`), já que não faz sentido marcar uma parcela ainda não vencida como "paga antes do sistema".
 - Editar uma compra com parcelas retroativas segue a mesma regra de "rollback e re-registro" já existente — mudar valor/data/parcelas/cartão/`paid_through_competence` recalcula a flag do zero pra todas as parcelas geradas, nunca é um patch parcela-por-parcela.
 
+## Fatura: indicador de pago/parcial
+
+**Decidido e implementado 2026-08-12, a pedido do usuário** ("gostaria de colocar um simbolo de pago ou se pago pela metade"). `card_payments` nunca teve (e continua sem ter) uma coluna de mês/competência — é só `{ credit_card_id, account_id, transaction_id, amount, payment_date }`, um valor solto contra o cartão como um todo. Então "quanto da fatura DESTE mês já foi pago" não é um fato guardado, é derivado: `cards.service.ts#getCardSummary` ganhou `currentMonthPaidAmount`, calculado assumindo que um pagamento sempre quita a competência mais antiga em aberto primeiro — a mesma suposição que `getCardBalanceThroughMonth`/`overdueAmount` já faziam implicitamente (nenhuma delas jamais tentou saber PARA QUAL mês um pagamento era). Concretamente: uma parcela `paid_before_system` do mês visualizado conta como paga direto (já quitada fora do sistema, ver "Compras retroativas" acima); o resto do mês visualizado é coberto pelo que sobrar dos pagamentos (`card_payments`, soma de todos os tempos) depois de quitar toda parcela não-`paid_before_system` com competência estritamente anterior ao mês visualizado.
+
+Isso é uma heurística, não uma alocação real — se o usuário pagar hoje adiantando uma fatura futura, o sistema ainda mostra esse valor quitando o mês mais antigo em aberto primeiro, não o mês que o usuário tinha em mente. Aceito como trade-off deliberado: implementar uma alocação explícita exigiria uma coluna nova ligando pagamento a mês (ou a parcelas específicas), e o caso de uso descrito pelo usuário — "fatura de 650, paguei 600, faltam 50" — é exatamente o caso comum (pagamento parcial da fatura mais recente em aberto) que a heurística já cobre certo.
+
+`src/components/ui/invoice-paid-badge.tsx` (novo, compartilhado entre `/cards` e `AccountCard`, mesma convenção do bloco `totalCommitted/creditLimit` que as duas telas já compartilhavam) renderiza: nada quando `currentMonthPaidAmount === 0` (comportamento anterior, sem poluir a tela pra fatura totalmente em aberto); badge verde "Paga" quando `currentMonthPaidAmount >= currentMonthInvoice`; badge amarelo "`{pago}` pago · faltam `{resto}`" no caso parcial.
+
 ---
 
 # Categories and Subcategories

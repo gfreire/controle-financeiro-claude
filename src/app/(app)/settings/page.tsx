@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CategoryFormDialog } from "@/features/categories/components/category-form-dialog";
 import { SubcategoryFormDialog } from "@/features/categories/components/subcategory-form-dialog";
 import { DeleteCategoryDialog } from "@/features/categories/components/delete-category-dialog";
-import { User, PackagePlus } from "lucide-react";
+import { User, PackagePlus, Pencil } from "lucide-react";
 
 export default async function SettingsPage() {
   const [categories, profile] = await Promise.all([getCategories(), getProfile()]);
@@ -52,7 +52,17 @@ export default async function SettingsPage() {
                 {category.isSystem ? (
                   <Badge variant="neutral">sistema</Badge>
                 ) : (
-                  <DeleteCategoryDialog target={{ kind: "category", id: category.id, name: category.name }} categories={categories} />
+                  <div className="flex items-center gap-1">
+                    <CategoryFormDialog
+                      category={category}
+                      trigger={
+                        <button className="p-1.5 -m-1.5 text-text/40 hover:text-accent" aria-label="Editar categoria">
+                          <Pencil className="size-3.5" strokeWidth={1.5} />
+                        </button>
+                      }
+                    />
+                    <DeleteCategoryDialog target={{ kind: "category", id: category.id, name: category.name }} categories={categories} />
+                  </div>
                 )}
               </div>
               {!category.isSystem && (
@@ -88,7 +98,17 @@ export default async function SettingsPage() {
                 {category.isSystem ? (
                   <Badge variant="neutral">sistema</Badge>
                 ) : (
-                  <DeleteCategoryDialog target={{ kind: "category", id: category.id, name: category.name }} categories={categories} />
+                  <div className="flex items-center gap-1">
+                    <CategoryFormDialog
+                      category={category}
+                      trigger={
+                        <button className="p-1.5 -m-1.5 text-text/40 hover:text-accent" aria-label="Editar categoria">
+                          <Pencil className="size-3.5" strokeWidth={1.5} />
+                        </button>
+                      }
+                    />
+                    <DeleteCategoryDialog target={{ kind: "category", id: category.id, name: category.name }} categories={categories} />
+                  </div>
                 )}
               </div>
             </Card>

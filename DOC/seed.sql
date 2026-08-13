@@ -35,7 +35,8 @@ values
 (gen_random_uuid(), 'Dívidas', 'EXPENSE', '📉', '#b91c1c', false, true),
 (gen_random_uuid(), 'Doações', 'EXPENSE', '🤝', '#a855f7', false, true),
 (gen_random_uuid(), 'Outros', 'EXPENSE', '📦', '#94a3b8', false, true),
-(gen_random_uuid(), 'Cuidados Pessoais', 'EXPENSE', '🧴', '#fb7185', false, true); -- SUGESTÃO NOVA
+(gen_random_uuid(), 'Cuidados Pessoais', 'EXPENSE', '🧴', '#fb7185', false, true), -- SUGESTÃO NOVA
+(gen_random_uuid(), 'Supermercado', 'EXPENSE', '🛒', '#f97316', false, true); -- promovida de subcategoria de Alimentação (0017)
 
 -- ============================================
 -- DEFAULT INCOME CATEGORIES (NO SUBCATEGORIES)
@@ -81,9 +82,6 @@ select gen_random_uuid(), 'Manutenção', id from categories where name = 'Morad
 
 
 -- ALIMENTAÇÃO
-
-insert into subcategories (id, name, category_id)
-select gen_random_uuid(), 'Supermercado', id from categories where name = 'Alimentação';
 
 insert into subcategories (id, name, category_id)
 select gen_random_uuid(), 'Padaria', id from categories where name = 'Alimentação';

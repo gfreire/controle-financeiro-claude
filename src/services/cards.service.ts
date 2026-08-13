@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
-import { splitInstallments, sumMoney, subtractMoney } from "@/lib/utils/money";
+import { splitInstallments, sumMoney, subtractMoney, addMoney } from "@/lib/utils/money";
 import { calculateInstallmentCompetences, calculateInstallmentCompetencesFromAnchorMonth } from "@/lib/utils/date";
 import { monthKey, startOfMonth, endOfMonth, todayIso } from "@/lib/utils/date";
 import type { CardPurchaseInput, CardPaymentInput } from "@/lib/validations/cards";
@@ -319,6 +319,16 @@ export async function getCardTotalCommitted(creditCardId: string): Promise<numbe
  * change just because the user later logged that bill as already paid outside the system. Only
  * `usedThroughCurrentMonth`/`totalCommitted` (via the two functions above) answer "what's still
  * owed," so only those exclude them.
+ *
+ * `currentMonthPaidAmount`: `card_payments` has no competence/invoice-month of its own — a payment
+ * is just a lump sum against the card, never allocated to a specific month. So "how much of THIS
+ * invoice is paid" is derived, not stored, using the same oldest-competence-first assumption the
+ * balance functions above already imply (a payment always reduces the oldest unpaid installments
+ * first): `paid_before_system` installments in the viewed month count as paid outright (already
+ * settled outside the system); the rest is however much of all-time `card_payments` is left over
+ * after covering every non-`paid_before_system` installment strictly before the viewed month. This
+ * is a heuristic, not a real allocation record — a payment actually meant to cover a future month
+ * in advance would still show as paying down the oldest month first.
  */
 export async function getCardSummary(creditCardId: string, viewedMonth: string, creditLimit: number | null): Promise<CardSummaryDTO> {
   const supabase = await createClient();
@@ -329,22 +339,46 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
   const todayEnd = endOfMonth(`${todayMonth}-01`);
   const viewingCurrentMonth = viewedMonth === todayMonth;
 
-  const [usedThroughCurrentMonth, totalCommitted, { data: viewedInstallments, error: viewedError }, todayInstallmentsResult] = await Promise.all([
+  const [
+    usedThroughCurrentMonth,
+    totalCommitted,
+    { data: viewedInstallments, error: viewedError },
+    todayInstallmentsResult,
+    { data: billedBeforeViewedRows, error: billedBeforeError },
+    { data: paymentRows, error: paymentsError },
+  ] = await Promise.all([
     getCardBalanceThroughMonth(creditCardId, todayMonth),
     getCardTotalCommitted(creditCardId),
-    supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).gte("competence", viewedStart).lte("competence", viewedEnd),
+    supabase.from("card_installments").select("amount, paid_before_system").eq("credit_card_id", creditCardId).gte("competence", viewedStart).lte("competence", viewedEnd),
     viewingCurrentMonth
       ? Promise.resolve(null)
       : supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).gte("competence", todayStart).lte("competence", todayEnd),
+    supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).eq("paid_before_system", false).lt("competence", viewedStart),
+    supabase.from("card_payments").select("amount").eq("credit_card_id", creditCardId),
   ]);
   if (viewedError) throw new Error(viewedError.message);
   if (todayInstallmentsResult?.error) throw new Error(todayInstallmentsResult.error.message);
+  if (billedBeforeError) throw new Error(billedBeforeError.message);
+  if (paymentsError) throw new Error(paymentsError.message);
 
   const currentMonthInvoice = sumMoney((viewedInstallments ?? []).map((i) => i.amount));
   const todayInvoice = viewingCurrentMonth ? currentMonthInvoice : sumMoney((todayInstallmentsResult?.data ?? []).map((i) => i.amount));
   const overdueAmount = Math.max(0, subtractMoney(usedThroughCurrentMonth, todayInvoice));
 
-  return { accountId: creditCardId, creditLimit, usedThroughCurrentMonth, currentMonthInvoice, overdueAmount, totalCommitted };
+  const monthPaidBeforeSystemAmount = sumMoney((viewedInstallments ?? []).filter((i) => i.paid_before_system).map((i) => i.amount));
+  const billedNotBeforeSystemBeforeViewedMonth = sumMoney((billedBeforeViewedRows ?? []).map((i) => i.amount));
+  const billedNotBeforeSystemThroughViewedMonth = addMoney(
+    sumMoney((viewedInstallments ?? []).filter((i) => !i.paid_before_system).map((i) => i.amount)),
+    billedNotBeforeSystemBeforeViewedMonth
+  );
+  const totalPayments = sumMoney((paymentRows ?? []).map((p) => p.amount));
+  const monthPaidViaPayments = subtractMoney(
+    Math.min(billedNotBeforeSystemThroughViewedMonth, totalPayments),
+    Math.min(billedNotBeforeSystemBeforeViewedMonth, totalPayments)
+  );
+  const currentMonthPaidAmount = sumMoney([monthPaidBeforeSystemAmount, monthPaidViaPayments]);
+
+  return { accountId: creditCardId, creditLimit, usedThroughCurrentMonth, currentMonthInvoice, currentMonthPaidAmount, overdueAmount, totalCommitted };
 }
 
 /**

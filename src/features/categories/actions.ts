@@ -2,13 +2,20 @@
 
 import { revalidatePath } from "next/cache";
 import * as categoriesService from "@/services/categories.service";
-import { categorySchema, subcategorySchema, reassignCategorySchema, type CategoryInput, type SubcategoryInput } from "@/lib/validations/categories";
+import { categorySchema, updateCategorySchema, subcategorySchema, reassignCategorySchema, type CategoryInput, type SubcategoryInput } from "@/lib/validations/categories";
 
 export async function createCategoryAction(input: CategoryInput) {
   const parsed = categorySchema.parse(input);
   const category = await categoriesService.createCategory(parsed);
   revalidatePath("/settings");
   return category;
+}
+
+export async function updateCategoryAction(input: { id: string; name?: string; color?: string; icon?: string | null }) {
+  const { id, ...rest } = updateCategorySchema.parse(input);
+  await categoriesService.updateCategory(id, rest);
+  revalidatePath("/settings");
+  revalidatePath("/dashboard");
 }
 
 export async function createSubcategoryAction(input: SubcategoryInput) {

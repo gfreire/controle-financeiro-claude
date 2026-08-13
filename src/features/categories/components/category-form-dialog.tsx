@@ -9,19 +9,30 @@ import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { IconPicker } from "@/components/ui/icon-picker";
 import { CATEGORY_ICONS } from "@/components/ui/icon-set";
 import { ColorPicker, CATEGORY_COLORS } from "@/components/ui/color-picker";
-import { Plus } from "lucide-react";
-import { createCategoryAction } from "../actions";
+import { Plus, Pencil } from "lucide-react";
+import { createCategoryAction, updateCategoryAction } from "../actions";
 import { categorySchema } from "@/lib/validations/categories";
+import type { CategoryDTO } from "@/types/dto";
 
-export function CategoryFormDialog({ defaultType = "EXPENSE" as "INCOME" | "EXPENSE" }: { defaultType?: "INCOME" | "EXPENSE" }) {
+export function CategoryFormDialog({
+  defaultType = "EXPENSE" as "INCOME" | "EXPENSE",
+  category,
+  trigger,
+}: {
+  defaultType?: "INCOME" | "EXPENSE";
+  /** Present → edit mode: prefills from this category (name/icon/color only — type is fixed after creation) and saves via updateCategoryAction. */
+  category?: CategoryDTO;
+  trigger?: React.ReactNode;
+}) {
+  const isEdit = !!category;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState("");
-  const [type, setType] = useState<"INCOME" | "EXPENSE">(defaultType);
-  const [icon, setIcon] = useState(CATEGORY_ICONS[0]);
-  const [color, setColor] = useState(CATEGORY_COLORS[0]);
+  const [name, setName] = useState(category?.name ?? "");
+  const [type, setType] = useState<"INCOME" | "EXPENSE">(category?.type ?? defaultType);
+  const [icon, setIcon] = useState(category?.icon ?? CATEGORY_ICONS[0]);
+  const [color, setColor] = useState(category?.color ?? CATEGORY_COLORS[0]);
 
   function handleSubmit() {
     setError(null);
@@ -32,12 +43,16 @@ export function CategoryFormDialog({ defaultType = "EXPENSE" as "INCOME" | "EXPE
     }
     startTransition(async () => {
       try {
-        await createCategoryAction(parsed.data);
+        if (isEdit) {
+          await updateCategoryAction({ id: category!.id, name: parsed.data.name, icon: parsed.data.icon, color: parsed.data.color });
+        } else {
+          await createCategoryAction(parsed.data);
+        }
         router.refresh();
         setOpen(false);
-        setName("");
+        if (!isEdit) setName("");
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Erro ao criar categoria");
+        setError(e instanceof Error ? e.message : "Erro ao salvar categoria");
       }
     });
   }
@@ -45,13 +60,15 @@ export function CategoryFormDialog({ defaultType = "EXPENSE" as "INCOME" | "EXPE
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="secondary"><Plus className="size-3.5" strokeWidth={1.5} /> Nova categoria</Button>
+        {trigger ?? (
+          <Button size="sm" variant="secondary"><Plus className="size-3.5" strokeWidth={1.5} /> Nova categoria</Button>
+        )}
       </DialogTrigger>
       <DialogContent>
-        <DialogTitle>Nova categoria</DialogTitle>
+        <DialogTitle>{isEdit ? "Editar categoria" : "Nova categoria"}</DialogTitle>
         <Field>
           <Label>Tipo</Label>
-          <Select value={type} onValueChange={(v) => setType(v as typeof type)}>
+          <Select value={type} onValueChange={(v) => setType(v as typeof type)} disabled={isEdit}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="EXPENSE">Despesa</SelectItem>

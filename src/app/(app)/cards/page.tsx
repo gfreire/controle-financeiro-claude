@@ -3,6 +3,7 @@ import { getCategories } from "@/services/categories.service";
 import { getCardInstallments, getCardPurchases, getCardSummary } from "@/services/cards.service";
 import { Card, CardKicker, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { InvoicePaidBadge } from "@/components/ui/invoice-paid-badge";
 import { formatCurrency } from "@/lib/utils/currency";
 import { startOfMonth, endOfMonth, monthKey, todayIso, formatMonthLabel, formatDate } from "@/lib/utils/date";
 import { toPercentage } from "@/lib/utils/number";
@@ -97,6 +98,7 @@ export default async function CardsPage({
                       )}
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
                         <span>Fatura de {formatMonthLabel(month)}: <strong className="tabular-nums">{formatCurrency(summary.currentMonthInvoice)}</strong></span>
+                        <InvoicePaidBadge invoiceAmount={summary.currentMonthInvoice} paidAmount={summary.currentMonthPaidAmount} />
                         {summary.overdueAmount > 0 && (
                           <Badge variant="danger">Em atraso: {formatCurrency(summary.overdueAmount)}</Badge>
                         )}
