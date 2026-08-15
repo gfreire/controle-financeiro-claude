@@ -2,7 +2,7 @@ import { Card, CardKicker, CardTitle, CardMeta } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatPercentage } from "@/lib/utils/number";
-import { TrendingUp, TrendingDown, Wallet, Scale, TriangleAlert, History } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, Scale, TriangleAlert } from "lucide-react";
 import type { FinancialSummaryDTO } from "@/types/dto";
 
 export function SummaryCards({ summary }: { summary: FinancialSummaryDTO }) {
@@ -19,16 +19,7 @@ export function SummaryCards({ summary }: { summary: FinancialSummaryDTO }) {
       <Card elevation="sm">
         <CardKicker className="flex items-center gap-1 !text-success-600"><TrendingUp className="size-3" strokeWidth={1.5} /> Receitas</CardKicker>
         <CardTitle className="text-2xl text-success-600">{formatCurrency(summary.income)}</CardTitle>
-        {summary.retroactiveIncomeShare > 0 ? (
-          <CardMeta>
-            <Badge variant="neutral" className="gap-1">
-              <History className="size-3" strokeWidth={1.5} />
-              {formatPercentage(summary.retroactiveIncomeShare)} de compras retroativas
-            </Badge>
-          </CardMeta>
-        ) : (
-          <CardMeta>No período selecionado</CardMeta>
-        )}
+        <CardMeta>No período selecionado</CardMeta>
       </Card>
 
       <Card elevation="sm">
