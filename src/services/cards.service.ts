@@ -2,9 +2,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { splitInstallments, sumMoney, subtractMoney, addMoney } from "@/lib/utils/money";
 import { calculateInstallmentCompetences, calculateInstallmentCompetencesFromAnchorMonth } from "@/lib/utils/date";
-import { monthKey, startOfMonth, endOfMonth, todayIso } from "@/lib/utils/date";
+import { monthKey, startOfMonth, endOfMonth, todayIso, addMonthsToIsoDate, formatMonthLabel } from "@/lib/utils/date";
 import type { CardPurchaseInput, CardPaymentInput } from "@/lib/validations/cards";
-import type { CardInstallmentDTO, CardPurchaseDTO, CardSummaryDTO } from "@/types/dto";
+import type { CardInstallmentDTO, CardMonthlyEvolutionDTO, CardPurchaseDTO, CardSummaryDTO } from "@/types/dto";
 
 async function getCardCycle(supabase: Awaited<ReturnType<typeof createClient>>, creditCardId: string) {
   const { data, error } = await supabase.from("credit_cards").select("closing_day, due_day").eq("account_id", creditCardId).single();
@@ -418,4 +418,94 @@ export async function registerCardPayment(input: CardPaymentInput): Promise<void
     payment_date: input.paymentDate,
   });
   if (paymentError) throw new Error(paymentError.message);
+}
+
+/**
+ * Card spend evolution: 6 months before through 6 months after `referenceMonth` (the Cards page's
+ * viewed month), by installment competence (never purchase_date — same rule as every other credit
+ * card analytic). `cardIds` scopes which cards are summed together (the Cards page passes either
+ * every card the user has, or just the one selected via its existing "Cartão" filter);
+ * `categoryIds`, when given, narrows to purchases in those categories via a join against
+ * card_purchases (category lives there, not on the installment row itself) — and also drives the
+ * per-category `byCategory` breakdown, which the chart stacks when a category filter is active.
+ * `total` is the historical billed total per month — deliberately does NOT exclude
+ * paid_before_system installments, mirroring CardSummaryDTO.currentMonthInvoice's reasoning: a
+ * later retroactive log doesn't change what was actually billed that month.
+ */
+export async function getCardMonthlyEvolution(
+  cardIds: string[],
+  referenceMonth: string,
+  categoryIds?: string[]
+): Promise<CardMonthlyEvolutionDTO[]> {
+  const referenceStart = startOfMonth(`${referenceMonth}-01`);
+  const periodStart = startOfMonth(addMonthsToIsoDate(referenceStart, -6));
+  const periodEnd = endOfMonth(addMonthsToIsoDate(referenceStart, 6));
+
+  const months: string[] = [];
+  let cursor = monthKey(periodStart);
+  const endMonth = monthKey(periodEnd);
+  while (cursor <= endMonth) {
+    months.push(cursor);
+    cursor = monthKey(addMonthsToIsoDate(`${cursor}-01`, 1));
+  }
+  const emptyResult = () => months.map((month) => ({ month: formatMonthLabel(month, true), total: 0, byCategory: [] }));
+
+  if (cardIds.length === 0) return emptyResult();
+
+  const supabase = await createClient();
+
+  let purchaseQuery = supabase
+    .from("card_purchases")
+    .select("id, category_id, categories(name, color)")
+    .in("credit_card_id", cardIds);
+  if (categoryIds?.length) purchaseQuery = purchaseQuery.in("category_id", categoryIds);
+  const { data: purchasesData, error: purchaseError } = await purchaseQuery;
+  if (purchaseError) throw new Error(purchaseError.message);
+  const purchases = (purchasesData ?? []) as unknown as Array<{
+    id: string;
+    category_id: string | null;
+    categories: { name: string; color: string } | null;
+  }>;
+  if (purchases.length === 0) return emptyResult();
+
+  const purchaseById = new Map(purchases.map((p) => [p.id, p]));
+  const purchaseIds = [...purchaseById.keys()];
+
+  const { data: installmentsData, error: installmentError } = await supabase
+    .from("card_installments")
+    .select("amount, competence, purchase_id")
+    .in("purchase_id", purchaseIds)
+    .gte("competence", periodStart)
+    .lte("competence", periodEnd);
+  if (installmentError) throw new Error(installmentError.message);
+  const installments = installmentsData ?? [];
+
+  return months.map((month) => {
+    const rows = installments.filter((row) => monthKey(row.competence) === month);
+
+    const byCategoryMap = new Map<string, { categoryId: string; categoryName: string; color: string; amounts: number[] }>();
+    for (const row of rows) {
+      const purchase = purchaseById.get(row.purchase_id);
+      const key = purchase?.category_id ?? "uncategorized";
+      const bucket = byCategoryMap.get(key) ?? {
+        categoryId: key,
+        categoryName: purchase?.categories?.name ?? "Sem categoria",
+        color: purchase?.categories?.color ?? "#98989b",
+        amounts: [],
+      };
+      bucket.amounts.push(row.amount);
+      byCategoryMap.set(key, bucket);
+    }
+
+    return {
+      month: formatMonthLabel(month, true),
+      total: sumMoney(rows.map((row) => row.amount)),
+      byCategory: [...byCategoryMap.values()].map((b) => ({
+        categoryId: b.categoryId,
+        categoryName: b.categoryName,
+        color: b.color,
+        amount: sumMoney(b.amounts),
+      })),
+    };
+  });
 }

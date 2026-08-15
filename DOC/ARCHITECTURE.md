@@ -70,6 +70,16 @@ Full app is built and running (Next.js 16, App Router, Turbopack) — this isn't
   - `DeleteDebtButton` (new) calls the existing `deactivateDebt` directly (no ledger entry, no linked transaction) — for a debt that's forgiven, or one the user has simply given up on collecting. This is a manual trigger for the same soft-delete `addDebtTransaction` already applies automatically when a payment brings the balance to zero; the manual path just skips the payment.
   - `debt_transactions` gained a `date` column (previously missing entirely — see migration `0016` above) and are now editable/deletable in place, mirroring `reservoirs.service.ts#updateReservoirTransaction`/`deleteReservoirTransaction` — but *less* restrictive: reservoirs blocks editing a withdrawal outright, while `debts.service.ts#updateDebtTransaction` allows editing any entry (linked or not) and propagates amount/date/description/category onto the linked `transactions` row when one exists, per `AI_CONTEXT.md` → "Linked Records Consistency". The one thing editing can never do is flip an entry's direction (a payment can't become an increase) — enforced by comparing `Math.sign()` of the old and new amount server-side, since the create-side UI already treats "aumento" and "pagamento" as two separate dialogs/buttons, never a toggle. `deleteDebtTransaction` deletes the linked `transactions` row too, exactly like `deleteReservoirTransaction`. Both re-run the same settle-to-zero balance check `addDebtTransaction` does post-insert, since an edit or delete can just as well bring a debt to zero as a new entry can (there's no path to *reactivate* a debt this way, since a deactivated one no longer renders in the list `updateDebtTransaction`/`deleteDebtTransaction` are reachable from). `DebtTransactionDTO.categoryId` (new) exposes the linked transaction's own category so the edit dialog can prefill it; account reassignment was deliberately left out of scope (not requested, and riskier — an edit dialog doesn't offer to change which account a linked transaction posted against).
 
+- **Dashboard chart overhaul (2026-08-14, at the user's request).** Several distinct changes, all in the presentation layer — no schema change, no new domain rule:
+  - Every Recharts tooltip across the app was missing an explicit text `color`, defaulting to Recharts' own near-black — unreadable against a dark-mode surface. Centralized into `src/components/ui/chart-tooltip.tsx` (`chartTooltipStyle`, spread onto every `<Tooltip>`), replacing 5 copies of the same near-miss inline style (4 dashboard charts + `debts-charts.tsx`).
+  - The plain "Receita vs. Despesa" bar chart (`income-expense-chart.tsx`) was removed outright — it duplicated what the summary cards and Monthly Evolution already show, and added nothing beyond a single-period totals bar.
+  - **The dashboard's category filter is now additive/multi-select**, not single-select: `DashboardFilters.categories` was already `string[]` (and `parseDashboardFilters` already parsed a comma-joined list) — only the UI was single-select before. `src/features/dashboard/use-category-filter.ts` (`useCategoryFilter`) centralizes the toggle/clear logic against the `categories` URL param; `CategoryMultiSelect` (replacing the old single `<Select>` in `dashboard-filters.tsx`) and the click-to-toggle affordance on `CategoryPie`/`CategoryBars` all share it, so picking a category from the dropdown and clicking a slice/bar always agree on the same selection. `CategoryBars` gained `onClick` for the first time — previously only the donut was clickable, despite `getCategoryComparison` being `getCategoryDistribution` minus `icon`, i.e. the same underlying data.
+  - **Monthly Evolution now always spans 12 months in the past plus 3 months in the future** relative to the currently-viewed reference month, independent of the dashboard's own period preset (previously it inherited whatever period was selected, so the default "Mês" preset rendered it as a single bar — an evolution chart with one data point; extended to include 3 future months 2026-08-14, at the user's follow-up request, so already-scheduled future card installments show up too). `dashboard/page.tsx` builds a separate `monthlyEvolutionFilters` (`periodStart = startOfMonth(addMonthsToIsoDate(referenceMonthStart, -11))`, `periodEnd = endOfMonth(addMonthsToIsoDate(referenceMonthStart, 3))`), keeping the same category/account/type filters as the rest of the page. Future months only ever show EXPENSE bars in practice — a real `transactions` INCOME row can't exist for a date that hasn't happened, but `card_installments` for an already-registered multi-installment purchase legitimately do.
+  - **Added a "Receitas por categoria" donut+comparison pair mirroring the existing expense pair**, reusing `CategoryPie`/`CategoryBars` (now accepting a `title` prop) with `transactionType` forced to `"INCOME"`/`"EXPENSE"` respectively — both pairs always render side by side regardless of the global "Tipo" filter, since `getCategoryDistribution`/`getCategoryComparison` already supported this via a per-call override (no service change needed beyond the account-type segmentation below).
+  - **The expense donut+comparison pair can be segmented by account type** (Todas as contas / Dinheiro + Banco / Cartões) via `ExpenseSourceToggle`, local to that pair only — not the global filter bar, not the income pair. Backed by a new `DashboardFilters.source?: "all" | "liquid" | "cards"` that `fetchPeriodEntries` (`dashboard.service.ts`) uses to skip its `transactions` query (`source: "cards"`) or its `card_installments` query (`source: "liquid"`) — a plain EXPENSE transaction is never posted against a `CREDIT_CARD` account (that always flows through `card_purchases`/`card_installments`), so this cleanly splits the two source queries without needing per-account-id filtering.
+  - **New "Evolução mensal do cartão" chart on `/cards`** (`CardEvolutionChart`, `cards.service.ts#getCardMonthlyEvolution`) — 6 months before through 6 months after the page's viewed month (13 months total; revised from an initial trailing-12 design 2026-08-14, at the user's follow-up request, so upcoming already-scheduled installments are visible alongside history) of `card_installments.amount` by competence (never `purchase_date`), scoped to whichever card(s) the page's existing "Cartão" filter has narrowed to, with its own local multi-select category filter (`evoCategories` URL param, `useEvolutionCategoryFilter`) deliberately independent from the page's existing single-select `categoryId` (which still only filters the installment list below). `total` is the historical billed total per month, same convention as `CardSummaryDTO.currentMonthInvoice` — does not exclude `paid_before_system` installments. **With no category selected the bars show that plain `total`; selecting one or more categories switches to stacked bars** (`CardMonthlyEvolutionDTO.byCategory`, one segment per selected category, colored/named from the category itself) instead of just narrowing the total to a smaller single number — added 2026-08-14 at the user's explicit request ("gostaria das barras dele fossem agregadas com o filtro"), so the filter shows composition, not just a shrunk sum.
+  - The generic checkbox-popover UI (`src/components/ui/category-checkbox-filter.tsx`, `CategoryCheckboxFilter`) is shared by both the dashboard's `CategoryMultiSelect` and the Cards page's evolution-chart filter.
+
 - **Invoice paid/partial-paid indicator on Cards and Contas (2026-08-12, at the user's request).** No schema change — `card_payments` has no competence/invoice-month column at all, only `{ credit_card_id, account_id, transaction_id, amount, payment_date }`, so "how much of THIS month's invoice is paid" isn't a stored fact, it's derived in `cards.service.ts#getCardSummary` (new `CardSummaryDTO.currentMonthPaidAmount`). The allocation rule: a `paid_before_system` installment in the viewed month counts as paid outright (already settled outside the system, per migration `0014`); the rest is covered by whatever's left of all-time `card_payments` after paying off every non-`paid_before_system` installment strictly before the viewed month — i.e. payments are assumed to apply oldest-competence-first, the same assumption `getCardBalanceThroughMonth`/`overdueAmount` already make implicitly (a payment reduces the oldest unpaid balance, never a month the user explicitly targets). This is a heuristic, not a ground truth: a payment actually intended to prepay a future month in advance will still show as clearing the oldest month first. `src/components/ui/invoice-paid-badge.tsx` (new, shared) renders a green "Paga" badge when `currentMonthPaidAmount >= currentMonthInvoice`, or `"{pago} pago · faltam {resto}"` when partial, and nothing when unpaid (`currentMonthPaidAmount === 0`) — used identically by `/cards` and `AccountCard` so the two screens can't show conflicting paid status for the same invoice, same convention as their shared `totalCommitted/creditLimit` block. See `AI_CONTEXT.md` → "Fatura: indicador de pago/parcial" for the full reasoning.
 
 **Known gaps** (not started, don't assume otherwise): no automated tests yet (see "Testing & Migrations" in `AI_GENERATION_RULES.md` for the intended scope); still no *general* account-level edit dialog (name/institution) — only the type-specific actions (balance, yield/reconcile, limit) exist, by design; OFX import remains out of scope per `AI_CONTEXT.md`.
@@ -157,16 +167,16 @@ src
  │  └ validations (one file per domain — zod. Note: a schema with .superRefine()/.refine() can't itself be .partial()'d; keep a plain base object schema alongside the refined one and .partial() the base, e.g. accounts.ts/transactions.ts)
  ├ services (one per domain: dashboard, transactions, accounts, categories, cards, reservoirs, debts, budgets, fixed-expenses, profile; _shared.ts holds the budget/fixed-expense actualAmount aggregation both reuse)
  ├ features
- │  ├ dashboard/components (dashboard-filters incl. shared MonthPicker + account-type icons per account + categories grouped by INCOME/EXPENSE, summary-cards, income-expense-chart, monthly-chart, category-pie, category-bars, budgets-panel [nests fixed expenses under their parent budget], transaction-explorer [account-type icon per row — no longer has its own "Reclassificar em lote" trigger, see below], editable-category-cell)
+ │  ├ dashboard/components (dashboard-filters incl. shared MonthPicker + account-type icons per account + CategoryMultiSelect for the additive category filter, summary-cards, monthly-chart [always 12 months back + 3 months forward from the viewed reference month, independent of the page's period preset], category-pie + category-bars [additive multi-select via use-category-filter.ts, shared by both — CategoryBars is clickable too now], expense-source-toggle [segments the expense pair only, by account type], budgets-panel [nests fixed expenses under their parent budget], transaction-explorer [account-type icon per row — no longer has its own "Reclassificar em lote" trigger, see below], editable-category-cell — income-expense-chart removed 2026-08-14, see Implementation Status)
  │  ├ transactions/components (transaction-form-dialog, delete-transaction-button, month-nav — Lançamentos is month-scoped like Cards/Dashboard, not an unfiltered all-time list)
  │  ├ accounts/components (account-form-dialog [no institution field for CASH], account-card, balance-adjust-dialog [Informar Rendimento BANK-only], limit-adjust-dialog [Ajustar Limite/Ajustar Cartão — credit_limit/overdraft_limit editable anytime; for CREDIT_CARD also edits closing_day/due_day in the same dialog, just a different trigger label])
- │  ├ cards/components (purchase-form-dialog [create+edit, competence override, over-limit warning], payment-form-dialog, delete-purchase-button, month-nav)
+ │  ├ cards/components (purchase-form-dialog [create+edit, competence override, over-limit warning], payment-form-dialog, delete-purchase-button, month-nav, card-evolution-chart [±6 months around the viewed month by competence, own local multi-select category filter via use-evolution-category-filter.ts — stacks bars by category when a filter is active, single total bar otherwise])
  │  ├ reservoirs/components (reservoir-form-dialog, accrual-dialog [description pre-filled with "Movimentação da receita programada {nome}"], withdrawal-dialog — feature displayed as "Receita Programada" in the UI, folder/file names unchanged)
  │  ├ debts/components (debt-form-dialog [create+edit, incl. default category], debt-transaction-dialog [create+edit, defaults description to "Movimentação da dívida {nome}"; warns and requires a second confirm before a payment that fully settles/overpays the debt; editing propagates to the linked transaction, direction locked], delete-debt-button [manual soft delete — forgiven/given-up-on debt], delete-debt-transaction-button [deletes the linked transaction too], debts-charts ["Dívidas a pagar"/"Dívidas a receber" pies, each rendered only when that side has data])
  │  ├ budgets/components (budget-form-dialog [create+edit, month-scoped], fixed-expense-form-dialog [create+edit], budget-tree-editor ["Planejar orçamentos" — whole category+subcategory tree in one screen for one month, reuses onboarding's tree pattern; clearing an existing field deletes that row, same guards as the single-row delete], budget-tree-fields [the reusable amount-input tree, shared with the onboarding budget step], budget-tree [the ONLY list on /budgets now — no separate fixed-expense tab; renders category/subcategory boxes plus a `renderFixedExpenseActions` slot per nested fixed-expense row for pay/edit/delete, shared read-only (no action slots passed) by the dashboard panel], progress-row [shared planned-vs-actual bar], clone-budget-button, deactivate-budget-button [hidden by the caller when fixed expenses are attached; deactivateBudget itself also blocks it server-side], deactivate-fixed-expense-button, pay-fixed-expense-dialog)
  │  └ categories/components (category-form-dialog, subcategory-form-dialog, category-tree-item [onboarding/Settings re-import — always renders the full is_default catalog, already-imported items checked+disabled], category-select [CategorySelect/SubcategorySelect — standard picker used everywhere a category/subcategory is assigned, with a "Nova categoria/subcategoria" item at the end of the same dropdown instead of a separate button; replaced the old inline-category-create.tsx, decided 2026-08-09], delete-category-dialog)
  ├ components
- │  ├ ui (button, card, input/field/label/textarea, dialog, select [incl. SelectGroup/SelectLabel for grouped options], tabs, checkbox, switch, dropdown-menu, popover, table, badge, icon-picker + icon-set, account-type-icon [CASH/BANK/CREDIT_CARD → Banknote/Wallet/CreditCard, shared by Accounts + transaction lists], account-select [standard account picker grouped by type in CASH→BANK→CREDIT_CARD order with the type icon per row, used wherever an account of any type — including CREDIT_CARD — can be picked, e.g. Fixed Expenses], month-picker [prev/next + click-anywhere-on-label native month picker, shared by Dashboard/Cards/Transactions month navigators], loading-overlay [full-screen "Carregando…" overlay, Industry corner-marks card — rendered by every route's loading.tsx AND by NavigationProgressProvider below], confirm-delete-dialog, corner-marks — the Industry blueprint frame)
+ │  ├ ui (button, card, input/field/label/textarea, dialog, select [incl. SelectGroup/SelectLabel for grouped options], tabs, checkbox, switch, dropdown-menu, popover, table, badge, icon-picker + icon-set, account-type-icon [CASH/BANK/CREDIT_CARD → Banknote/Wallet/CreditCard, shared by Accounts + transaction lists], account-select [standard account picker grouped by type in CASH→BANK→CREDIT_CARD order with the type icon per row, used wherever an account of any type — including CREDIT_CARD — can be picked, e.g. Fixed Expenses], month-picker [prev/next + click-anywhere-on-label native month picker, shared by Dashboard/Cards/Transactions month navigators], loading-overlay [full-screen "Carregando…" overlay, Industry corner-marks card — rendered by every route's loading.tsx AND by NavigationProgressProvider below], chart-tooltip [shared Recharts tooltip style with an explicit text color — every chart's Tooltip spreads `chartTooltipStyle`], category-checkbox-filter [generic additive multi-select category popover, shared by the dashboard's and Cards page's category filters], confirm-delete-dialog, corner-marks — the Industry blueprint frame)
  │  ├ layout (sidebar, header, bottom-navigation, nav-items)
  │  └ providers (navigation-progress.tsx — NavigationProgressProvider/useNavigationProgress, mounted once in (app)/layout.tsx; every filter/month-nav component calls navigate() from this instead of router.push directly, added 2026-08-10 — see "Known gaps" note below on why this exists alongside loading.tsx)
  ├ types (database.ts — raw row shapes; dto.ts — the DTOs below, source of truth)
@@ -221,10 +231,11 @@ type DashboardFilters = {
   periodStart: string
   periodEnd: string
   accounts?: string[]
-  categories?: string[]
+  categories?: string[] // additive/multi-select in the UI — checking a second category adds it to the sum, doesn't replace the first
   subcategories?: string[]
   transactionType?: "INCOME" | "EXPENSE"
   uncategorizedOnly?: boolean // set when a chart's "no category" slice is clicked — never stuff a fake id into `categories`
+  source?: "all" | "liquid" | "cards" // account-type segmentation for the expense donut+comparison pair only — "liquid" = transactions only, "cards" = card_installments only. Not part of the global filter bar.
 }
 ```
 
@@ -233,12 +244,10 @@ Supported periods: single month, custom month range, last 3/6/12 months, full ye
 Dashboard layout:
 
 1. Financial Summary Cards (balance, income, expense, result)
-2. Income vs Expense (bar)
-3. Monthly Evolution (bar)
-4. Category Distribution (donut)
-5. Category Comparison (horizontal bar)
-6. Budgets & Fixed Expenses panel (planned vs actual, alerts; fixed expenses nested under their parent category/subcategory budget — see AI_CONTEXT.md "Budget hierarchy")
-7. Transaction Explorer (table, reacts to all filters and to chart clicks)
+2. Monthly Evolution (bar) — always 12 months back + 3 months forward from the viewed reference month, independent of the period preset above (2026-08-14 — previously inherited the page's period, so the default "Mês" preset rendered a single bar; the future months surface already-scheduled card installments)
+3. Category Distribution + Comparison, EXPENSE (donut + horizontal bar, segmented by account type via `source` above) and INCOME (same pair, mirrored) — both pairs always render regardless of the "Tipo" filter
+4. Budgets & Fixed Expenses panel (planned vs actual, alerts; fixed expenses nested under their parent category/subcategory budget — see AI_CONTEXT.md "Budget hierarchy")
+5. Transaction Explorer (table, reacts to all filters and to chart clicks)
 
 **Inline editing is a requirement, not a nice-to-have.** The Transaction Explorer (and any other dashboard table showing individual records) must allow editing category/subcategory/description directly on the row — never force a detour to a separate menu/form to fix something spotted while browsing the dashboard. The exact interaction (click-to-edit, inline dropdown, mobile pattern) is a visual design decision — resolve it in Design, not here; what's fixed at this layer is that `updateTransaction` must support partial, low-friction updates callable straight from dashboard components.
 
@@ -254,7 +263,13 @@ Charts must use **aggregated SQL data** from services. Never compute totals in t
 ```
 getFinancialSummary(filters) → FinancialSummaryDTO
 getMonthlyEvolution(filters) → MonthlyEvolutionDTO[]
+  -- dashboard/page.tsx passes a filters object with periodStart/periodEnd overridden to 11
+  -- months before + the reference month + 3 months after (via startOfMonth/endOfMonth/
+  -- addMonthsToIsoDate on filters.periodEnd) — MonthlyChart never reflects the page's own period
+  -- preset, always this 15-month window (2026-08-14)
 getCategoryDistribution(filters) → CategoryDistributionDTO[]
+  -- filters.source ("liquid"/"cards") narrows fetchPeriodEntries to transactions-only or
+  -- card_installments-only — used by the expense pair's account-type toggle only
 getCategoryComparison(filters) → CategoryComparisonDTO[]
 getTransactionsFiltered(filters) → TransactionViewDTO[]
 ```
@@ -334,6 +349,16 @@ getCardSummary(creditCardId, viewedMonth, creditLimit) → CardSummaryDTO
   -- (card_payments não referencia mês/competência nenhum), alocação mais-antigo-primeiro sobre as
   -- installments não-paid_before_system, ver AI_CONTEXT.md "Fatura: indicador de pago/parcial"
 registerCardPayment(data)
+getCardMonthlyEvolution(cardIds, referenceMonth, categoryIds?) → CardMonthlyEvolutionDTO[]
+  -- NOVO (2026-08-14), revisado no mesmo dia — 6 meses antes + 6 meses depois de referenceMonth
+  -- (13 meses) de card_installments.amount por competence (nunca purchase_date), somado por mês.
+  -- cardIds escopa quais cartões entram (a página passa todo cartão, ou só o filtrado via
+  -- "Cartão"); categoryIds, se informado, filtra via join com card_purchases (categoria vive lá,
+  -- não na installment) E também direciona o breakdown byCategory de cada mês. total é o valor
+  -- faturado histórico do mês, mesma convenção de CardSummaryDTO.currentMonthInvoice — NÃO
+  -- exclui parcelas paid_before_system. byCategory[] traz o mesmo total quebrado por categoria
+  -- (só as categorias presentes nas purchases já filtradas) — usado pro gráfico empilhar uma
+  -- barra por categoria selecionada em vez de só somar tudo numa barra só
 ```
 
 ## reservoirs.service.ts
@@ -568,6 +593,18 @@ type CardPurchaseDTO = {
   categoryId: string | null; categoryName: string | null
   subcategoryId: string | null; subcategoryName: string | null
   paidThroughCompetence?: string // "YYYY-MM" — compra retroativa ("já paguei até este mês"); toda parcela gerada com competence <= isso nasce com paid_before_system = true, ver AI_CONTEXT.md "Compras retroativas"
+}
+
+// getCardMonthlyEvolution — 6 meses antes + 6 meses depois do mês visualizado (13 meses) de
+// card_installments.amount por competence, opcionalmente filtrado por categoria. total é o valor
+// faturado histórico do mês (não exclui paid_before_system), mesma convenção de
+// CardSummaryDTO.currentMonthInvoice. byCategory quebra o mesmo total por categoria presente nas
+// purchases (já filtradas, se houver filtro) — o gráfico empilha por categoria quando há filtro
+// ativo, mostra só `total` quando não há nenhuma categoria selecionada.
+type CardMonthlyEvolutionDTO = {
+  month: string
+  total: number
+  byCategory: { categoryId: string; categoryName: string; color: string; amount: number }[]
 }
 
 type CardInstallmentDTO = {

@@ -1,43 +1,32 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils/currency";
 import { toPercentage } from "@/lib/utils/number";
+import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import { ArrowLeft } from "lucide-react";
 import type { CategoryDistributionDTO } from "@/types/dto";
-import { useNavigationProgress } from "@/components/providers/navigation-progress";
+import { useCategoryFilter } from "@/features/dashboard/use-category-filter";
 
-export function CategoryPie({ data }: { data: CategoryDistributionDTO[] }) {
-  const { navigate } = useNavigationProgress();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+export function CategoryPie({ data, title = "Distribuição por categoria" }: { data: CategoryDistributionDTO[]; title?: string }) {
+  const { activeIds, toggle, clear } = useCategoryFilter();
   const total = data.reduce((sum, d) => sum + d.total, 0);
-  const activeCategoryId = searchParams.get("categories");
-
-  function handleClick(categoryId: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    const current = params.get("categories");
-    if (current === categoryId) params.delete("categories");
-    else params.set("categories", categoryId);
-    navigate(`${pathname}?${params.toString()}`);
-  }
 
   return (
     <Card elevation="sm" className="min-h-[320px]">
       <div className="flex items-center gap-2">
-        {activeCategoryId && (
+        {activeIds.length > 0 && (
           <button
             type="button"
-            onClick={() => handleClick(activeCategoryId)}
+            onClick={clear}
             className="flex items-center gap-1 p-1.5 -m-1.5 text-text/50 hover:text-accent"
-            aria-label="Voltar (limpar filtro de categoria)"
+            aria-label="Limpar filtro de categoria"
           >
             <ArrowLeft className="size-4" strokeWidth={1.5} />
           </button>
         )}
-        <CardTitle>Distribuição por categoria</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </div>
       {data.length === 0 ? (
         <p className="flex-1 text-sm opacity-60">Sem lançamentos no período.</p>
@@ -53,28 +42,38 @@ export function CategoryPie({ data }: { data: CategoryDistributionDTO[] }) {
                   innerRadius="55%"
                   outerRadius="85%"
                   paddingAngle={1}
-                  onClick={(entry: unknown) => handleClick((entry as CategoryDistributionDTO).categoryId)}
+                  onClick={(entry: unknown) => toggle((entry as CategoryDistributionDTO).categoryId)}
                   cursor="pointer"
                 >
                   {data.map((entry) => (
-                    <Cell key={entry.categoryId} fill={entry.color} stroke="var(--color-bg)" strokeWidth={1} />
+                    <Cell
+                      key={entry.categoryId}
+                      fill={entry.color}
+                      stroke="var(--color-bg)"
+                      strokeWidth={1}
+                      opacity={activeIds.length === 0 || activeIds.includes(entry.categoryId) ? 1 : 0.35}
+                    />
                   ))}
                 </Pie>
-                <Tooltip
-                  formatter={(value) => formatCurrency(Number(value))}
-                  contentStyle={{ background: "var(--color-surface)", border: "1px solid var(--color-divider)", borderRadius: 0, fontSize: 12 }}
-                />
+                <Tooltip formatter={(value) => formatCurrency(Number(value))} {...chartTooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
           </div>
           <ul className="flex flex-col gap-1.5 text-xs">
-            {data.slice(0, 8).map((entry) => (
-              <li key={entry.categoryId} className="flex cursor-pointer items-center gap-1.5" onClick={() => handleClick(entry.categoryId)}>
-                <span className="size-2.5 shrink-0" style={{ background: entry.color }} />
-                <span className="flex-1 truncate">{entry.icon} {entry.categoryName}</span>
-                <span className="opacity-60">{toPercentage(entry.total, total)}%</span>
-              </li>
-            ))}
+            {data.slice(0, 8).map((entry) => {
+              const active = activeIds.includes(entry.categoryId);
+              return (
+                <li
+                  key={entry.categoryId}
+                  className={`flex cursor-pointer items-center gap-1.5 ${activeIds.length > 0 && !active ? "opacity-40" : ""}`}
+                  onClick={() => toggle(entry.categoryId)}
+                >
+                  <span className="size-2.5 shrink-0" style={{ background: entry.color }} />
+                  <span className="flex-1 truncate">{entry.icon} {entry.categoryName}</span>
+                  <span className="opacity-60">{toPercentage(entry.total, total)}%</span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

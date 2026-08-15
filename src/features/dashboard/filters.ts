@@ -10,6 +10,8 @@ export type DashboardSearchParams = {
   categories?: string;
   subcategories?: string;
   type?: string;
+  /** Local to the expense donut+comparison pair only — see DashboardFilters.source. Not read by parseDashboardFilters. */
+  expenseSource?: string;
 };
 
 const VALID_PRESETS: DashboardPeriodPreset[] = ["month", "last3", "last6", "last12", "year", "custom"];

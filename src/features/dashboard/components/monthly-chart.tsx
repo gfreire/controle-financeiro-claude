@@ -3,6 +3,7 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, CardTitle } from "@/components/ui/card";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils/currency";
+import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import type { MonthlyEvolutionDTO } from "@/types/dto";
 
 export function MonthlyChart({ data }: { data: MonthlyEvolutionDTO[] }) {
@@ -21,10 +22,7 @@ export function MonthlyChart({ data }: { data: MonthlyEvolutionDTO[] }) {
               tickLine={false}
               width={64}
             />
-            <Tooltip
-              formatter={(value) => formatCurrency(Number(value))}
-              contentStyle={{ background: "var(--color-surface)", border: "1px solid var(--color-divider)", borderRadius: 0, fontSize: 12 }}
-            />
+            <Tooltip formatter={(value) => formatCurrency(Number(value))} {...chartTooltipStyle} />
             <Bar dataKey="income" name="Receitas" fill="var(--color-success-500)" radius={[1, 1, 0, 0]} />
             <Bar dataKey="expense" name="Despesas" fill="var(--color-danger-500)" radius={[1, 1, 0, 0]} />
           </BarChart>

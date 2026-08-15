@@ -36,48 +36,56 @@ async function fetchPeriodEntries(
   filters: DashboardFilters
 ): Promise<Entry[]> {
   const entries: Entry[] = [];
+  // "liquid" = only CASH/BANK transactions; "cards" = only card_installments. A plain EXPENSE
+  // transaction is never posted against a CREDIT_CARD account (that always flows through
+  // card_purchases/card_installments instead), so this cleanly splits the two source queries
+  // below without needing per-account-id filtering. See DashboardFilters.source.
+  const includeLiquid = filters.source !== "cards";
+  const includeCards = filters.source !== "liquid";
 
-  let txQuery = supabase
-    .from("transactions")
-    .select("amount, date, type, category_id, categories(name, color, icon)")
-    .eq("user_id", userId)
-    .in("type", ["INCOME", "EXPENSE"])
-    .gte("date", filters.periodStart)
-    .lte("date", filters.periodEnd);
+  if (includeLiquid) {
+    let txQuery = supabase
+      .from("transactions")
+      .select("amount, date, type, category_id, categories(name, color, icon)")
+      .eq("user_id", userId)
+      .in("type", ["INCOME", "EXPENSE"])
+      .gte("date", filters.periodStart)
+      .lte("date", filters.periodEnd);
 
-  if (filters.transactionType) txQuery = txQuery.eq("type", filters.transactionType);
-  if (filters.uncategorizedOnly) txQuery = txQuery.is("category_id", null);
-  else if (filters.categories?.length) txQuery = txQuery.in("category_id", filters.categories);
-  if (filters.subcategories?.length) txQuery = txQuery.in("subcategory_id", filters.subcategories);
-  if (filters.accounts?.length) {
-    const list = filters.accounts.join(",");
-    txQuery = txQuery.or(`origin_account_id.in.(${list}),destination_account_id.in.(${list})`);
-  }
+    if (filters.transactionType) txQuery = txQuery.eq("type", filters.transactionType);
+    if (filters.uncategorizedOnly) txQuery = txQuery.is("category_id", null);
+    else if (filters.categories?.length) txQuery = txQuery.in("category_id", filters.categories);
+    if (filters.subcategories?.length) txQuery = txQuery.in("subcategory_id", filters.subcategories);
+    if (filters.accounts?.length) {
+      const list = filters.accounts.join(",");
+      txQuery = txQuery.or(`origin_account_id.in.(${list}),destination_account_id.in.(${list})`);
+    }
 
-  const { data: transactionsData, error: txError } = await txQuery;
-  if (txError) throw new Error(txError.message);
-  const transactions = (transactionsData ?? []) as unknown as Array<{
-    amount: number;
-    date: string;
-    type: "INCOME" | "EXPENSE";
-    category_id: string | null;
-    categories: { name: string; color: string; icon: string | null } | null;
-  }>;
+    const { data: transactionsData, error: txError } = await txQuery;
+    if (txError) throw new Error(txError.message);
+    const transactions = (transactionsData ?? []) as unknown as Array<{
+      amount: number;
+      date: string;
+      type: "INCOME" | "EXPENSE";
+      category_id: string | null;
+      categories: { name: string; color: string; icon: string | null } | null;
+    }>;
 
-  for (const row of transactions) {
-    entries.push({
-      amount: row.amount,
-      date: row.date,
-      type: row.type,
-      categoryId: row.category_id,
-      categoryName: row.categories?.name ?? "Sem categoria",
-      categoryColor: row.categories?.color ?? "#98989b",
-      categoryIcon: row.categories?.icon ?? null,
-    });
+    for (const row of transactions) {
+      entries.push({
+        amount: row.amount,
+        date: row.date,
+        type: row.type,
+        categoryId: row.category_id,
+        categoryName: row.categories?.name ?? "Sem categoria",
+        categoryColor: row.categories?.color ?? "#98989b",
+        categoryIcon: row.categories?.icon ?? null,
+      });
+    }
   }
 
   // Card installments are always EXPENSE — skip entirely when the caller asked for INCOME only.
-  if (filters.transactionType !== "INCOME") {
+  if (includeCards && filters.transactionType !== "INCOME") {
     let purchaseQuery = supabase
       .from("card_purchases")
       .select("id, category_id, credit_card_id, categories(name, color, icon)")

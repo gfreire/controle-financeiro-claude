@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils/currency";
+import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import type { DebtDTO } from "@/types/dto";
 
 const PAYABLE_SHADES = [
@@ -67,10 +68,7 @@ function DebtPie({
                   );
                 })}
               </Pie>
-              <Tooltip
-                formatter={(value) => formatCurrency(Number(value))}
-                contentStyle={{ background: "var(--color-surface)", border: "1px solid var(--color-divider)", borderRadius: 0, fontSize: 12 }}
-              />
+              <Tooltip formatter={(value) => formatCurrency(Number(value))} {...chartTooltipStyle} />
             </PieChart>
           </ResponsiveContainer>
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">

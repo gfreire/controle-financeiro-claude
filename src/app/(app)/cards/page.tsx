@@ -1,6 +1,6 @@
 import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
-import { getCardInstallments, getCardPurchases, getCardSummary, getCardTotalCommitted } from "@/services/cards.service";
+import { getCardInstallments, getCardMonthlyEvolution, getCardPurchases, getCardSummary, getCardTotalCommitted } from "@/services/cards.service";
 import { Card, CardKicker, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { InvoicePaidBadge } from "@/components/ui/invoice-paid-badge";
@@ -12,6 +12,7 @@ import { PaymentFormDialog } from "@/features/cards/components/payment-form-dial
 import { DeletePurchaseButton } from "@/features/cards/components/delete-purchase-button";
 import { MonthNav } from "@/features/cards/components/month-nav";
 import { CardFilters } from "@/features/cards/components/card-filters";
+import { CardEvolutionChart } from "@/features/cards/components/card-evolution-chart";
 import { EditableCategoryCell } from "@/features/dashboard/components/editable-category-cell";
 import { Button } from "@/components/ui/button";
 import { CreditCard, Receipt, Pencil } from "lucide-react";
@@ -20,11 +21,11 @@ import { textIncludes } from "@/lib/utils/normalize";
 export default async function CardsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; cardId?: string; categoryId?: string; subcategoryId?: string; q?: string }>;
+  searchParams: Promise<{ month?: string; cardId?: string; categoryId?: string; subcategoryId?: string; q?: string; evoCategories?: string }>;
 }) {
   const resolvedSearchParams = await searchParams;
   const month = resolvedSearchParams.month ?? monthKey(todayIso());
-  const { cardId, categoryId, subcategoryId, q } = resolvedSearchParams;
+  const { cardId, categoryId, subcategoryId, q, evoCategories } = resolvedSearchParams;
 
   const [accounts, categories] = await Promise.all([getAccounts(), getCategories()]);
   const allCards = accounts.filter((a) => a.type === "CREDIT_CARD");
@@ -35,6 +36,13 @@ export default async function CardsPage({
   // figure (excludes paid_before_system installments), unlike AccountDTO.balance.
   const cardTotals: Record<string, number> = Object.fromEntries(
     await Promise.all(allCards.map(async (c) => [c.id, await getCardTotalCommitted(c.id)] as const))
+  );
+
+  const evolutionCategoryIds = evoCategories ? evoCategories.split(",").filter(Boolean) : undefined;
+  const cardEvolution = await getCardMonthlyEvolution(
+    cards.map((c) => c.id),
+    month,
+    evolutionCategoryIds
   );
 
   const periodStart = startOfMonth(`${month}-01`);
@@ -51,6 +59,8 @@ export default async function CardsPage({
       </div>
 
       <CardFilters cards={allCards} categories={categories} />
+
+      {allCards.length > 0 && <CardEvolutionChart data={cardEvolution} categories={categories} />}
 
       {allCards.length === 0 ? (
         <p className="text-sm opacity-60">Nenhum cartão cadastrado. Crie um cartão de crédito na página de Contas.</p>

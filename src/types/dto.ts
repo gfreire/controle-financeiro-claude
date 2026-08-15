@@ -14,6 +14,15 @@ export type DashboardFilters = {
   transactionType?: "INCOME" | "EXPENSE";
   /** Clicking the "uncategorized" slice of a chart sets this instead of stuffing a fake id into `categories` — category_id is a uuid column, so it must be filtered with `.is(null)`, never `.in([...])`. */
   uncategorizedOnly?: boolean;
+  /**
+   * Account-type segmentation for the dashboard's expense breakdown charts only — "liquid" keeps
+   * only `transactions` (CASH/BANK), "cards" keeps only `card_installments` (CREDIT_CARD); a plain
+   * EXPENSE transaction is never posted against a CREDIT_CARD account (that flow always goes
+   * through card_purchases/card_installments), so this cleanly splits fetchPeriodEntries' two
+   * source queries instead of needing per-account-id filtering. Not part of the global filter bar —
+   * only ever set by the page when building the expense-charts-only filters object.
+   */
+  source?: "all" | "liquid" | "cards";
 };
 
 export type FinancialSummaryDTO = {
@@ -115,6 +124,19 @@ export type CardSummaryDTO = {
   currentMonthPaidAmount: number; // how much of currentMonthInvoice is already covered — derived (card_payments has no month of its own), oldest-competence-first, see cards.service.ts#getCardSummary. Always 0 <= this <= currentMonthInvoice.
   overdueAmount: number; // = usedThroughCurrentMonth - (today's month invoice), floored at 0 — unpaid balance from prior months, always today-anchored
   totalCommitted: number; // = getCardTotalCommitted — ALL installments ever generated (incl. future not-yet-due) minus all payments, floored at 0. The correct "used against the limit" figure.
+};
+
+/** getCardMonthlyEvolution — 6 months before through 6 months after the viewed reference month
+ * (13 months total), by card_installments.competence (never purchase_date). `total` is the
+ * historical billed total for that month (like CardSummaryDTO.currentMonthInvoice — doesn't
+ * exclude paid_before_system installments). `byCategory` breaks the same total down per category
+ * present in that month's (possibly category-filtered) purchases — the chart stacks these when
+ * the user has an active category selection, and falls back to a single `total` bar otherwise.
+ * See AI_CONTEXT.md "Credit Card Purchases". */
+export type CardMonthlyEvolutionDTO = {
+  month: string;
+  total: number;
+  byCategory: { categoryId: string; categoryName: string; color: string; amount: number }[];
 };
 
 export type CardInstallmentDTO = {

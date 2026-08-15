@@ -8,15 +8,14 @@ import { cn } from "@/lib/utils/cn";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { MonthPicker } from "@/components/ui/month-picker";
 import { AccountTypeIcon } from "@/components/ui/account-type-icon";
 import { useNavigationProgress } from "@/components/providers/navigation-progress";
+import { CategoryMultiSelect } from "@/features/dashboard/components/category-multi-select";
 
 const PRESETS: { value: DashboardPeriodPreset; label: string }[] = [
   { value: "month", label: "Mês" },
@@ -51,7 +50,7 @@ export function DashboardFilters({
   );
 
   const activeAccount = searchParams.get("accounts") ?? "";
-  const activeCategory = searchParams.get("categories") ?? "";
+  const activeCategoryIds = (searchParams.get("categories") ?? "").split(",").filter(Boolean);
   const activeType = searchParams.get("type") ?? "";
   const customStart = searchParams.get("periodStart") ?? "";
   const customEnd = searchParams.get("periodEnd") ?? "";
@@ -135,26 +134,9 @@ export function DashboardFilters({
         </SelectContent>
       </Select>
 
-      <Select value={activeCategory || "ALL"} onValueChange={(v) => setParam("categories", v === "ALL" ? null : v)}>
-        <SelectTrigger className="w-44"><SelectValue placeholder="Categoria" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="ALL">Todas as categorias</SelectItem>
-          <SelectGroup>
-            <SelectLabel>Receitas</SelectLabel>
-            {categories.filter((c) => c.type === "INCOME").map((c) => (
-              <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>
-            ))}
-          </SelectGroup>
-          <SelectGroup>
-            <SelectLabel>Despesas</SelectLabel>
-            {categories.filter((c) => c.type === "EXPENSE").map((c) => (
-              <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+      <CategoryMultiSelect categories={categories} />
 
-      {(activeAccount || activeCategory || activeType) && (
+      {(activeAccount || activeCategoryIds.length > 0 || activeType) && (
         <button
           onClick={() => {
             const params = new URLSearchParams(searchParams.toString());

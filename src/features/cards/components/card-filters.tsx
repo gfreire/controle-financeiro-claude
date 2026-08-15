@@ -28,8 +28,17 @@ export function CardFilters({ cards, categories }: { cards: AccountDTO[]; catego
   const activeSubcategory = searchParams.get("subcategoryId") ?? "";
   const selectedCategory = categories.find((c) => c.id === activeCategory);
 
-  const [q, setQ] = useState(searchParams.get("q") ?? "");
-  useEffect(() => setQ(searchParams.get("q") ?? ""), [searchParams]);
+  // Mirrors the "q" URL param into local state so typing can be debounced before it hits the URL
+  // (see the write-back effect below), while still picking up external changes to "q" (e.g.
+  // "Limpar filtros") — done via the React-recommended "adjust state during render" pattern
+  // instead of a useEffect, since setState-in-effect triggers an extra render for no benefit here.
+  const urlQ = searchParams.get("q") ?? "";
+  const [q, setQ] = useState(urlQ);
+  const [syncedQ, setSyncedQ] = useState(urlQ);
+  if (urlQ !== syncedQ) {
+    setSyncedQ(urlQ);
+    setQ(urlQ);
+  }
 
   useEffect(() => {
     const timeout = setTimeout(() => {
