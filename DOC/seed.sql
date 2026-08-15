@@ -36,7 +36,7 @@ values
 (gen_random_uuid(), 'Doações', 'EXPENSE', '🤝', '#a855f7', false, true),
 (gen_random_uuid(), 'Outros', 'EXPENSE', '📦', '#94a3b8', false, true),
 (gen_random_uuid(), 'Cuidados Pessoais', 'EXPENSE', '🧴', '#fb7185', false, true), -- SUGESTÃO NOVA
-(gen_random_uuid(), 'Supermercado', 'EXPENSE', '🛒', '#f97316', false, true); -- promovida de subcategoria de Alimentação (0017)
+(gen_random_uuid(), 'Supermercado', 'EXPENSE', '🛒', '#f59e0b', false, true); -- promovida de subcategoria de Alimentação (0017); cor própria (0018) — herdava a mesma laranja de Alimentação
 
 -- ============================================
 -- DEFAULT INCOME CATEGORIES (NO SUBCATEGORIES)
