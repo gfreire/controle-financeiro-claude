@@ -3,6 +3,7 @@ import { getCardSummary } from "@/services/cards.service";
 import { monthKey, todayIso } from "@/lib/utils/date";
 import { AccountFormDialog } from "@/features/accounts/components/account-form-dialog";
 import { AccountCard } from "@/features/accounts/components/account-card";
+import { AccountsOverviewCharts } from "@/features/accounts/components/accounts-overview-charts";
 
 export default async function AccountsPage() {
   const [accounts, institutions] = await Promise.all([getAccounts(), getFinancialInstitutions()]);
@@ -25,6 +26,10 @@ export default async function AccountsPage() {
         <p className="text-sm opacity-60">Nenhuma conta cadastrada ainda. Crie sua primeira conta para começar.</p>
       ) : (
         <>
+          <AccountsOverviewCharts
+            liquidAccounts={nonCards}
+            cardEntries={cards.map((account) => ({ account, summary: summaryByCardId.get(account.id)! }))}
+          />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {nonCards.map((account) => (
               <AccountCard key={account.id} account={account} />
