@@ -1,8 +1,9 @@
 import type { AccountType, CategoryType, DebtSide, TransactionType } from "./database";
 
 /**
- * DTOs — source of truth is DOC/ARCHITECTURE.md. UI components only ever
- * consume these, never raw table rows from `database.ts`.
+ * DTOs — this file is the source of truth (DOC/ARCHITECTURE.md's "DTO Definitions" block mirrors
+ * it and must be kept in sync whenever a type here changes). UI components only ever consume
+ * these, never raw table rows from `database.ts`.
  */
 
 export type DashboardFilters = {
@@ -235,7 +236,7 @@ export type AccountDTO = {
   overdraftLimit?: number; // BANK
   closingDay?: number; // CREDIT_CARD
   dueDay?: number; // CREDIT_CARD
-  creditLimit?: number | null; // CREDIT_CARD — optional, soft-enforced (UI warning only, never blocks)
+  creditLimit?: number | null; // CREDIT_CARD — required and always > 0 (migration 0008); null only for non-CREDIT_CARD accounts. Only a purchase pushing past this limit is soft-enforced (UI warning, never blocks) — the limit's presence itself is not optional.
 };
 
 export type FinancialInstitutionDTO = { id: string; name: string; color: string | null };
@@ -253,6 +254,8 @@ export type CategoryDTO = {
 };
 
 export type SubcategoryDTO = { id: string; categoryId: string; name: string; active: boolean };
+
+export type ProfileDTO = { name: string | null; email: string | null; phone: string | null; onboardingCompleted: boolean };
 
 export type CategoryUsageDTO = {
   count: number;

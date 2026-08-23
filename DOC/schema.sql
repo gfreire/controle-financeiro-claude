@@ -112,7 +112,7 @@ CREATE TABLE public.credit_cards (
   account_id uuid NOT NULL,
   closing_day integer NOT NULL,   -- dia de fechamento da fatura
   due_day integer NOT NULL,       -- dia de vencimento da fatura
-  credit_limit numeric(14,2) NOT NULL CHECK (credit_limit > 0), -- ALTERADO (0008): obrigatório e sempre > 0; só o EXCESSO de compra contra o limite é soft-enforced na UI, nunca bloqueia o insert
+  credit_limit numeric(14,2) NOT NULL CONSTRAINT credit_cards_credit_limit_positive CHECK (credit_limit > 0), -- ALTERADO (0008): obrigatório e sempre > 0; só o EXCESSO de compra contra o limite é soft-enforced na UI, nunca bloqueia o insert; nome da constraint preservado igual ao de 0008_credit_card_limit_required.sql (achado em auditoria 2026-08-23: estava sem nome aqui, gerando um nome diferente do real se o schema fosse recriado do zero a partir deste arquivo)
   CONSTRAINT credit_cards_pkey PRIMARY KEY (account_id),
   CONSTRAINT credit_cards_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id)
 );

@@ -21,10 +21,10 @@ export type SubcategoryInput = z.infer<typeof subcategorySchema>;
 export const updateSubcategorySchema = subcategorySchema.partial().extend({ id: z.string().uuid() });
 
 /**
- * Reassign or clear category/subcategory for every referencing row — the only path a delete may
- * follow, and also reused directly from the dashboard to batch-fix uncategorized/miscategorized
- * entries (see ARCHITECTURE.md "Dashboard Philosophy"). `fromUncategorized: true` targets rows
- * where category_id IS NULL instead of a specific category.
+ * Reassign or clear category/subcategory for every referencing row — exclusively the last step of
+ * the guided category/subcategory deletion flow (see ARCHITECTURE.md "Dashboard Philosophy"); the
+ * dashboard's own standalone batch-reassign button was removed 2026-08-07. `fromUncategorized: true`
+ * targets rows where category_id IS NULL instead of a specific category.
  */
 export const reassignCategorySchema = z.object({
   fromCategoryId: z.string().uuid().optional(),
