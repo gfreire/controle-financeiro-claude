@@ -125,11 +125,18 @@ export default async function CardsPage({
                           <div className={usagePercent !== null && usagePercent >= 90 ? "h-full bg-danger-500" : "h-full bg-accent"} style={{ width: `${usagePercent ?? 0}%` }} />
                         </div>
                       )}
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                        <span>Fatura de {formatMonthLabel(month)}: <strong className="tabular-nums">{formatCurrency(summary.currentMonthInvoice)}</strong></span>
-                        <InvoicePaidBadge invoiceAmount={summary.currentMonthInvoice} paidAmount={summary.currentMonthPaidAmount} />
-                        {summary.overdueAmount > 0 && (
-                          <Badge variant="danger">Em atraso: {formatCurrency(summary.overdueAmount)}</Badge>
+                      <div className="mt-2 flex flex-col gap-1 text-xs opacity-70">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>Fatura de {formatMonthLabel(month)}: <strong className="tabular-nums">{formatCurrency(summary.currentMonthInvoice)}</strong></span>
+                          <InvoicePaidBadge invoiceAmount={summary.currentMonthInvoice} paidAmount={summary.currentMonthPaidAmount} />
+                          {summary.overdueAmount > 0 && (
+                            <Badge variant="danger">Em atraso: {formatCurrency(summary.overdueAmount)}</Badge>
+                          )}
+                        </div>
+                        {summary.openInvoiceMonth !== month && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>Fatura aberta ({formatMonthLabel(summary.openInvoiceMonth)}): <strong className="tabular-nums">{formatCurrency(summary.openInvoiceAmount)}</strong></span>
+                          </div>
                         )}
                       </div>
                     </div>

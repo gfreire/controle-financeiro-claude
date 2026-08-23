@@ -329,6 +329,13 @@ export async function getCardTotalCommitted(creditCardId: string): Promise<numbe
  * after covering every non-`paid_before_system` installment strictly before the viewed month. This
  * is a heuristic, not a real allocation record — a payment actually meant to cover a future month
  * in advance would still show as paying down the oldest month first.
+ *
+ * `openInvoiceMonth`/`openInvoiceAmount`: which invoice is still open (accumulating new charges)
+ * right now — the competence a purchase made TODAY would land in, via the same
+ * `calculateInstallmentCompetences` math a real purchase uses. Always today-anchored like
+ * `usedThroughCurrentMonth`, never the page's viewed-month filter. Lets the UI show "fatura do mês
+ * atual" and "fatura aberta no momento" as two distinct lines only when the closing day has
+ * already pushed new charges into a different month than the one currently displayed.
  */
 export async function getCardSummary(creditCardId: string, viewedMonth: string, creditLimit: number | null): Promise<CardSummaryDTO> {
   const supabase = await createClient();
@@ -339,6 +346,12 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
   const todayEnd = endOfMonth(`${todayMonth}-01`);
   const viewingCurrentMonth = viewedMonth === todayMonth;
 
+  const cycle = await getCardCycle(supabase, creditCardId);
+  const openInvoiceMonth = monthKey(calculateInstallmentCompetences(todayIso(), cycle.closing_day, cycle.due_day, 1)[0]);
+  const openStart = startOfMonth(`${openInvoiceMonth}-01`);
+  const openEnd = endOfMonth(`${openInvoiceMonth}-01`);
+  const viewingOpenMonth = viewedMonth === openInvoiceMonth;
+
   const [
     usedThroughCurrentMonth,
     totalCommitted,
@@ -346,6 +359,7 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
     todayInstallmentsResult,
     { data: billedBeforeViewedRows, error: billedBeforeError },
     { data: paymentRows, error: paymentsError },
+    openInstallmentsResult,
   ] = await Promise.all([
     getCardBalanceThroughMonth(creditCardId, todayMonth),
     getCardTotalCommitted(creditCardId),
@@ -355,15 +369,20 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
       : supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).gte("competence", todayStart).lte("competence", todayEnd),
     supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).eq("paid_before_system", false).lt("competence", viewedStart),
     supabase.from("card_payments").select("amount").eq("credit_card_id", creditCardId),
+    viewingOpenMonth
+      ? Promise.resolve(null)
+      : supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).gte("competence", openStart).lte("competence", openEnd),
   ]);
   if (viewedError) throw new Error(viewedError.message);
   if (todayInstallmentsResult?.error) throw new Error(todayInstallmentsResult.error.message);
   if (billedBeforeError) throw new Error(billedBeforeError.message);
   if (paymentsError) throw new Error(paymentsError.message);
+  if (openInstallmentsResult?.error) throw new Error(openInstallmentsResult.error.message);
 
   const currentMonthInvoice = sumMoney((viewedInstallments ?? []).map((i) => i.amount));
   const todayInvoice = viewingCurrentMonth ? currentMonthInvoice : sumMoney((todayInstallmentsResult?.data ?? []).map((i) => i.amount));
   const overdueAmount = Math.max(0, subtractMoney(usedThroughCurrentMonth, todayInvoice));
+  const openInvoiceAmount = viewingOpenMonth ? currentMonthInvoice : sumMoney((openInstallmentsResult?.data ?? []).map((i) => i.amount));
 
   const monthPaidBeforeSystemAmount = sumMoney((viewedInstallments ?? []).filter((i) => i.paid_before_system).map((i) => i.amount));
   const billedNotBeforeSystemBeforeViewedMonth = sumMoney((billedBeforeViewedRows ?? []).map((i) => i.amount));
@@ -378,7 +397,17 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
   );
   const currentMonthPaidAmount = sumMoney([monthPaidBeforeSystemAmount, monthPaidViaPayments]);
 
-  return { accountId: creditCardId, creditLimit, usedThroughCurrentMonth, currentMonthInvoice, currentMonthPaidAmount, overdueAmount, totalCommitted };
+  return {
+    accountId: creditCardId,
+    creditLimit,
+    usedThroughCurrentMonth,
+    currentMonthInvoice,
+    currentMonthPaidAmount,
+    overdueAmount,
+    totalCommitted,
+    openInvoiceMonth,
+    openInvoiceAmount,
+  };
 }
 
 /**

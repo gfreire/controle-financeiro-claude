@@ -67,10 +67,23 @@ export function todayIso(): string {
 
 /**
  * Central rule (see AI_CONTEXT.md "Credit Card Purchases"): analytics use
- * installment competence, never purchase_date. Competence month is decided
- * purely by closing_day (purchase day > closing_day pushes it to next
- * month's invoice); due_day only supplies the day-of-month, clamped to the
- * competence month's length. Each subsequent installment adds one month.
+ * installment competence, never purchase_date. Two steps decide the
+ * competence month, both driven by how closing_day and due_day relate to
+ * each other — not just closing_day alone (fixed 2026-08-23, see AI_CONTEXT.md
+ * "Competência quando due_day <= closing_day"):
+ *
+ * 1. Which billing cycle the purchase falls into: a purchase after
+ *    closing_day rolls into the cycle that closes the FOLLOWING month
+ *    (`pushedToNextMonth`).
+ * 2. Which calendar month that cycle's invoice is actually due in: when
+ *    due_day > closing_day, the due date falls in the same month the cycle
+ *    closes (e.g. closes the 5th, due the 15th — a short, same-month gap).
+ *    When due_day <= closing_day, the due date can only be chronologically
+ *    after closing by falling in the NEXT month (e.g. closes the 28th, due
+ *    the 10th — necessarily the 10th of the following month, not the same
+ *    month's 10th, which would be BEFORE the close). `dueMonthOffset`
+ *    captures this second shift, which the closing-day-only version of this
+ *    function used to miss entirely.
  */
 export function calculateInstallmentCompetences(
   purchaseDate: string,
@@ -80,7 +93,8 @@ export function calculateInstallmentCompetences(
 ): string[] {
   const purchase = toUtcDate(purchaseDate);
   const pushedToNextMonth = purchase.getUTCDate() > closingDay ? 1 : 0;
-  const anchor = new Date(Date.UTC(purchase.getUTCFullYear(), purchase.getUTCMonth() + pushedToNextMonth, 1));
+  const dueMonthOffset = dueDay <= closingDay ? 1 : 0;
+  const anchor = new Date(Date.UTC(purchase.getUTCFullYear(), purchase.getUTCMonth() + pushedToNextMonth + dueMonthOffset, 1));
   return generateMonthlyCompetences(anchor, dueDay, installmentsCount);
 }
 

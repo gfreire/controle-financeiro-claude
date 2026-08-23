@@ -98,12 +98,19 @@ export function AccountCard({ account, cardSummary, cardSummaryMonth }: { accoun
               />
             </div>
           )}
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
-            {cardSummaryMonth && (
-              <span>Fatura de {formatMonthLabel(cardSummaryMonth)}: <strong className="tabular-nums">{formatCurrency(cardSummary.currentMonthInvoice)}</strong></span>
+          <div className="mt-2 flex flex-col gap-1 text-xs opacity-70">
+            <div className="flex flex-wrap items-center gap-2">
+              {cardSummaryMonth && (
+                <span>Fatura de {formatMonthLabel(cardSummaryMonth)}: <strong className="tabular-nums">{formatCurrency(cardSummary.currentMonthInvoice)}</strong></span>
+              )}
+              <InvoicePaidBadge invoiceAmount={cardSummary.currentMonthInvoice} paidAmount={cardSummary.currentMonthPaidAmount} />
+              {cardSummary.overdueAmount > 0 && <Badge variant="danger">Em atraso: {formatCurrency(cardSummary.overdueAmount)}</Badge>}
+            </div>
+            {cardSummaryMonth && cardSummary.openInvoiceMonth !== cardSummaryMonth && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span>Fatura aberta ({formatMonthLabel(cardSummary.openInvoiceMonth)}): <strong className="tabular-nums">{formatCurrency(cardSummary.openInvoiceAmount)}</strong></span>
+              </div>
             )}
-            <InvoicePaidBadge invoiceAmount={cardSummary.currentMonthInvoice} paidAmount={cardSummary.currentMonthPaidAmount} />
-            {cardSummary.overdueAmount > 0 && <Badge variant="danger">Em atraso: {formatCurrency(cardSummary.overdueAmount)}</Badge>}
           </div>
         </>
       ) : (

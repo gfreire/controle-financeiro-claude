@@ -126,6 +126,8 @@ export type CardSummaryDTO = {
   currentMonthPaidAmount: number; // how much of currentMonthInvoice is already covered — derived (card_payments has no month of its own), oldest-competence-first, see cards.service.ts#getCardSummary. Always 0 <= this <= currentMonthInvoice.
   overdueAmount: number; // = usedThroughCurrentMonth - (today's month invoice), floored at 0 — unpaid balance from prior months, always today-anchored
   totalCommitted: number; // = getCardTotalCommitted — ALL installments ever generated (incl. future not-yet-due) minus all payments, floored at 0. The correct "used against the limit" figure.
+  openInvoiceMonth: string; // "YYYY-MM" — the competence month a purchase made TODAY would land in (via calculateInstallmentCompetences + the card's closing_day/due_day), i.e. whichever invoice is still accumulating charges right now. Always today-anchored, independent of the page's month filter — same convention as usedThroughCurrentMonth/overdueAmount.
+  openInvoiceAmount: number; // sum of card_installments.amount for openInvoiceMonth — does NOT exclude paid_before_system, same historical-fact convention as currentMonthInvoice
 };
 
 /** getCardMonthlyEvolution — 6 months before through 6 months after the viewed reference month
