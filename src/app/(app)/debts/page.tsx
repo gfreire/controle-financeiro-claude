@@ -12,10 +12,19 @@ import { DebtTransactionDialog } from "@/features/debts/components/debt-transact
 import { DebtsCharts } from "@/features/debts/components/debts-charts";
 import { DeleteDebtButton } from "@/features/debts/components/delete-debt-button";
 import { DeleteDebtTransactionButton } from "@/features/debts/components/delete-debt-transaction-button";
+import { DebtSideFilter } from "@/features/debts/components/debt-side-filter";
 
-export default async function DebtsPage() {
-  const [debts, accounts, categories] = await Promise.all([getDebts(), getAccounts(), getCategories()]);
+export default async function DebtsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ side?: string }>;
+}) {
+  const resolvedSearchParams = await searchParams;
+  const sideFilter = resolvedSearchParams.side === "PAYABLE" || resolvedSearchParams.side === "RECEIVABLE" ? resolvedSearchParams.side : null;
+
+  const [allDebts, accounts, categories] = await Promise.all([getDebts(), getAccounts(), getCategories()]);
   const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
+  const debts = sideFilter ? allDebts.filter((d) => d.side === sideFilter) : allDebts;
 
   return (
     <div className="flex flex-col gap-4">
@@ -24,10 +33,12 @@ export default async function DebtsPage() {
         <DebtFormDialog categories={categories} />
       </div>
 
+      <DebtSideFilter />
+
       <DebtsCharts debts={debts} />
 
       {debts.length === 0 ? (
-        <p className="text-sm opacity-60">Nenhuma dívida registrada.</p>
+        <p className="text-sm opacity-60">Nenhuma dívida {sideFilter ? "nesse filtro" : "registrada"}.</p>
       ) : (
         <div className="flex flex-col gap-4">
           {await Promise.all(

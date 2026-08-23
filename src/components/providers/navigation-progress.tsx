@@ -26,7 +26,7 @@ export function NavigationProgressProvider({ children }: { children: ReactNode }
 
   function navigate(url: string) {
     startTransition(() => {
-      router.push(url);
+      router.push(url, { scroll: false });
     });
   }
 
