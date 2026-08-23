@@ -39,6 +39,21 @@ export function AccrualDialog({
   );
   const [amount, setAmount] = useState(entry?.amount !== undefined ? String(entry.amount) : "");
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
+  // initializers above never see a fresher `entry` prop on their own.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setDate(entry?.date ?? todayIso());
+      setDescription(entry?.description ?? `Movimentação da receita programada ${reservoirName}`);
+      setGrossAmount(entry?.grossAmount !== undefined ? String(entry.grossAmount) : "");
+      setPercentage(entry?.percentage !== undefined ? String(entry.percentage) : defaultPercentage !== undefined ? String(defaultPercentage) : "");
+      setAmount(entry?.amount !== undefined ? String(entry.amount) : "");
+    }
+  }
+
   function handleGrossAmountChange(value: string) {
     setGrossAmount(value);
     const result = calculateGrossNetSplit(

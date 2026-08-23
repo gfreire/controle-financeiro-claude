@@ -29,6 +29,22 @@ export function BudgetFormDialog({ categories: initialCategories, budget, month 
   const [amount, setAmount] = useState(budget ? String(budget.plannedAmount) : "");
   const [fetchedFloor, setFetchedFloor] = useState(0);
 
+  // The dialog stays mounted across parent re-renders — e.g. editing another row's budget, or
+  // any other action that triggers router.refresh(), doesn't remount this instance — so the
+  // useState initializers above never see a fresher `budget` prop on their own. Re-sync from it
+  // on every open, using React's documented render-phase "adjusting state when a prop changes"
+  // pattern (not an Effect — see category-form-dialog.tsx for the full reasoning).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setCategories(initialCategories);
+      setCategoryId(budget?.categoryId ?? "");
+      setSubcategoryId(budget?.subcategoryId ?? NONE);
+      setAmount(budget ? String(budget.plannedAmount) : "");
+    }
+  }
+
   const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
   const selectedCategory = expenseCategories.find((c) => c.id === categoryId);
   const floor = categoryId ? fetchedFloor : 0;

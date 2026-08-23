@@ -37,6 +37,23 @@ export function FixedExpenseFormDialog({
   const [subcategoryId, setSubcategoryId] = useState(expense?.subcategoryId ?? NONE);
   const [defaultAccountId, setDefaultAccountId] = useState(expense?.defaultAccountId ?? NONE);
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
+  // initializers above never see a fresher `expense` prop on their own.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setCategories(initialCategories);
+      setName(expense?.name ?? "");
+      setAmount(expense ? String(expense.plannedAmount) : "");
+      setDueDay(expense ? String(expense.dueDay) : "10");
+      setCategoryId(expense?.categoryId || NONE);
+      setSubcategoryId(expense?.subcategoryId ?? NONE);
+      setDefaultAccountId(expense?.defaultAccountId ?? NONE);
+    }
+  }
+
   const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
   const selectedCategory = expenseCategories.find((c) => c.id === categoryId);
 

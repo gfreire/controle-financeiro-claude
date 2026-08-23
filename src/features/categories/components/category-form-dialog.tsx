@@ -34,6 +34,23 @@ export function CategoryFormDialog({
   const [icon, setIcon] = useState(category?.icon ?? CATEGORY_ICONS[0]);
   const [color, setColor] = useState(category?.color ?? CATEGORY_COLORS[0]);
 
+  // The dialog instance stays mounted across parent re-renders (e.g. an inline edit elsewhere
+  // triggering router.refresh()), so useState's one-time initializer never sees a fresher
+  // `category` prop on its own. Re-sync from it on every open, using React's documented
+  // render-phase "adjusting state when a prop changes" pattern (not an Effect — an Effect
+  // would run one render late, and re-setting state synchronously inside it is flagged by
+  // react-hooks/set-state-in-effect anyway).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setName(category?.name ?? "");
+      setType(category?.type ?? defaultType);
+      setIcon(category?.icon ?? CATEGORY_ICONS[0]);
+      setColor(category?.color ?? CATEGORY_COLORS[0]);
+    }
+  }
+
   function handleSubmit() {
     setError(null);
     const parsed = categorySchema.safeParse({ name, type, icon, color });

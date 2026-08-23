@@ -16,6 +16,16 @@ export function BalanceAdjustDialog({ account, mode, trigger }: { account: Accou
   const [error, setError] = useState<string | null>(null);
   const [realBalance, setRealBalance] = useState(String(account.balance));
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
+  // initializer above never sees a fresher `account.balance` (e.g. a transaction logged
+  // elsewhere just moved it before this dialog was reopened).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) setRealBalance(String(account.balance));
+  }
+
   function handleSubmit() {
     setError(null);
     const value = Number(realBalance);

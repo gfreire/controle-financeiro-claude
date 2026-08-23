@@ -37,6 +37,21 @@ export function ReservoirFormDialog({
   const [defaultPercentage, setDefaultPercentage] = useState(reservoir?.defaultPercentage !== undefined ? String(reservoir.defaultPercentage) : "");
   const [defaultDestinationAccountId, setDefaultDestinationAccountId] = useState(reservoir?.defaultDestinationAccountId ?? NONE);
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
+  // initializers above never see a fresher `reservoir` prop on their own.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setCategories(initialCategories);
+      setName(reservoir?.name ?? "");
+      setCategoryId(reservoir?.categoryId ?? NONE);
+      setDefaultPercentage(reservoir?.defaultPercentage !== undefined ? String(reservoir.defaultPercentage) : "");
+      setDefaultDestinationAccountId(reservoir?.defaultDestinationAccountId ?? NONE);
+    }
+  }
+
   function handleSubmit() {
     setError(null);
     const payload = {

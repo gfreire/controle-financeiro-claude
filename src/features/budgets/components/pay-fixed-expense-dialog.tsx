@@ -22,6 +22,20 @@ export function PayFixedExpenseDialog({ expense, accounts, month, trigger }: { e
   const selectedAccount = accounts.find((a) => a.id === accountId);
   const isCreditCard = selectedAccount?.type === "CREDIT_CARD";
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
+  // initializers above never see a fresher `expense.plannedAmount`/`defaultAccountId` (e.g.
+  // edited via the fixed-expense form while this dialog was closed).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setAccountId(expense.defaultAccountId ?? accounts[0]?.id ?? "");
+      setAmount(String(expense.plannedAmount));
+      setDate(todayIso());
+    }
+  }
+
   function handleSubmit() {
     setError(null);
     const value = Number(amount);

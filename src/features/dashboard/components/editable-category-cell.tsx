@@ -28,6 +28,22 @@ export function EditableCategoryCell({
   const [categoryId, setCategoryId] = useState(row.categoryId ?? UNCATEGORIZED);
   const [subcategoryId, setSubcategoryId] = useState(row.subcategoryId ?? UNCATEGORIZED);
 
+  // This cell has no open/close cycle — it's always rendered — so unlike a dialog it can't just
+  // reset on open. It must instead track the row's own category directly, via React's documented
+  // render-phase "adjusting state when a prop changes" pattern (not an Effect — an Effect would
+  // run one render late, and setState inside it is flagged by react-hooks/set-state-in-effect
+  // anyway). Without this, the same list re-rendering with fresh data after an edit elsewhere
+  // (e.g. the row's full-edit pencil dialog) would leave this cell showing whatever category was
+  // current when it first mounted.
+  const [prevRowCategoryId, setPrevRowCategoryId] = useState(row.categoryId ?? null);
+  const [prevRowSubcategoryId, setPrevRowSubcategoryId] = useState(row.subcategoryId ?? null);
+  if (row.categoryId !== prevRowCategoryId || row.subcategoryId !== prevRowSubcategoryId) {
+    setPrevRowCategoryId(row.categoryId ?? null);
+    setPrevRowSubcategoryId(row.subcategoryId ?? null);
+    setCategoryId(row.categoryId ?? UNCATEGORIZED);
+    setSubcategoryId(row.subcategoryId ?? UNCATEGORIZED);
+  }
+
   // Transfers and credit-card-payment account-side movements never carry a category
   // (see AI_CONTEXT.md "Money Reality Rules") — nothing to edit for these rows.
   if (row.type === "CREDIT_CARD_PAYMENT") {

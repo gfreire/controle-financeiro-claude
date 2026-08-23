@@ -32,6 +32,20 @@ export function PaymentFormDialog({
   const [amount, setAmount] = useState(String(statementBalance));
   const [paymentDate, setPaymentDate] = useState(todayIso());
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
+  // initializers above never see a fresher `statementBalance`/`payerAccounts` (e.g. after
+  // another payment or purchase changed what's owed).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setAccountId(payerAccounts[0]?.id ?? "");
+      setAmount(String(statementBalance));
+      setPaymentDate(todayIso());
+    }
+  }
+
   function handleSubmit() {
     setError(null);
     const parsed = cardPaymentSchema.safeParse({ creditCardId: card.id, accountId, amount: Number(amount), paymentDate });

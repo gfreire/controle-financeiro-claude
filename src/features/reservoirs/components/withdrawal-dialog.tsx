@@ -30,6 +30,16 @@ export function WithdrawalDialog({
   const [amount, setAmount] = useState("");
   const [destinationAccountId, setDestinationAccountId] = useState(defaultDestinationAccountId ?? accounts[0]?.id ?? "");
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
+  // initializer above never sees a fresher `defaultDestinationAccountId` (e.g. changed via the
+  // reservoir's own edit form while this dialog was closed).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) setDestinationAccountId(defaultDestinationAccountId ?? accounts[0]?.id ?? "");
+  }
+
   function handleSubmit() {
     setError(null);
     const parsed = reservoirWithdrawalSchema.safeParse({ reservoirId, date, amount: Number(amount), destinationAccountId });

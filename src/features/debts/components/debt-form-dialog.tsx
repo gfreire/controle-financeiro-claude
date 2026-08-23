@@ -35,6 +35,21 @@ export function DebtFormDialog({
   const [initialBalance, setInitialBalance] = useState(debt?.originalAmount !== undefined ? String(debt.originalAmount) : "");
   const [defaultCategoryId, setDefaultCategoryId] = useState(debt?.defaultCategoryId ?? NONE);
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
+  // initializers above never see a fresher `debt` prop on their own.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setCategories(initialCategories);
+      setAgent(debt?.agent ?? "");
+      setSide(debt?.side ?? "PAYABLE");
+      setInitialBalance(debt?.originalAmount !== undefined ? String(debt.originalAmount) : "");
+      setDefaultCategoryId(debt?.defaultCategoryId ?? NONE);
+    }
+  }
+
   // A debt's default category is used when its *payment* is registered — for PAYABLE that's
   // always an EXPENSE (paying off what's owed), for RECEIVABLE always an INCOME (money coming
   // in), see debts.service.ts#addDebtTransaction.

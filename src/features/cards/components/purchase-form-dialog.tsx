@@ -72,6 +72,30 @@ export function PurchaseFormDialog({
   const [isBackfill, setIsBackfill] = useState(!!purchase?.paidThroughCompetence);
   const [paidThroughCompetence, setPaidThroughCompetence] = useState(purchase?.paidThroughCompetence ?? "");
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders (e.g. an inline category
+  // edit on this same installment row triggering router.refresh()), so the useState
+  // initializers above never see a fresher `purchase` prop on their own.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setCategories(initialCategories);
+      setCreditCardId(purchase?.creditCardId ?? cards[0]?.id ?? NONE);
+      setAmount(purchase ? String(purchase.totalAmount) : "");
+      setPurchaseDate(purchase?.purchaseDate ?? todayIso());
+      setDescription(purchase?.description ?? "");
+      setInstallments(purchase ? String(purchase.installmentsCount) : "1");
+      setCategoryId(purchase?.categoryId ?? NONE);
+      setSubcategoryId(purchase?.subcategoryId ?? NONE);
+      setFirstCompetenceMonth(purchase?.firstCompetenceMonth ?? monthKey(todayIso()));
+      setCompetenceManuallyEdited(false);
+      setOverLimitAcknowledged(false);
+      setIsBackfill(!!purchase?.paidThroughCompetence);
+      setPaidThroughCompetence(purchase?.paidThroughCompetence ?? "");
+    }
+  }
+
   const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
   const selectedCategory = expenseCategories.find((c) => c.id === categoryId);
   const selectedCard = cards.find((c) => c.id === creditCardId);

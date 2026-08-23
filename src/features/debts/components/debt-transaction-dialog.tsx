@@ -61,6 +61,22 @@ export function DebtTransactionDialog({
   const [categoryId, setCategoryId] = useState(entry?.categoryId ?? (mode === "payment" && defaultCategoryId ? defaultCategoryId : NONE));
   const [confirmingSettle, setConfirmingSettle] = useState(false);
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
+  // initializers above never see a fresher `entry` prop on their own.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setCategories(initialCategories);
+      setDate(entry?.date ?? todayIso());
+      setAmount(entry ? String(Math.abs(entry.amount)) : "");
+      setDescription(entry?.description ?? `Movimentação da dívida ${debtName}`);
+      setCategoryId(entry?.categoryId ?? (mode === "payment" && defaultCategoryId ? defaultCategoryId : NONE));
+      setConfirmingSettle(false);
+    }
+  }
+
   const numericAmount = Number(amount);
   const signedAmount = mode === "payment" ? -Math.abs(numericAmount) : Math.abs(numericAmount);
   // Editing backs out this entry's own current contribution before projecting the new balance —

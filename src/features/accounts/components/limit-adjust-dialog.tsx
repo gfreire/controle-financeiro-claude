@@ -31,6 +31,20 @@ export function LimitAdjustDialog({ account, trigger }: { account: AccountDTO; t
   const [closingDay, setClosingDay] = useState(String(account.closingDay ?? ""));
   const [dueDay, setDueDay] = useState(String(account.dueDay ?? ""));
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
+  // initializers above never see a fresher `account` prop (e.g. the limit/closing/due day
+  // changed by a save elsewhere that just triggered router.refresh()).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setLimit(currentLimit === null ? "" : String(currentLimit));
+      setClosingDay(String(account.closingDay ?? ""));
+      setDueDay(String(account.dueDay ?? ""));
+    }
+  }
+
   function handleSubmit() {
     setError(null);
     const value = limit.trim() === "" ? null : Number(limit);

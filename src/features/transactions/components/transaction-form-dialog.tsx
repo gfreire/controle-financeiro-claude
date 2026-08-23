@@ -42,6 +42,26 @@ export function TransactionFormDialog({
   const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? NONE);
   const [subcategoryId, setSubcategoryId] = useState(transaction?.subcategoryId ?? NONE);
 
+  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
+  // not an Effect: the dialog stays mounted across parent re-renders (e.g. an inline category
+  // edit on this same row triggering router.refresh()), so the useState initializers above
+  // never see a fresher `transaction` prop on their own.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setCategories(initialCategories);
+      setType((transaction?.type as TransactionType) ?? "EXPENSE");
+      setAmount(transaction ? String(transaction.amount) : "");
+      setDate(transaction?.date ?? todayIso());
+      setDescription(transaction?.description ?? "");
+      setOriginAccountId(transaction?.originAccountId ?? NONE);
+      setDestinationAccountId(transaction?.destinationAccountId ?? NONE);
+      setCategoryId(transaction?.categoryId ?? NONE);
+      setSubcategoryId(transaction?.subcategoryId ?? NONE);
+    }
+  }
+
   const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
   const relevantCategories = useMemo(() => categories.filter((c) => c.type === type), [categories, type]);
   const selectedCategory = relevantCategories.find((c) => c.id === categoryId);
