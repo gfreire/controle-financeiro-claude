@@ -110,5 +110,7 @@ export async function getTransactions(filters: TransactionFilters = {}): Promise
     accountType: row.origin?.type ?? row.destination?.type ?? null,
     amount: row.amount,
     source: "transaction" as const,
+    originAccountId: row.origin_account_id,
+    destinationAccountId: row.destination_account_id,
   }));
 }

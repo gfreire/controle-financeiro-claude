@@ -40,7 +40,7 @@ export default async function TransactionsPage({
         </div>
       </div>
       <TransactionFilters accounts={accounts} categories={categories} />
-      <TransactionExplorer transactions={transactions} categories={categories} />
+      <TransactionExplorer transactions={transactions} categories={categories} accounts={accounts} />
     </div>
   );
 }

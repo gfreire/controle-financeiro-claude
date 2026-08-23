@@ -8,29 +8,39 @@ import { Button } from "@/components/ui/button";
 import { Field, Label, Input, Textarea, FieldError } from "@/components/ui/input";
 import { CategorySelect, SubcategorySelect } from "@/features/categories/components/category-select";
 import { AccountSelect } from "@/components/ui/account-select";
-import { Plus } from "lucide-react";
-import { createTransactionAction } from "../actions";
+import { Plus, Pencil } from "lucide-react";
+import { createTransactionAction, updateTransactionAction } from "../actions";
 import { transactionSchema, type TransactionType } from "@/lib/validations/transactions";
 import { todayIso } from "@/lib/utils/date";
-import type { AccountDTO, CategoryDTO } from "@/types/dto";
+import type { AccountDTO, CategoryDTO, TransactionViewDTO } from "@/types/dto";
 
 const NONE = "NONE";
 
-export function TransactionFormDialog({ accounts, categories: initialCategories }: { accounts: AccountDTO[]; categories: CategoryDTO[] }) {
+export function TransactionFormDialog({
+  accounts,
+  categories: initialCategories,
+  transaction,
+}: {
+  accounts: AccountDTO[];
+  categories: CategoryDTO[];
+  /** When set, the dialog edits this transaction instead of creating a new one — trigger becomes a pencil icon on the row. */
+  transaction?: TransactionViewDTO;
+}) {
+  const isEdit = !!transaction;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState(initialCategories);
 
-  const [type, setType] = useState<TransactionType>("EXPENSE");
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(todayIso());
-  const [description, setDescription] = useState("");
-  const [originAccountId, setOriginAccountId] = useState(NONE);
-  const [destinationAccountId, setDestinationAccountId] = useState(NONE);
-  const [categoryId, setCategoryId] = useState(NONE);
-  const [subcategoryId, setSubcategoryId] = useState(NONE);
+  const [type, setType] = useState<TransactionType>((transaction?.type as TransactionType) ?? "EXPENSE");
+  const [amount, setAmount] = useState(transaction ? String(transaction.amount) : "");
+  const [date, setDate] = useState(transaction?.date ?? todayIso());
+  const [description, setDescription] = useState(transaction?.description ?? "");
+  const [originAccountId, setOriginAccountId] = useState(transaction?.originAccountId ?? NONE);
+  const [destinationAccountId, setDestinationAccountId] = useState(transaction?.destinationAccountId ?? NONE);
+  const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? NONE);
+  const [subcategoryId, setSubcategoryId] = useState(transaction?.subcategoryId ?? NONE);
 
   const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
   const relevantCategories = useMemo(() => categories.filter((c) => c.type === type), [categories, type]);
@@ -58,10 +68,14 @@ export function TransactionFormDialog({ accounts, categories: initialCategories 
     }
     startTransition(async () => {
       try {
-        await createTransactionAction(parsed.data);
+        if (isEdit) {
+          await updateTransactionAction({ id: transaction.id, ...parsed.data });
+        } else {
+          await createTransactionAction(parsed.data);
+          reset();
+        }
         router.refresh();
         setOpen(false);
-        reset();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao salvar lançamento");
       }
@@ -71,10 +85,16 @@ export function TransactionFormDialog({ accounts, categories: initialCategories 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova movimentação</Button>
+        {isEdit ? (
+          <button className="p-1.5 -m-1.5 text-text/40 hover:text-accent" aria-label="Editar lançamento">
+            <Pencil className="size-3.5" strokeWidth={1.5} />
+          </button>
+        ) : (
+          <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova movimentação</Button>
+        )}
       </DialogTrigger>
       <DialogContent>
-        <DialogTitle>Nova movimentação</DialogTitle>
+        <DialogTitle>{isEdit ? "Editar movimentação" : "Nova movimentação"}</DialogTitle>
 
         <Field>
           <Label>Tipo</Label>

@@ -62,6 +62,8 @@ export type TransactionViewDTO = {
   source: "transaction" | "installment";
   purchaseId?: string; // set only when source === "installment" — the category/subcategory live on card_purchases, not the installment row, so edits must target this id
   paidBeforeSystem?: boolean; // set only when source === "installment" — backfilled/retroactive purchase installment already paid outside the system, see AI_CONTEXT.md "Compras retroativas"
+  originAccountId?: string | null; // set only when source === "transaction" — accountId/account above merge origin+destination for display; full edit (TransactionFormDialog edit mode) needs both sides distinguished
+  destinationAccountId?: string | null; // set only when source === "transaction"
 };
 
 export type ReservoirDTO = {

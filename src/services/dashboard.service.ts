@@ -313,6 +313,8 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
     accountType: row.origin?.type ?? row.destination?.type ?? null,
     amount: row.amount,
     source: "transaction" as const,
+    originAccountId: row.origin_account_id,
+    destinationAccountId: row.destination_account_id,
   }));
 
   if (filters.transactionType === "INCOME") return results;

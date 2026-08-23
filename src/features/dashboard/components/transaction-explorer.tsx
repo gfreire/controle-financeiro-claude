@@ -10,10 +10,20 @@ import { formatDate } from "@/lib/utils/date";
 import { textIncludes } from "@/lib/utils/normalize";
 import { EditableCategoryCell } from "./editable-category-cell";
 import { DeleteTransactionButton } from "@/features/transactions/components/delete-transaction-button";
+import { TransactionFormDialog } from "@/features/transactions/components/transaction-form-dialog";
 import { AccountTypeIcon } from "@/components/ui/account-type-icon";
-import type { CategoryDTO, TransactionViewDTO } from "@/types/dto";
+import type { AccountDTO, CategoryDTO, TransactionViewDTO } from "@/types/dto";
 
-export function TransactionExplorer({ transactions, categories }: { transactions: TransactionViewDTO[]; categories: CategoryDTO[] }) {
+export function TransactionExplorer({
+  transactions,
+  categories,
+  accounts,
+}: {
+  transactions: TransactionViewDTO[];
+  categories: CategoryDTO[];
+  /** Optional — needed only to power the full-edit dialog (amount/date/description/account) on `source: "transaction"` rows. Omit where accounts aren't already loaded and only inline category editing is needed. */
+  accounts?: AccountDTO[];
+}) {
   const [search, setSearch] = useState("");
   const filtered = search ? transactions.filter((t) => textIncludes(`${t.description} ${t.category} ${t.account}`, search)) : transactions;
 
@@ -63,7 +73,12 @@ export function TransactionExplorer({ transactions, categories }: { transactions
               </TableCell>
               <TableCell>
                 {t.source === "transaction" ? (
-                  <DeleteTransactionButton transactionId={t.id} description={t.description} />
+                  <div className="flex items-center gap-2">
+                    {accounts && t.type !== "CREDIT_CARD_PAYMENT" && (
+                      <TransactionFormDialog accounts={accounts} categories={categories} transaction={t} />
+                    )}
+                    <DeleteTransactionButton transactionId={t.id} description={t.description} />
+                  </div>
                 ) : (
                   <span className="text-[10px] opacity-40" title="Edite ou exclua pela tela de Cartões">—</span>
                 )}

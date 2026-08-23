@@ -111,7 +111,7 @@ export default async function DashboardPage({
 
       <BudgetsPanel categories={budgetTree} />
 
-      <TransactionExplorer transactions={transactions} categories={categories} />
+      <TransactionExplorer transactions={transactions} categories={categories} accounts={accounts} />
     </div>
   );
 }
