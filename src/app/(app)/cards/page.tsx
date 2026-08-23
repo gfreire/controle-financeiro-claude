@@ -13,6 +13,7 @@ import { DeletePurchaseButton } from "@/features/cards/components/delete-purchas
 import { MonthNav } from "@/features/cards/components/month-nav";
 import { CardFilters } from "@/features/cards/components/card-filters";
 import { CardEvolutionChart } from "@/features/cards/components/card-evolution-chart";
+import { CardExpenseDonut } from "@/features/cards/components/card-expense-donut";
 import { EditableCategoryCell } from "@/features/dashboard/components/editable-category-cell";
 import { Button } from "@/components/ui/button";
 import { CreditCard, Receipt, Pencil } from "lucide-react";
@@ -48,6 +49,13 @@ export default async function CardsPage({
   const periodStart = startOfMonth(`${month}-01`);
   const periodEnd = endOfMonth(`${month}-01`);
 
+  // Computed once here and reused by both the "gastos por cartão" donut and each card's own
+  // header below, instead of calling getCardSummary twice per card.
+  const cardSummaries = await Promise.all(
+    cards.map(async (card) => ({ account: card, summary: await getCardSummary(card.id, month, card.creditLimit ?? null) }))
+  );
+  const summaryByCardId = new Map(cardSummaries.map(({ account, summary }) => [account.id, summary]));
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -60,7 +68,12 @@ export default async function CardsPage({
 
       <CardFilters cards={allCards} categories={categories} />
 
-      {allCards.length > 0 && <CardEvolutionChart data={cardEvolution} categories={categories} />}
+      {allCards.length > 0 && (
+        <div className="flex flex-col gap-4">
+          <CardEvolutionChart data={cardEvolution} categories={categories} />
+          <CardExpenseDonut cardEntries={cardSummaries} />
+        </div>
+      )}
 
       {allCards.length === 0 ? (
         <p className="text-sm opacity-60">Nenhum cartão cadastrado. Crie um cartão de crédito na página de Contas.</p>
@@ -68,13 +81,13 @@ export default async function CardsPage({
         <div className="flex flex-col gap-4">
           {await Promise.all(
             cards.map(async (card) => {
-              const [installmentsRaw, purchases, summary] = await Promise.all([
+              const [installmentsRaw, purchases] = await Promise.all([
                 getCardInstallments(card.id, { periodStart, periodEnd }),
                 getCardPurchases(card.id),
-                // `month` here is the page's viewed/filtered month — drives `currentMonthInvoice`.
-                // `usedThroughCurrentMonth`/`overdueAmount` inside stay anchored to today regardless.
-                getCardSummary(card.id, month, card.creditLimit ?? null),
               ]);
+              // `month` here is the page's viewed/filtered month — drives `currentMonthInvoice`.
+              // `usedThroughCurrentMonth`/`overdueAmount` inside stay anchored to today regardless.
+              const summary = summaryByCardId.get(card.id)!;
               const purchaseById = new Map(purchases.map((p) => [p.id, p]));
               const installments = installmentsRaw.filter((r) => {
                 const purchase = purchaseById.get(r.purchaseId);
