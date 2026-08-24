@@ -89,9 +89,10 @@ export async function getUnlinkedExpenseCandidatesAction(categoryId: string | nu
   return fixedExpensesService.getUnlinkedExpenseCandidates(categoryId);
 }
 
-export async function linkExistingTransactionAction(fixedExpenseId: string, transactionId: string) {
-  await fixedExpensesService.linkExistingTransaction(fixedExpenseId, transactionId);
+export async function linkExistingTransactionAction(fixedExpenseId: string, id: string, source: "transaction" | "purchase") {
+  await fixedExpensesService.linkExistingTransaction(fixedExpenseId, id, source);
   revalidatePath("/budgets");
   revalidatePath("/dashboard");
   revalidatePath("/transactions");
+  revalidatePath("/cards");
 }

@@ -28,7 +28,7 @@ export function PayFixedExpenseDialog({ expense, accounts, month, trigger }: { e
   // pagamento manual já registrado. Candidatas são buscadas sob demanda (só quando o modo abre),
   // não pré-carregadas — mesmo padrão de leitura via Server Action já usado por getBudgetFloorAction.
   const [mode, setMode] = useState<"new" | "link">("new");
-  const [candidates, setCandidates] = useState<{ id: string; date: string; description: string; amount: number }[] | null>(null);
+  const [candidates, setCandidates] = useState<{ id: string; date: string; description: string; amount: number; source: "transaction" | "purchase" }[] | null>(null);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
@@ -62,11 +62,12 @@ export function PayFixedExpenseDialog({ expense, accounts, month, trigger }: { e
   }
 
   function handleLinkConfirm() {
-    if (!selectedTransactionId) return;
+    const selected = (candidates ?? []).find((c) => c.id === selectedTransactionId);
+    if (!selected) return;
     setError(null);
     startTransition(async () => {
       try {
-        await linkExistingTransactionAction(expense.id, selectedTransactionId);
+        await linkExistingTransactionAction(expense.id, selected.id, selected.source);
         router.refresh();
         setOpen(false);
       } catch (e) {

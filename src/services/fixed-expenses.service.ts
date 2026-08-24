@@ -266,15 +266,24 @@ export async function payFixedExpense(input: {
 
 /**
  * Candidatas pra "Vincular lançamento existente" (AI_CONTEXT.md "Despesas fixas — vincular
- * pagamento já lançado") — despesas (EXPENSE) do usuário ainda sem fixed_expense_id nenhum,
- * filtradas pela categoria da despesa fixa quando ela tem uma (o caso comum: um pagamento
- * lançado manualmente antes de existir a despesa fixa, ou depois de recriá-la, normalmente já
- * está na categoria certa). Sem filtro de categoria quando a despesa fixa não tem uma.
+ * pagamento já lançado") — despesas do usuário ainda sem fixed_expense_id nenhum, filtradas pela
+ * categoria da despesa fixa quando ela tem uma (o caso comum: um pagamento lançado manualmente
+ * antes de existir a despesa fixa, ou depois de recriá-la, normalmente já está na categoria
+ * certa). Sem filtro de categoria quando a despesa fixa não tem uma.
+ *
+ * Busca nas DUAS tabelas onde uma despesa pode ter sido lançada — `transactions` (EXPENSE,
+ * CASH/BANK) e `card_purchases` (cartão) — já que `payFixedExpense` também pode gerar uma
+ * card_purchases (AI_CONTEXT.md "Fixed Expenses"). Uma despesa fixa tipicamente cobrada no
+ * cartão (ex: assinatura em streaming) só teria candidatas na segunda tabela; buscar só em
+ * `transactions` deixava essas invisíveis.
  */
-export async function getUnlinkedExpenseCandidates(categoryId: string | null): Promise<{ id: string; date: string; description: string; amount: number }[]> {
+export async function getUnlinkedExpenseCandidates(
+  categoryId: string | null
+): Promise<{ id: string; date: string; description: string; amount: number; source: "transaction" | "purchase" }[]> {
   const supabase = await createClient();
   const user = await getUser();
-  let query = supabase
+
+  let txQuery = supabase
     .from("transactions")
     .select("id, date, description, amount")
     .eq("user_id", user.id)
@@ -282,21 +291,50 @@ export async function getUnlinkedExpenseCandidates(categoryId: string | null): P
     .is("fixed_expense_id", null)
     .order("date", { ascending: false })
     .limit(50);
-  if (categoryId) query = query.eq("category_id", categoryId);
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => ({ id: row.id, date: row.date, description: row.description ?? "", amount: row.amount }));
+  if (categoryId) txQuery = txQuery.eq("category_id", categoryId);
+
+  let purchaseQuery = supabase
+    .from("card_purchases")
+    .select("id, purchase_date, description, amount")
+    .eq("user_id", user.id)
+    .is("fixed_expense_id", null)
+    .order("purchase_date", { ascending: false })
+    .limit(50);
+  if (categoryId) purchaseQuery = purchaseQuery.eq("category_id", categoryId);
+
+  const [{ data: transactions, error: txError }, { data: purchases, error: purchaseError }] = await Promise.all([txQuery, purchaseQuery]);
+  if (txError) throw new Error(txError.message);
+  if (purchaseError) throw new Error(purchaseError.message);
+
+  const fromTransactions = (transactions ?? []).map((row) => ({
+    id: row.id,
+    date: row.date,
+    description: row.description ?? "",
+    amount: row.amount,
+    source: "transaction" as const,
+  }));
+  const fromPurchases = (purchases ?? []).map((row) => ({
+    id: row.id,
+    date: row.purchase_date,
+    description: row.description ?? "",
+    amount: row.amount,
+    source: "purchase" as const,
+  }));
+
+  return [...fromTransactions, ...fromPurchases].sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
 /**
- * Vincula uma transaction já existente (lançada manualmente, sem passar por payFixedExpense) a
+ * Vincula um lançamento já existente (lançado manualmente, sem passar por payFixedExpense) a
  * uma despesa fixa — pro caso de recriar uma despesa fixa apagada por engano e não perder o
- * rastro de um pagamento que já tinha sido registrado. Só reatribui fixed_expense_id; a
- * transaction em si (valor/data/categoria) não é tocada.
+ * rastro de um pagamento que já tinha sido registrado. `source` decide qual tabela recebe o
+ * `fixed_expense_id` (transactions ou card_purchases) — o registro em si (valor/data/categoria)
+ * nunca é tocado.
  */
-export async function linkExistingTransaction(fixedExpenseId: string, transactionId: string): Promise<void> {
+export async function linkExistingTransaction(fixedExpenseId: string, id: string, source: "transaction" | "purchase" = "transaction"): Promise<void> {
   const supabase = await createClient();
-  const { error } = await supabase.from("transactions").update({ fixed_expense_id: fixedExpenseId }).eq("id", transactionId);
+  const table = source === "purchase" ? "card_purchases" : "transactions";
+  const { error } = await supabase.from(table).update({ fixed_expense_id: fixedExpenseId }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 

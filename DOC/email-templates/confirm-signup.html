@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Confirme seu e-mail</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f2f2f3; -webkit-text-size-adjust:100%; text-size-adjust:100%;">
+  <!-- Preheader (hidden preview text) -->
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">
+    Confirme seu e-mail para ativar sua conta no Finanças.
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f2f2f3;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="width:480px; max-width:100%;">
+
+          <!-- Wordmark -->
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <span style="font-family:'Barlow Condensed', Arial, Helvetica, sans-serif; font-size:13px; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:#597ea3;">
+                Finanças
+              </span>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="position:relative; background-color:#e9e9ea; border:1px solid rgba(29,31,32,0.16);">
+              <!-- corner marks (Industry blueprint "+" registration marks) -->
+              <div style="position:absolute; top:-6px; left:-6px; width:11px; height:11px;">
+                <div style="position:absolute; left:5px; top:0; width:1px; height:100%; background:rgba(29,31,32,0.55);"></div>
+                <div style="position:absolute; top:5px; left:0; width:100%; height:1px; background:rgba(29,31,32,0.55);"></div>
+              </div>
+              <div style="position:absolute; top:-6px; right:-6px; width:11px; height:11px;">
+                <div style="position:absolute; left:5px; top:0; width:1px; height:100%; background:rgba(29,31,32,0.55);"></div>
+                <div style="position:absolute; top:5px; left:0; width:100%; height:1px; background:rgba(29,31,32,0.55);"></div>
+              </div>
+              <div style="position:absolute; bottom:-6px; left:-6px; width:11px; height:11px;">
+                <div style="position:absolute; left:5px; top:0; width:1px; height:100%; background:rgba(29,31,32,0.55);"></div>
+                <div style="position:absolute; top:5px; left:0; width:100%; height:1px; background:rgba(29,31,32,0.55);"></div>
+              </div>
+              <div style="position:absolute; bottom:-6px; right:-6px; width:11px; height:11px;">
+                <div style="position:absolute; left:5px; top:0; width:1px; height:100%; background:rgba(29,31,32,0.55);"></div>
+                <div style="position:absolute; top:5px; left:0; width:100%; height:1px; background:rgba(29,31,32,0.55);"></div>
+              </div>
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="padding:40px 36px 32px 36px;">
+
+                    <p style="margin:0 0 8px 0; font-family:'Barlow Condensed', Arial, Helvetica, sans-serif; font-size:11px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:#597ea3;">
+                      Confirmação de cadastro
+                    </p>
+
+                    <h1 style="margin:0 0 16px 0; font-family:'Barlow Condensed', Arial, Helvetica, sans-serif; font-size:26px; line-height:1.2; font-weight:600; letter-spacing:-0.01em; color:#1d1f20;">
+                      Confirme seu e-mail
+                    </h1>
+
+                    <p style="margin:0 0 28px 0; font-family:Arial, Helvetica, sans-serif; font-size:14px; line-height:1.6; color:#42444a;">
+                      Clique no botão abaixo para confirmar seu e-mail e ativar sua conta. Depois disso você já pode fazer login e começar a organizar suas finanças.
+                    </p>
+
+                    <!-- Button -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="background-color:#597ea3;">
+                          <a href="{{ .ConfirmationURL }}"
+                             style="display:inline-block; padding:13px 28px; font-family:Arial, Helvetica, sans-serif; font-size:14px; font-weight:700; letter-spacing:0.02em; color:#ffffff; text-decoration:none;">
+                            Confirmar e-mail
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:28px 0 0 0; font-family:Arial, Helvetica, sans-serif; font-size:12px; line-height:1.6; color:#7a7a7d;">
+                      Se o botão não funcionar, copie e cole este link no navegador:
+                    </p>
+                    <p style="margin:6px 0 0 0; font-family:Arial, Helvetica, sans-serif; font-size:12px; line-height:1.6; word-break:break-all;">
+                      <a href="{{ .ConfirmationURL }}" style="color:#597ea3; text-decoration:underline;">{{ .ConfirmationURL }}</a>
+                    </p>
+
+                  </td>
+                </tr>
+
+                <!-- divider -->
+                <tr>
+                  <td style="padding:0 36px;">
+                    <div style="border-top:1px solid rgba(29,31,32,0.16);"></div>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding:20px 36px 28px 36px;">
+                    <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:12px; line-height:1.6; color:#7a7a7d;">
+                      Se você não criou esta conta, pode ignorar este e-mail com segurança.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Outer footer -->
+          <tr>
+            <td align="center" style="padding:24px 16px 0 16px;">
+              <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:11px; line-height:1.6; color:#98989b;">
+                Finanças — controle financeiro pessoal
+              </p>
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
