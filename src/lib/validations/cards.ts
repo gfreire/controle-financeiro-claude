@@ -26,6 +26,12 @@ export type CardPurchaseInput = z.infer<typeof cardPurchaseSchema>;
 
 export const updateCardPurchaseSchema = cardPurchaseSchema.partial().extend({ id: z.string().uuid() });
 
+export const refundCardPurchaseSchema = z.object({
+  purchaseId: z.string().uuid(),
+  refundDate: z.string().min(1, "Data é obrigatória"),
+});
+export type RefundCardPurchaseInput = z.infer<typeof refundCardPurchaseSchema>;
+
 export const cardPaymentSchema = z.object({
   creditCardId: z.string().uuid(),
   accountId: z.string().uuid(),
@@ -33,3 +39,9 @@ export const cardPaymentSchema = z.object({
   paymentDate: z.string().min(1),
 });
 export type CardPaymentInput = z.infer<typeof cardPaymentSchema>;
+
+export const advancePurchaseInstallmentsSchema = z.object({
+  purchaseId: z.string().uuid(),
+  count: z.number().int().min(1),
+});
+export type AdvancePurchaseInstallmentsInput = z.infer<typeof advancePurchaseInstallmentsSchema>;

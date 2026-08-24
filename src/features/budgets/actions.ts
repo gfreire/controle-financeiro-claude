@@ -84,3 +84,14 @@ export async function cancelFixedExpensePaymentAction(fixedExpenseId: string, mo
   revalidatePath("/accounts");
   revalidatePath("/cards");
 }
+
+export async function getUnlinkedExpenseCandidatesAction(categoryId: string | null) {
+  return fixedExpensesService.getUnlinkedExpenseCandidates(categoryId);
+}
+
+export async function linkExistingTransactionAction(fixedExpenseId: string, transactionId: string) {
+  await fixedExpensesService.linkExistingTransaction(fixedExpenseId, transactionId);
+  revalidatePath("/budgets");
+  revalidatePath("/dashboard");
+  revalidatePath("/transactions");
+}

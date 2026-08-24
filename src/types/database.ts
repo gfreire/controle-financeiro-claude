@@ -7,6 +7,7 @@ export type AccountType = "CASH" | "BANK" | "CREDIT_CARD";
 export type CategoryType = "INCOME" | "EXPENSE";
 export type TransactionType = "INCOME" | "EXPENSE" | "TRANSFER" | "CREDIT_CARD_PAYMENT";
 export type DebtSide = "PAYABLE" | "RECEIVABLE";
+export type DebtKind = "PERSONAL" | "OVERDUE_BILL" | "INSTALLMENT_PLAN";
 
 export interface ProfileRow {
   user_id: string;
@@ -145,8 +146,11 @@ export interface DebtRow {
   user_id: string;
   agent: string;
   side: DebtSide;
+  kind: DebtKind;
   initial_balance: number;
   default_category_id: string | null;
+  monthly_amount: number | null;
+  due_day: number | null;
   active: boolean;
   created_at: string;
 }

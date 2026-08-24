@@ -1,5 +1,5 @@
 import { parseDashboardFilters, type DashboardSearchParams } from "@/features/dashboard/filters";
-import { startOfMonth, endOfMonth, addMonthsToIsoDate } from "@/lib/utils/date";
+import { startOfMonth, endOfMonth, addMonthsToIsoDate, monthKey, todayIso } from "@/lib/utils/date";
 import {
   getFinancialSummary,
   getMonthlyEvolution,
@@ -11,6 +11,8 @@ import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
 import { getBudgetTree } from "@/services/budgets.service";
 import { getFixedExpenses } from "@/services/fixed-expenses.service";
+import { getDebts } from "@/services/debts.service";
+import { sumMoney } from "@/lib/utils/money";
 import type { DashboardFilters as DashboardFiltersType } from "@/types/dto";
 
 import { DashboardFilters } from "@/features/dashboard/components/dashboard-filters";
@@ -20,6 +22,8 @@ import { CategoryPie } from "@/features/dashboard/components/category-pie";
 import { CategoryBars } from "@/features/dashboard/components/category-bars";
 import { ExpenseSourceToggle } from "@/features/dashboard/components/expense-source-toggle";
 import { BudgetsPanel } from "@/features/dashboard/components/budgets-panel";
+import { UpcomingDueAlert } from "@/features/dashboard/components/upcoming-due-alert";
+import { OpenDebtsAlert } from "@/features/dashboard/components/open-debts-alert";
 import { TransactionExplorer } from "@/features/dashboard/components/transaction-explorer";
 
 export default async function DashboardPage({
@@ -63,6 +67,7 @@ export default async function DashboardPage({
     accounts,
     categories,
     fixedExpenses,
+    debts,
   ] = await Promise.all([
     getFinancialSummary(filters),
     getMonthlyEvolution(monthlyEvolutionFilters),
@@ -76,8 +81,22 @@ export default async function DashboardPage({
     // Reflects the filtered period, not always "today" — a user browsing a past/future
     // month via the filters expects the budgets/fixed-expenses panel to follow along.
     getFixedExpenses(filters.periodEnd),
+    getDebts(),
   ]);
   const budgetTree = await getBudgetTree(filters.periodEnd, fixedExpenses);
+  const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
+
+  // "Dívidas em aberto" (AI_CONTEXT.md "Dívidas — subtipos") — só OVERDUE_BILL/INSTALLMENT_PLAN
+  // PAYABLE contam aqui; PERSONAL nunca afeta o dashboard (Money Reality Rules). Não é escopado
+  // por período — é um compromisso em aberto, não um evento datado, então independe do filtro.
+  const openDebts = debts.filter((d) => d.side === "PAYABLE" && d.kind !== "PERSONAL");
+  const totalOpenDebts = sumMoney(openDebts.map((d) => d.remainingBalance));
+
+  // "Vence essa semana" is always anchored to today's real month, never the viewed-period filter
+  // (see UpcomingDueAlert) — reuse the already-fetched list when the viewed month IS today's month
+  // instead of firing a redundant second query.
+  const todaysFixedExpenses =
+    monthKey(filters.periodEnd) === monthKey(todayIso()) ? fixedExpenses : await getFixedExpenses(todayIso());
 
   return (
     <div className="flex flex-col gap-4">
@@ -85,6 +104,9 @@ export default async function DashboardPage({
         <h1 className="font-heading text-2xl font-semibold">Dashboard</h1>
         <DashboardFilters preset={filters.preset} accounts={accounts} categories={categories} />
       </div>
+
+      <UpcomingDueAlert fixedExpenses={todaysFixedExpenses} />
+      <OpenDebtsAlert debts={openDebts} totalOpenDebts={totalOpenDebts} accounts={liquidAccounts} categories={categories} />
 
       <SummaryCards summary={summary} />
 

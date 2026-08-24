@@ -257,6 +257,19 @@ export async function createSubcategory(input: SubcategoryInput): Promise<Subcat
   const supabase = await createClient();
   const user = await getUser();
 
+  // Income categories never get a subcategory (AI_GENERATION_RULES.md "Domain Rules
+  // Enforcement") — extra detail goes in the transaction's description instead. Enforced here,
+  // not just by the UI omitting the create affordance, so any future entry point can't slip past it.
+  const { data: category, error: categoryError } = await supabase
+    .from("categories")
+    .select("type")
+    .eq("id", input.categoryId)
+    .single();
+  if (categoryError) throw new Error(categoryError.message);
+  if (category.type === "INCOME") {
+    throw new Error("Categorias de receita não podem ter subcategorias");
+  }
+
   const { data, error } = await supabase
     .from("subcategories")
     .insert({ user_id: user.id, category_id: input.categoryId, name: input.name })

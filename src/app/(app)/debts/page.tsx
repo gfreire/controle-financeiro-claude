@@ -14,6 +14,12 @@ import { DeleteDebtButton } from "@/features/debts/components/delete-debt-button
 import { DeleteDebtTransactionButton } from "@/features/debts/components/delete-debt-transaction-button";
 import { DebtSideFilter } from "@/features/debts/components/debt-side-filter";
 
+const KIND_LABELS: Record<string, string> = {
+  PERSONAL: "Pessoal",
+  OVERDUE_BILL: "Conta em atraso",
+  INSTALLMENT_PLAN: "Parcelamento combinado",
+};
+
 export default async function DebtsPage({
   searchParams,
 }: {
@@ -48,8 +54,11 @@ export default async function DebtsPage({
                 <Card key={debt.id} elevation="sm" className="gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <CardKicker>
+                      <CardKicker className="flex items-center gap-1.5">
                         <Badge variant={debt.side === "PAYABLE" ? "danger" : "success"}>{debt.side === "PAYABLE" ? "A pagar" : "A receber"}</Badge>
+                        {debt.kind !== "PERSONAL" && <Badge variant="outline">{KIND_LABELS[debt.kind]}</Badge>}
+                        {debt.kind === "INSTALLMENT_PLAN" &&
+                          (debt.paidThisMonth ? <Badge variant="success">Pago este mês</Badge> : <Badge variant="warning">Vence dia {debt.dueDay}</Badge>)}
                       </CardKicker>
                       <div className="flex items-center gap-1.5">
                         <CardTitle className="flex items-center gap-1">
@@ -68,6 +77,9 @@ export default async function DebtsPage({
                         <DeleteDebtButton debtId={debt.id} agent={debt.agent} />
                       </div>
                       <div className="text-xl font-semibold tabular-nums">{formatCurrency(debt.remainingBalance)}</div>
+                      {debt.kind === "INSTALLMENT_PLAN" && debt.monthlyAmount !== undefined && (
+                        <p className="text-xs opacity-60">{formatCurrency(debt.monthlyAmount)}/mês combinado</p>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <DebtTransactionDialog
@@ -89,6 +101,7 @@ export default async function DebtsPage({
                         accounts={liquidAccounts}
                         categories={categories}
                         defaultCategoryId={debt.defaultCategoryId}
+                        defaultAmount={debt.kind === "INSTALLMENT_PLAN" ? debt.monthlyAmount : undefined}
                         trigger={<Button size="sm"><Minus className="size-3.5" strokeWidth={1.5} /> Pagamento</Button>}
                       />
                     </div>

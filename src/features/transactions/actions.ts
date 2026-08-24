@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import * as transactionsService from "@/services/transactions.service";
-import { transactionSchema, updateTransactionSchema, type TransactionInput } from "@/lib/validations/transactions";
+import { transactionSchema, updateTransactionSchema, refundTransactionSchema, type TransactionInput } from "@/lib/validations/transactions";
 
 export async function createTransactionAction(input: TransactionInput) {
   const parsed = transactionSchema.parse(input);
@@ -26,4 +26,13 @@ export async function deleteTransactionAction(id: string) {
   revalidatePath("/transactions");
   revalidatePath("/dashboard");
   revalidatePath("/accounts");
+}
+
+export async function refundTransactionAction(input: { transactionId: string; refundDate: string }) {
+  const parsed = refundTransactionSchema.parse(input);
+  await transactionsService.refundTransaction(parsed.transactionId, parsed.refundDate);
+  revalidatePath("/transactions");
+  revalidatePath("/dashboard");
+  revalidatePath("/accounts");
+  revalidatePath("/budgets");
 }

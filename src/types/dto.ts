@@ -1,4 +1,4 @@
-import type { AccountType, CategoryType, DebtSide, TransactionType } from "./database";
+import type { AccountType, CategoryType, DebtSide, DebtKind, TransactionType } from "./database";
 
 /**
  * DTOs — this file is the source of truth (DOC/ARCHITECTURE.md's "DTO Definitions" block mirrors
@@ -33,6 +33,7 @@ export type FinancialSummaryDTO = {
   result: number;
   adjustmentShare: number; // % of period total sitting under "Ajuste" — bookkeeping-looseness signal
   retroactiveIncomeShare: number; // % of period total from paid-before-system installments — distinct signal from adjustmentShare, see AI_CONTEXT.md "Compras retroativas"
+  refundShare: number; // % of period total (either direction) sitting under "Estorno" — distinct signal, see AI_CONTEXT.md "Estorno"
 };
 
 export type MonthlyEvolutionDTO = { month: string; income: number; expense: number };
@@ -88,10 +89,14 @@ export type DebtDTO = {
   id: string;
   side: DebtSide;
   agent: string;
+  kind: DebtKind; // PERSONAL nunca afeta o dashboard; OVERDUE_BILL/INSTALLMENT_PLAN sempre contam em "Dívidas em aberto" — ver AI_CONTEXT.md "Dívidas — subtipos"
   originalAmount: number;
   remainingBalance: number;
   active: boolean;
   defaultCategoryId?: string; // pré-preenche (sobrescrevível) a categoria de um pagamento registrado contra a dívida
+  monthlyAmount?: number; // só INSTALLMENT_PLAN — valor combinado a pagar por mês
+  dueDay?: number; // só INSTALLMENT_PLAN — dia de vencimento mensal, 1-28
+  paidThisMonth?: boolean; // só INSTALLMENT_PLAN — se já existe um pagamento (debt_transactions.amount < 0) datado no mês corrente
 };
 
 export type DebtTransactionDTO = {
@@ -117,6 +122,9 @@ export type CardPurchaseDTO = {
   subcategoryId: string | null;
   subcategoryName: string | null;
   paidThroughCompetence?: string; // "YYYY-MM" — set for a backfilled/retroactive purchase; every generated installment with competence <= this month is flagged card_installments.paid_before_system, see AI_CONTEXT.md "Compras retroativas"
+  refundedAt?: string; // set when a card_refunds row exists for this purchase — full refund only, see AI_CONTEXT.md "Estorno"
+  remainingUnbilledAmount: number; // sum of this purchase's not-yet-billed installments (competence past the currently open invoice) — 0 when nothing is left
+  remainingInstallmentsCount: number; // how many not-yet-billed installments remain — the max for "Antecipar parcelas"' count input
 };
 
 export type CardSummaryDTO = {

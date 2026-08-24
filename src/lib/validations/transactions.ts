@@ -40,6 +40,12 @@ export const updateTransactionSchema = transactionBaseSchema.partial().extend({
   id: z.string().uuid(),
 });
 
+export const refundTransactionSchema = z.object({
+  transactionId: z.string().uuid(),
+  refundDate: z.string().min(1, "Data é obrigatória"),
+});
+export type RefundTransactionInput = z.infer<typeof refundTransactionSchema>;
+
 /** Cross-field rule not enforced by the DB: an INCOME category can't hold a subcategory. */
 export function validateCategoryTypeMatchesTransaction(
   categoryType: "INCOME" | "EXPENSE" | undefined,

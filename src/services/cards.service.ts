@@ -163,6 +163,75 @@ export async function deleteCardPurchase(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+async function getEstornoCategoryIds(supabase: Awaited<ReturnType<typeof createClient>>) {
+  const [{ data: expense, error: expenseError }, { data: income, error: incomeError }] = await Promise.all([
+    supabase.from("categories").select("id").eq("is_system", true).eq("name", "Estorno").eq("type", "EXPENSE").single(),
+    supabase.from("categories").select("id").eq("is_system", true).eq("name", "Estorno").eq("type", "INCOME").single(),
+  ]);
+  if (expenseError) throw new Error(expenseError.message);
+  if (incomeError) throw new Error(incomeError.message);
+  return { expenseCategoryId: expense.id as string, incomeCategoryId: income.id as string };
+}
+
+/**
+ * Estorno integral de uma compra no cartão (AI_CONTEXT.md "Estorno") — só reembolso total, nunca
+ * parcial. Três coisas acontecem: (1) a compra é reclassificada para a categoria system "Estorno"
+ * (EXPENSE), tirando-a da categoria original em qualquer gráfico/soma por categoria; (2) toda
+ * parcela ainda não faturada (competence depois da fatura que estava aberta no momento do
+ * estorno) é adiantada pra essa mesma competência — replica o que o emissor real faz: uma compra
+ * parcelada estornada não continua pingando pelos meses futuros originais, todo o restante é
+ * jogado de uma vez na fatura aberta na hora do estorno (comportamento observado pelo usuário
+ * 2026-08-23 num estorno real do cartão Amazon — a 1ª parcela já faturada/paga ficou intacta, as
+ * demais foram todas puxadas pra fatura em aberto); (3) um `card_refunds` reduz o saldo do cartão
+ * exatamente como um pagamento reduziria (mesmas fórmulas de `getCardBalanceThroughMonth`/
+ * `getCardTotalCommitted`), sem precisar de uma conta pagadora real — o crédito veio do
+ * lojista/emissor, nunca de uma conta rastreada do usuário. O valor é sempre `card_purchases.amount`
+ * (o total da compra), nunca aceito do client, e a constraint `card_refunds_card_purchase_id_key`
+ * impede estornar a mesma compra duas vezes.
+ */
+export async function refundCardPurchase(purchaseId: string, refundDate: string): Promise<void> {
+  const supabase = await createClient();
+  const user = await getUser();
+
+  const { data: purchase, error: purchaseError } = await supabase
+    .from("card_purchases")
+    .select("id, credit_card_id, amount")
+    .eq("id", purchaseId)
+    .single();
+  if (purchaseError) throw new Error(purchaseError.message);
+
+  const { data: existingRefund } = await supabase.from("card_refunds").select("id").eq("card_purchase_id", purchaseId).maybeSingle();
+  if (existingRefund) throw new Error("Esta compra já foi estornada.");
+
+  const { expenseCategoryId, incomeCategoryId } = await getEstornoCategoryIds(supabase);
+
+  const cycle = await getCardCycle(supabase, purchase.credit_card_id);
+  const openInvoiceCompetence = calculateInstallmentCompetences(refundDate, cycle.closing_day, cycle.due_day, 1)[0];
+
+  const { error: advanceError } = await supabase
+    .from("card_installments")
+    .update({ competence: openInvoiceCompetence })
+    .eq("purchase_id", purchaseId)
+    .gt("competence", openInvoiceCompetence);
+  if (advanceError) throw new Error(advanceError.message);
+
+  const { error: updateError } = await supabase
+    .from("card_purchases")
+    .update({ category_id: expenseCategoryId, subcategory_id: null })
+    .eq("id", purchaseId);
+  if (updateError) throw new Error(updateError.message);
+
+  const { error: refundError } = await supabase.from("card_refunds").insert({
+    user_id: user.id,
+    card_purchase_id: purchaseId,
+    credit_card_id: purchase.credit_card_id,
+    category_id: incomeCategoryId,
+    amount: purchase.amount,
+    refund_date: refundDate,
+  });
+  if (refundError) throw new Error(refundError.message);
+}
+
 export async function getCardPurchases(cardId: string): Promise<CardPurchaseDTO[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -174,17 +243,34 @@ export async function getCardPurchases(cardId: string): Promise<CardPurchaseDTO[
 
   const purchaseIds = (data ?? []).map((row) => row.id);
   const firstCompetenceByPurchase = new Map<string, string>();
+  const refundDateByPurchase = new Map<string, string>();
+  const remainingByPurchase = new Map<string, number>();
+  const remainingCountByPurchase = new Map<string, number>();
   if (purchaseIds.length) {
-    const { data: installments, error: installmentError } = await supabase
-      .from("card_installments")
-      .select("purchase_id, competence")
-      .in("purchase_id", purchaseIds)
-      .order("competence", { ascending: true });
+    const cycle = await getCardCycle(supabase, cardId);
+    const openMonth = calculateInstallmentCompetences(todayIso(), cycle.closing_day, cycle.due_day, 1)[0];
+
+    const [{ data: installments, error: installmentError }, { data: refunds, error: refundError }] = await Promise.all([
+      supabase
+        .from("card_installments")
+        .select("purchase_id, competence, amount, paid_before_system")
+        .in("purchase_id", purchaseIds)
+        .order("competence", { ascending: true }),
+      supabase.from("card_refunds").select("card_purchase_id, refund_date").in("card_purchase_id", purchaseIds),
+    ]);
     if (installmentError) throw new Error(installmentError.message);
+    if (refundError) throw new Error(refundError.message);
     for (const row of installments ?? []) {
       if (!firstCompetenceByPurchase.has(row.purchase_id)) {
         firstCompetenceByPurchase.set(row.purchase_id, monthKey(row.competence));
       }
+      if (!row.paid_before_system && row.competence > openMonth) {
+        remainingByPurchase.set(row.purchase_id, addMoney(remainingByPurchase.get(row.purchase_id) ?? 0, row.amount));
+        remainingCountByPurchase.set(row.purchase_id, (remainingCountByPurchase.get(row.purchase_id) ?? 0) + 1);
+      }
+    }
+    for (const row of refunds ?? []) {
+      refundDateByPurchase.set(row.card_purchase_id, row.refund_date);
     }
   }
 
@@ -201,6 +287,9 @@ export async function getCardPurchases(cardId: string): Promise<CardPurchaseDTO[
     subcategoryId: row.subcategory_id,
     subcategoryName: row.subcategories?.name ?? null,
     paidThroughCompetence: row.paid_through_competence ? monthKey(row.paid_through_competence) : undefined,
+    refundedAt: refundDateByPurchase.get(row.id),
+    remainingUnbilledAmount: remainingByPurchase.get(row.id) ?? 0,
+    remainingInstallmentsCount: remainingCountByPurchase.get(row.id) ?? 0,
   }));
 }
 
@@ -266,12 +355,12 @@ export async function getCardInstallments(cardId: string, filters: { periodStart
   return rows;
 }
 
-/** Sum of installments due through (and including) `throughMonth`, minus payments already made — what a "pay the bill" action should actually suggest, not the full lifetime balance including installments still in the future. Excludes `paid_before_system` installments — a backfilled/retroactive purchase already settled outside the system, see AI_CONTEXT.md "Compras retroativas". */
+/** Sum of installments due through (and including) `throughMonth`, minus payments already made — what a "pay the bill" action should actually suggest, not the full lifetime balance including installments still in the future. Excludes `paid_before_system` installments — a backfilled/retroactive purchase already settled outside the system, see AI_CONTEXT.md "Compras retroativas". Also subtracts `card_refunds` up to `throughMonth` — a refund reduces what's owed exactly like a payment does (AI_CONTEXT.md "Estorno"). */
 export async function getCardBalanceThroughMonth(creditCardId: string, throughMonth: string): Promise<number> {
   const supabase = await createClient();
   const periodEnd = endOfMonth(`${throughMonth}-01`);
 
-  const [{ data: installments }, { data: payments }] = await Promise.all([
+  const [{ data: installments }, { data: payments }, { data: refunds }] = await Promise.all([
     supabase
       .from("card_installments")
       .select("amount")
@@ -279,9 +368,10 @@ export async function getCardBalanceThroughMonth(creditCardId: string, throughMo
       .eq("paid_before_system", false)
       .lte("competence", periodEnd),
     supabase.from("card_payments").select("amount").eq("credit_card_id", creditCardId),
+    supabase.from("card_refunds").select("amount").eq("credit_card_id", creditCardId).lte("refund_date", periodEnd),
   ]);
   const totalInstallments = sumMoney((installments ?? []).map((i) => i.amount));
-  const totalPayments = sumMoney((payments ?? []).map((p) => p.amount));
+  const totalPayments = sumMoney([...(payments ?? []).map((p) => p.amount), ...(refunds ?? []).map((r) => r.amount)]);
   return Math.max(0, subtractMoney(totalInstallments, totalPayments));
 }
 
@@ -289,16 +379,18 @@ export async function getCardBalanceThroughMonth(creditCardId: string, throughMo
  * payment ever made — the true "against the limit" figure. Deliberately different from
  * `getCardBalanceThroughMonth`, which excludes future installments not yet due (see AI_CONTEXT.md
  * "CREDIT_CARD_PAYMENT" — that one drives the "Pagar fatura" suggestion, not the limit-usage display).
- * Also excludes `paid_before_system` installments, same reasoning as `getCardBalanceThroughMonth`.
+ * Also excludes `paid_before_system` installments, same reasoning as `getCardBalanceThroughMonth`,
+ * and subtracts every `card_refunds` row ever made (a full refund frees up the limit again).
  */
 export async function getCardTotalCommitted(creditCardId: string): Promise<number> {
   const supabase = await createClient();
-  const [{ data: installments }, { data: payments }] = await Promise.all([
+  const [{ data: installments }, { data: payments }, { data: refunds }] = await Promise.all([
     supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).eq("paid_before_system", false),
     supabase.from("card_payments").select("amount").eq("credit_card_id", creditCardId),
+    supabase.from("card_refunds").select("amount").eq("credit_card_id", creditCardId),
   ]);
   const totalInstallments = sumMoney((installments ?? []).map((i) => i.amount));
-  const totalPayments = sumMoney((payments ?? []).map((p) => p.amount));
+  const totalPayments = sumMoney([...(payments ?? []).map((p) => p.amount), ...(refunds ?? []).map((r) => r.amount)]);
   return Math.max(0, subtractMoney(totalInstallments, totalPayments));
 }
 
@@ -411,6 +503,44 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
 }
 
 /**
+ * Shared by `registerCardPayment` ("Pagar fatura") and `advancePurchaseInstallments`
+ * ("Antecipar parcelas") — both are, mechanically, the exact same thing: a CREDIT_CARD_PAYMENT
+ * transaction plus its linked card_payments row, reducing the card's outstanding balance via the
+ * same `getCardBalanceThroughMonth`/`getCardTotalCommitted` formulas. Only the description and
+ * which amount gets suggested differ.
+ */
+async function insertCardPayment(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  input: { creditCardId: string; accountId: string; amount: number; paymentDate: string; description: string }
+): Promise<void> {
+  const { data: transaction, error: txError } = await supabase
+    .from("transactions")
+    .insert({
+      user_id: userId,
+      type: "CREDIT_CARD_PAYMENT",
+      origin_account_id: input.accountId,
+      destination_account_id: input.creditCardId,
+      amount: input.amount,
+      date: input.paymentDate,
+      description: input.description,
+    })
+    .select("id")
+    .single();
+  if (txError) throw new Error(txError.message);
+
+  const { error: paymentError } = await supabase.from("card_payments").insert({
+    user_id: userId,
+    credit_card_id: input.creditCardId,
+    account_id: input.accountId,
+    transaction_id: transaction.id,
+    amount: input.amount,
+    payment_date: input.paymentDate,
+  });
+  if (paymentError) throw new Error(paymentError.message);
+}
+
+/**
  * Pays the card bill: creates both a CREDIT_CARD_PAYMENT transaction and the linked card_payments
  * metadata row. `transactions.description` defaults to naming the card ("Pagamento da fatura do
  * cartão {name}") since the payment form itself has no description field (see AI_CONTEXT.md
@@ -420,33 +550,74 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
 export async function registerCardPayment(input: CardPaymentInput): Promise<void> {
   const supabase = await createClient();
   const user = await getUser();
-
   const { data: card } = await supabase.from("accounts").select("name").eq("id", input.creditCardId).single();
-
-  const { data: transaction, error: txError } = await supabase
-    .from("transactions")
-    .insert({
-      user_id: user.id,
-      type: "CREDIT_CARD_PAYMENT",
-      origin_account_id: input.accountId,
-      destination_account_id: input.creditCardId,
-      amount: input.amount,
-      date: input.paymentDate,
-      description: `Pagamento da fatura do cartão ${card?.name ?? ""}`.trim(),
-    })
-    .select("id")
-    .single();
-  if (txError) throw new Error(txError.message);
-
-  const { error: paymentError } = await supabase.from("card_payments").insert({
-    user_id: user.id,
-    credit_card_id: input.creditCardId,
-    account_id: input.accountId,
-    transaction_id: transaction.id,
+  await insertCardPayment(supabase, user.id, {
+    creditCardId: input.creditCardId,
+    accountId: input.accountId,
     amount: input.amount,
-    payment_date: input.paymentDate,
+    paymentDate: input.paymentDate,
+    description: `Pagamento da fatura do cartão ${card?.name ?? ""}`.trim(),
   });
-  if (paymentError) throw new Error(paymentError.message);
+}
+
+/**
+ * Parcelas de uma compra ainda não faturadas (competence depois da fatura aberta agora),
+ * ordenadas por competence — a lista sobre a qual "Antecipar parcelas" abaixo opera. Não inclui
+ * parcelas paid_before_system (já quitadas fora do sistema, ver "Compras retroativas") nem as já
+ * faturadas (essas já entram na fatura normal via getCardBalanceThroughMonth).
+ */
+export async function getPurchaseFutureInstallments(purchaseId: string): Promise<{ id: string; competence: string; amount: number }[]> {
+  const supabase = await createClient();
+  const { data: purchase, error: purchaseError } = await supabase.from("card_purchases").select("credit_card_id").eq("id", purchaseId).single();
+  if (purchaseError) throw new Error(purchaseError.message);
+  const cycle = await getCardCycle(supabase, purchase.credit_card_id);
+  const openCompetence = calculateInstallmentCompetences(todayIso(), cycle.closing_day, cycle.due_day, 1)[0];
+  const { data: installments, error: installmentsError } = await supabase
+    .from("card_installments")
+    .select("id, competence, amount")
+    .eq("purchase_id", purchaseId)
+    .eq("paid_before_system", false)
+    .gt("competence", openCompetence)
+    .order("competence", { ascending: true });
+  if (installmentsError) throw new Error(installmentsError.message);
+  return installments ?? [];
+}
+
+/**
+ * "Antecipar parcelas" (corrigido 2026-08-23, a pedido do usuário — a primeira versão pagava a
+ * fatura, o que estava conceitualmente errado: antecipar não move dinheiro nenhum, só remaneja
+ * competência, igual `refundCardPurchase` faz, só que parcial e escolhido pelo usuário). Das
+ * parcelas ainda não faturadas de uma compra, o usuário escolhe **quantas** (`count`) — não
+ * precisa ser todas. As `count` mais próximas (as primeiras da lista ordenada por competence) vão
+ * todas pra mesma competência da fatura aberta agora; as demais são renumeradas em sequência logo
+ * em seguida, sem pular mês nenhum — encurtando o parcelamento em `count` meses. Isso só muda
+ * QUANDO a despesa está prevista pra faturar, nunca cria pagamento nenhum — pra de fato pagar as
+ * parcelas antecipadas (agora todas na fatura corrente) o usuário ainda usa o fluxo normal de
+ * "Pagar fatura" depois.
+ */
+export async function advancePurchaseInstallments(purchaseId: string, count: number): Promise<void> {
+  const supabase = await createClient();
+
+  const { data: purchase, error: purchaseError } = await supabase.from("card_purchases").select("credit_card_id").eq("id", purchaseId).single();
+  if (purchaseError) throw new Error(purchaseError.message);
+  const cycle = await getCardCycle(supabase, purchase.credit_card_id);
+  const openCompetence = calculateInstallmentCompetences(todayIso(), cycle.closing_day, cycle.due_day, 1)[0];
+
+  const future = await getPurchaseFutureInstallments(purchaseId);
+  if (count < 1 || count > future.length) throw new Error("Quantidade de parcelas inválida.");
+
+  const toAdvance = future.slice(0, count);
+  const toReschedule = future.slice(count);
+
+  for (const installment of toAdvance) {
+    const { error } = await supabase.from("card_installments").update({ competence: openCompetence }).eq("id", installment.id);
+    if (error) throw new Error(error.message);
+  }
+  for (let i = 0; i < toReschedule.length; i++) {
+    const newCompetence = addMonthsToIsoDate(openCompetence, i + 1);
+    const { error } = await supabase.from("card_installments").update({ competence: newCompetence }).eq("id", toReschedule[i].id);
+    if (error) throw new Error(error.message);
+  }
 }
 
 /**

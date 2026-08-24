@@ -208,6 +208,39 @@ No new table — both are a normal `createTransaction` call under the hood. Both
 
 ---
 
+# Estorno — categoria `is_system`
+
+**Decidido e implementado 2026-08-23, a pedido do usuário**, depois que uma auditoria completa do sistema apontou que não havia forma nenhuma de registrar um reembolso sem ou (a) inflar RECEITA com uma categoria sem relação com o gasto original, ou (b) reescrever a compra original perdendo o histórico. Um estorno pode acontecer **meses depois** da compra original (ex.: devolução de uma peça de roupa comprada há 3 meses) — por isso a solução nunca tenta "voltar no tempo" e reescrever `card_installments`/competências já geradas; ela sempre registra o estorno na data em que ele realmente aconteceu.
+
+**Só estorno integral, nunca parcial** — decisão explícita do usuário ("pra ser reembolso creio que tenha que ser o total"). O valor do estorno é sempre o valor total da compra/despesa original, nunca aceito do client nem editável na tela — só a data é.
+
+Mesma convenção de `Ajuste`: `Estorno` é um par `is_system` (`EXPENSE` + `INCOME`, migration `0019`), já que `type` é obrigatório em toda categoria.
+
+**Compra no cartão** (`cards.service.ts#refundCardPurchase(purchaseId, refundDate)`) — três coisas acontecem juntas:
+1. A compra (`card_purchases.category_id`/`subcategory_id`) é reclassificada para a categoria system `Estorno` (`EXPENSE`) — isso tira o valor de qualquer gráfico/soma da categoria original (ex.: "Roupas") a partir dali, já que `card_installments` herda a categoria via join com `card_purchases`. O gasto bruto do período não desaparece, só passa a aparecer sob "Estorno" em vez da categoria original — mesma filosofia de transparência de `Ajuste`/`Rendimentos` (nunca esconder o evento, só rotular com clareza).
+2. **Toda parcela ainda não faturada é adiantada pra fatura que estava aberta no momento do estorno** (decidido 2026-08-23, depois que o usuário relatou o comportamento real de um estorno no cartão Amazon: a 1ª parcela já tinha sido faturada e paga numa fatura anterior — essa fica intocada — mas as parcelas restantes (2 em diante) foram todas adiantadas pelo emissor de uma vez só pra fatura que estava aberta na hora do estorno, junto com o crédito do valor total). `refundCardPurchase` calcula a competência que uma compra feita em `refundDate` cairia (mesma fórmula de `openInvoiceMonth`, só que ancorada em `refundDate` em vez de hoje — o estorno pode ser lançado tempos depois de ter acontecido) e faz `UPDATE card_installments SET competence = essa_competência WHERE purchase_id = ... AND competence > essa_competência`. Uma parcela já faturada (competence <= a fatura aberta na hora do estorno) nunca é tocada — já virou fato histórico, não pode ser reescrita. Isso significa que múltiplas parcelas podem terminar com a mesma `competence` — aceitável, é exatamente o que acontece na fatura real; a numeração "N/total" delas fica ambígua nesse caso, mas isso é só cosmético (não afeta nenhum total).
+3. Um `card_refunds` é inserido — um crédito no cartão que reduz o saldo devido **exatamente como um pagamento reduziria** (mesmas fórmulas de `getCardBalanceThroughMonth`/`getCardTotalCommitted`, que agora também subtraem `card_refunds`), mas sem uma conta pagadora real por trás: o crédito veio do lojista/emissor, o dinheiro nunca saiu de uma conta rastreada do usuário. `card_refunds.category_id` é sempre a categoria system `Estorno` (`INCOME`) e conta como RECEITA real do dashboard no mês do `refund_date` (nunca no mês da compra original) — computado dentro de `fetchPeriodEntries` (`dashboard.service.ts`), com categoria real, então aparece normalmente nos gráficos de categoria de RECEITA (diferente do caso de "Compras retroativas" acima, que não tem categoria real e por isso fica de fora desses gráficos de propósito). A constraint `UNIQUE (card_purchase_id)` em `card_refunds` impede estornar a mesma compra duas vezes.
+
+**Transação fora do cartão** (`transactions.service.ts#refundTransaction(transactionId, refundDate)`) — mais simples, porque dinheiro real volta pra uma conta real: reclassifica a despesa original pra `Estorno` (`EXPENSE`) e cria uma **nova transação real** de `INCOME`, categoria `Estorno`, no mesmo valor, creditada na mesma conta de origem da despesa, datada de quando o estorno de fato aconteceu. `transactions.refund_of_transaction_id` (auto-FK, `ON DELETE SET NULL`) só existe para rastreabilidade — quem de fato reclassifica a despesa é `category_id`, igual sempre. Bloqueia um segundo estorno checando se a despesa já está categorizada como `Estorno`.
+
+**Dashboard signal**: `FinancialSummaryDTO.refundShare` mostra a mesma ideia de `adjustmentShare`/`retroactiveIncomeShare` — % do total do período (nas duas direções) sob "Estorno" — exibido como badge ao lado do Balanço Mensal.
+
+**Fora de escopo por enquanto**: um `card_refunds`/estorno de transação não aparece como sua própria linha no Explorador de Lançamentos (só a recategorização da compra original é visível lá) — ver a nota em `refundCardPurchase`. Também não existe hoje um caminho pra desfazer um estorno já registrado (equivalente ao "Cancelar pagamento" de despesas fixas) — se precisar reverter, a compra/transação precisa ser recategorizada manualmente de volta e o `card_refunds`/a transação de receita apagados à mão.
+
+---
+
+**Decidido e implementado 2026-08-23, a pedido do usuário** ("posso se quiser adiantar parcelas de compras pra liberar limite do cartão") — **corrigido no mesmo dia** depois que a primeira versão saiu conceitualmente errada (tratava "antecipar" como um pagamento). O usuário esclareceu: antecipar não é pagar nada — é só remanejar **quando** as parcelas estão previstas pra faturar, exatamente como `refundCardPurchase` já faz, só que **parcial** e **escolhido pelo usuário** (não precisa ser todas as parcelas restantes).
+
+`cards.service.ts#advancePurchaseInstallments(purchaseId, count)` pega as parcelas ainda não faturadas de uma compra (`getPurchaseFutureInstallments`, ordenadas por `competence`, excluindo `paid_before_system`) e faz duas coisas:
+1. As `count` mais próximas (as primeiras da lista) vão todas pra mesma competência da fatura aberta agora (`calculateInstallmentCompetences` ancorado em hoje, mesma fórmula de `openInvoiceMonth`).
+2. As demais (a partir da `count+1`) são renumeradas em sequência logo em seguida — mês da fatura aberta +1, +2, +3... — sem pular nenhum, encurtando o parcelamento inteiro em `count` meses.
+
+**Nunca cria `transactions`/`card_payments`** — é puramente `UPDATE card_installments SET competence = ...`. Pra de fato **pagar** as parcelas que agora caíram na fatura corrente, o usuário continua usando o fluxo normal de "Pagar fatura" (`registerCardPayment`) depois — antecipar só resolve "quando", pagar resolve "com que dinheiro". Como `getCardTotalCommitted`/`getCardBalanceThroughMonth` somam por `competence`, isso não muda o total comprometido contra o limite — só reorganiza a distribuição mensal (útil, por exemplo, se o usuário quer ver o compromisso concentrado antes de decidir quitar tudo de uma vez).
+
+Botão (ícone de "avançar", ⏩) só aparece por compra quando `remainingInstallmentsCount > 0` e a compra não foi estornada. O campo "quantas parcelas antecipar" aceita de 1 até `remainingInstallmentsCount` — o usuário não é obrigado a antecipar todas.
+
+---
+
 # Reservoir (Cofre) — displayed as "Receita Programada"
 
 Represents accumulated value that is **not yet real money** — projected or already-earned-but-not-yet-received income. Originated from the owner's own work pattern (freelance/session-based income: poker cash game and tournament earnings, but the model is generic — applies equally to e.g. a weekly-paid freelancer).
@@ -282,9 +315,32 @@ Debts never affect dashboard totals directly — only the linked transactions th
 - **Editing or deleting a ledger entry** (`debt_transactions`), mirroring `reservoirs.service.ts#updateReservoirTransaction`/`deleteReservoirTransaction` but *less* restrictive: reservoirs blocks editing a withdrawal outright (only accrual entries are editable), while a debt entry is editable either way — `debts.service.ts#updateDebtTransaction` propagates amount/date/description/category onto the linked `transactions` row when one exists (`AI_GENERATION_RULES.md` → "Linked Records Consistency": editing the source of a linked record must propagate consistently). What editing can never do is flip an entry's direction — a payment can't silently become an increase — since the create-side UI already treats "aumento" and "pagamento" as two separate flows, never a toggle; the service rejects a sign mismatch outright. `deleteDebtTransaction` deletes the linked `transactions` row too, same reasoning as `deleteReservoirTransaction`: a linked ledger entry's only reason to exist is to represent that specific movement. Both recompute the real balance afterward and reapply the same settle-to-zero auto-deactivation `addDebtTransaction` already does post-insert — an edit or delete can just as well zero out a debt as a new entry can.
 - This surfaced a real, pre-existing gap: `debt_transactions` had no `date` column at all (only `created_at`, not user-editable) — `DebtTransactionDialog`'s date picker was always shown but silently discarded for any entry without a linked transaction. Migration `0016` adds `debt_transactions.date`, the same fix migration `0011` already made for `reservoir_transactions` for the identical reason.
 
+## Dívidas — subtipos
+
+**Decidido e implementado 2026-08-23, a pedido do usuário**, no mesmo dia da auditoria completa do sistema que apontou "dívida" como um conceito único demais pra cobrir os casos reais do usuário. `debts.kind` (migration `0021`) agora distingue três subtipos, cada um com um comportamento diferente no resto do sistema:
+
+- **`PERSONAL`** (default, preserva 100% do comportamento anterior de toda dívida já cadastrada) — empréstimo entre pessoas (amigos, família). Pode ir em qualquer direção (`PAYABLE` ou `RECEIVABLE`). **Nunca afeta o dashboard** — continua exatamente como descrito acima, a urgência depende só do combinado entre as partes.
+- **`OVERDUE_BILL`** ("conta em atraso") — uma conta do dia a dia (água, luz, telefone, aluguel) que ficou sem pagar. Sempre `PAYABLE` na prática — a UI (`DebtFormDialog`) trava a direção e esconde o seletor quando o tipo é este. **Sempre aparece com alerta claro e sempre negativa o dashboard** (diferente de `PERSONAL`) — ver "Dívidas em aberto" abaixo.
+- **`INSTALLMENT_PLAN`** ("parcelamento combinado") — uma compra parcelada fora do cartão (boleto, financiamento de loja) ou um acordo informal "no boca a boca" com valor mensal combinado. Também sempre `PAYABLE`, também sempre conta em "Dívidas em aberto". Ganha dois campos extras, obrigatórios só nesse caso (validados em `src/lib/validations/debts.ts`, não em `CHECK` de banco — mesma convenção já usada pros campos CREDIT_CARD-only de `accounts`): `monthlyAmount` (valor combinado por mês) e `dueDay` (dia de vencimento, 1-28).
+
+### Dívidas em aberto (dashboard)
+
+`src/features/dashboard/components/open-debts-alert.tsx` — um card vermelho, sempre visível (`dashboard/page.tsx` chama `getDebts()` e filtra `side === "PAYABLE" && kind !== "PERSONAL"`), **independente do filtro de período** do resto do dashboard: uma dívida em aberto é um compromisso existente agora, não um evento datado dentro de um período. `totalOpenDebts` é somado no próprio `page.tsx` (nunca dentro do componente — "Chart Rules": agregação sempre no server). Cada linha mostra o `remainingBalance` da dívida e:
+- `OVERDUE_BILL`: badge vermelho fixo "Atrasada" — por definição já está atrasada, não tem "dia de vencimento" pra contar.
+- `INSTALLMENT_PLAN`: se `paidThisMonth`, badge verde "Pago este mês"; senão, o mesmo cálculo de dias até vencer/atrasado que `UpcomingDueAlert` já usa pra despesas fixas (`daysUntilDueThisMonth`).
+
+Um botão "Registrar pagamento" por linha reabre o já existente `DebtTransactionDialog` em `mode="payment"`, pré-preenchido via o novo prop `defaultAmount` (`monthlyAmount` pra `INSTALLMENT_PLAN`, o `remainingBalance` inteiro pra `OVERDUE_BILL` — sugestão de quitação total, ainda editável). Essa é a implementação de **"lembrete + 1 clique"** que o usuário escolheu explicitamente em vez de geração 100% automática de lançamento: nada é criado sem uma ação explícita do usuário, mesmo padrão do resto do sistema (Pagar fatura, Registrar rendimento, etc.) — a alternativa (o sistema criar a transação sozinho todo mês) foi rejeitada de propósito.
+
+`paidThisMonth` (só `INSTALLMENT_PLAN`, calculado em `getDebts()`) é `true` quando existe algum `debt_transactions` com `amount < 0` datado no mês corrente — mesma convenção `isPaidThisMonth` que Despesas Fixas já usa.
+
+### Calculadora de juros
+
+`DebtTransactionDialog`, em `mode="increase"` (nunca na edição de um lançamento já existente), ganhou um campo opcional "Calcular juros (%)": o usuário digita uma porcentagem, o sistema preenche o campo Valor com `saldo atual × (porcentagem / 100)` (`roundMoney`, `src/lib/utils/money.ts`) — ainda livremente editável depois, nunca um par reativo bidirecional como o gross/net do reservoir (digitar direto no campo Valor não atualiza a porcentagem de volta). Funciona pra qualquer dívida, não só as com juros formais — o usuário decidiu explicitamente que também serve pra uma dívida `PERSONAL` com juros combinados entre as partes.
+
 ---
 
 # Budgets
+
 
 A **standing target** per category/subcategory foi substituído por linhas mensais (migration `0009`, decidido 2026-08-08) — cada linha de `budgets` pertence a exatamente um mês (`budgets.month`, primeiro dia do mês). O design anterior ("standing target, mês é só parâmetro de consulta") permitia que subir um orçamento (ex: aluguel) sobrescrevesse silenciosamente o histórico; isso não vale mais para esta tabela.
 
@@ -365,11 +421,27 @@ Functionally a **specialized, committed slice of a Budget** for genuinely fixed 
 
 `payFixedExpense` (`fixed-expenses.service.ts`) decides how to record the payment from the **account's own type, read server-side from the database — never from client input**: a `CASH`/`BANK` account still creates a plain `EXPENSE` transaction linked via `fixed_expense_id`, exactly as before. A `CREDIT_CARD` account instead creates a **single-installment (1x) `card_purchases` row**, also linked via the same `fixed_expense_id` column (added to `card_purchases` in migration `0012`) — this flows the payment through the normal `card_purchases` → `card_installments` pipeline instead of an invalid plain transaction against an account type `transactions` was never meant to touch directly (see "Transactions" above — `CREDIT_CARD_PAYMENT` already owns that account-type slot, for a different purpose). No new competence logic was written for this: `createCardPurchase` already derives the installment's competence month from the card's `closing_day`/`due_day` the same way any manual card purchase does, so a fixed expense paid on, say, the 20th against a card that closes on the 15th automatically lands in the *next* competence month, never the current one. `getFixedExpenses`'s `actualAmount` was extended to match — it now also sums the `card_installments.amount` (by `competence`, never `purchase_date`, same rule as every other credit card analytic) of any `card_purchases` linked to the fixed expense, alongside the pre-existing `transactions` sum.
 
+## Despesas fixas — histórico de valor
+
+**Corrigido 2026-08-23, a pedido do usuário**, depois de um teste real expor o bug: `fixed_expenses.amount` era um único valor pra vida inteira da despesa, então editar o aluguel de R$1.500 pra R$2.000 reescrevia retroativamente **todo mês já visto** no orçamento — exatamente o mesmo erro, e o mesmo raciocínio, que já tinha motivado `budgets` virar month-scoped na migration `0009` ("subir um orçamento sobrescrevia silenciosamente o histórico"). O usuário foi explícito: "hoje meu aluguel pode ser de 1500 e daqui um ano vira 2000 — se eu alterar o valor ele deve ser modificado daqui em diante, e não retroativo."
+
+Migration `0023` adiciona `fixed_expense_amount_history` (`{fixed_expense_id, amount, effective_from}`, único por `(fixed_expense_id, effective_from)`). `fixed_expenses.amount` **continua existindo** — não foi removida — mas passou a ser só um cache do valor mais recente, usado onde "o valor atual" já bastava (pré-preencher o form de edição; o piso de orçamento em `_shared.ts#getCategoryBudgetFloor`/`getSubcategoryBudgetFloor`, que por construção só olha pro mês atual/próximo, nunca um passado). `getFixedExpenses(month)` — chamada pra qualquer mês, incluindo passado — resolve `plannedAmount` a partir do histórico: a linha com o `effective_from` mais recente que ainda seja `<= o mês pedido`.
+
+- `createFixedExpense` grava a 1ª linha do histórico com `effective_from = '1970-01-01'` ("vale desde sempre") — junto com o backfill que a migration `0023` já fez pra toda despesa fixa existente, isso preserva exatamente o que já era exibido até aqui. Nada muda visualmente até a primeira edição de valor.
+- `updateFixedExpense`, quando `amount` muda, grava (upsert, pra suportar corrigir um typo sem duplicar) uma nova linha com `effective_from` = **o mês real corrente** — nunca um mês passado, nunca pedido ao usuário. `FixedExpenseFormDialog` mostra um aviso no campo Valor, em modo edição, deixando isso explícito ("Vale a partir de {mês atual} — meses anteriores mantêm o valor de antes").
+- Meses **futuros** além do mês corrente também passam a mostrar o novo valor (não existe hoje um jeito de agendar um aumento pra daqui a 3 meses especificamente — a edição sempre vale "a partir de agora").
+
+## Despesas fixas — vincular pagamento já lançado
+
+**Decidido e implementado 2026-08-23, a pedido do usuário**, depois de um acidente real: o usuário apagou por engano a despesa fixa "Claude" (que tinha um pagamento de agosto já registrado) querendo só ajustar o valor a partir de setembro. Recriar a despesa fixa do zero geraria uma NOVA `fixed_expenses` row, sem nenhuma ligação com a `transactions` que já pagou agosto — perdendo o rastro.
+
+`PayFixedExpenseDialog`, no estado "ainda não paga", ganhou um segundo modo ("Já lancei isso manualmente", alternável a qualquer momento antes de confirmar): em vez de criar um pagamento novo, lista despesas (`EXPENSE`) do usuário **ainda sem nenhuma despesa fixa vinculada** (`transactions.fixed_expense_id IS NULL`), filtradas pela categoria da despesa fixa quando ela tem uma — "o sistema pode ter inteligência aqui... procurar só as [transações] da categoria específica", como o usuário pediu — com uma busca por descrição por cima. Escolher uma e confirmar só faz `UPDATE transactions SET fixed_expense_id = ...`; a transaction em si (valor/data/categoria) não é tocada. `getUnlinkedExpenseCandidates`/`linkExistingTransaction` (`fixed-expenses.service.ts`) são lidos/chamados via Server Action a partir do client (mesmo padrão de leitura sob demanda que `getBudgetFloorAction` já usa), não pré-carregados na página — a lista só é buscada quando o usuário abre esse modo.
+
 ---
 
 # Money Reality Rules
 
-Only these affect financial totals: `transactions`, `card_installments`, `card_payments` (via their linked transaction).
+Only these affect financial totals: `transactions`, `card_installments`, `card_payments` (via their linked transaction), `card_refunds` (counts as INCOME for the month of `refund_date`, and reduces the card's outstanding balance like a payment — see "Estorno").
 
 Never affect totals directly: `reservoirs`/`reservoir_transactions`, `debts`/`debt_transactions`, `budgets`, `fixed_expenses`. They may appear in informational panels, but only the real transactions they eventually link to move the needle on analytics.
 

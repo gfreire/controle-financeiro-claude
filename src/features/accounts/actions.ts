@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import * as accountsService from "@/services/accounts.service";
-import { accountSchema, registerYieldSchema, reconcileBalanceSchema, type AccountInput } from "@/lib/validations/accounts";
+import { accountSchema, updateAccountSchema, registerYieldSchema, reconcileBalanceSchema, type AccountInput } from "@/lib/validations/accounts";
 
 export async function createAccountAction(input: AccountInput) {
   const parsed = accountSchema.parse(input);
@@ -12,7 +12,8 @@ export async function createAccountAction(input: AccountInput) {
 }
 
 export async function updateAccountAction(id: string, input: Partial<AccountInput>) {
-  await accountsService.updateAccount(id, input);
+  const parsed = updateAccountSchema.parse({ id, ...input });
+  await accountsService.updateAccount(id, parsed);
   revalidatePath("/accounts");
   revalidatePath("/dashboard");
 }

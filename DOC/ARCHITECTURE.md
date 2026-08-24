@@ -37,6 +37,7 @@ Full app is built and running (Next.js 16, App Router, Turbopack) — this isn't
 - The Budget/Fixed-Expense hierarchy (decided 2026-08-07, see `AI_CONTEXT.md` → "Budget hierarchy") deliberately breaks from the credit-limit soft-enforce pattern in one direction only: manually lowering a budget below its committed children (subcategory budgets + fixed expenses) is a **hard block**, not a warning — the reasoning is that a budget contradicting its own committed children is simply wrong, not a maybe-forgot-something judgment call. Raising never blocks — fixed expenses/subcategory budgets auto-raise (or create) their parent budget with a notice instead.
 - The dashboard's Budgets/Fixed-Expenses panel (`dashboard/page.tsx`) now aggregates against `filters.periodEnd` instead of always `todayIso()` (fixed 2026-08-07) — a user browsing a past or future month via the period filter expects the panel to follow the same month, not silently stay pinned to today while every other dashboard section moves. `getBudgets(month)`/`getFixedExpenses(month)` already accepted any date within the target month, so this was a caller-side fix, not a service change.
 - `/transactions` (fixed 2026-08-07) is now month-scoped the same way `/cards` already was, instead of loading every transaction the user has ever logged with no period filter — consistent with the rest of the app being month-driven by default. Reuses the same shared `MonthPicker`/`MonthNav` pattern as Cards; `getTransactions()` already accepted `periodStart`/`periodEnd`, so this only touched the page and added `src/features/transactions/components/month-nav.tsx`.
+- **Phantom scrollbars on every dialog (fixed 2026-08-23, found by the user testing).** `DialogContent` (`src/components/ui/dialog.tsx`) had `overflow-y-auto` on the same element that renders `<CornerMarks />`, the shared "Industry" corner-tick decoration — but `.corner-tl`/`.corner-tr`/`.corner-bl`/`.corner-br` (`globals.css`) are absolutely positioned with **negative** offsets (`-6px`), deliberately bleeding past the box edge to sit outside the visible border. A scrollable ancestor counts that bleed as real overflow, so every dialog showed both a horizontal and a vertical scrollbar even when its content plainly fit — visually, a stray light rounded shape and scrollbar tracks around an otherwise normal modal. Fixed by moving the scroll to a new inner `<div className="overflow-y-auto p-4">` wrapping only `{children}`, while `DialogContent` itself (where `<CornerMarks />` lives) no longer scrolls — so the corner decoration's bleed is never counted as content overflow. `Card` (`src/components/ui/card.tsx`) never had this problem since it doesn't set its own overflow.
 - The month-label-click bug (fixed 2026-08-07): the month navigator overlays an invisible native `<input type="month">` on top of the label to open the picker on click. Browsers only react to a click on their own built-in calendar-icon hit-area (usually near the right edge), not anywhere in the input's box — so clicking the label text itself did nothing while clicking near the arrow did. Fixed by extracting the navigator into a shared `src/components/ui/month-picker.tsx` that calls the input's `showPicker()` from the wrapping label's `onClick`, so the whole label opens the picker. Dashboard, Cards, and Transactions all now share this one component instead of three copies of the same (buggy) markup.
 - The Transaction Explorer's standalone "Reclassificar em lote" button/dialog was removed (fixed 2026-08-07, at the user's explicit request) — bulk category reassignment is now reachable only through `DeleteCategoryDialog`'s own guided-deletion step, never as a general-purpose action available at any time. `bulkReassignTransactions` (the dashboard action wrapping it) and `batch-reassign-dialog.tsx` were deleted outright rather than left unused.
 - Cards page "usado/total" now reads `CardSummaryDTO.totalCommitted` instead of `usedThroughCurrentMonth` (fixed 2026-08-07) — the latter deliberately excludes future not-yet-due installments (it drives the "Pagar fatura" suggestion, see `AI_CONTEXT.md` → "Credit Card Purchases"), so using it for the against-the-limit figure undercounted anything already committed via an installment plan but not yet billed. `getCardSummary`'s month parameter was also split in meaning: `currentMonthInvoice` now follows the page's `MonthNav` filter (previously it silently ignored the filter and always showed today's real month's invoice), while `usedThroughCurrentMonth`/`overdueAmount` stay anchored to today regardless of what month is being viewed, since they represent "what a real payment today should be," not a historical snapshot.
@@ -70,6 +71,7 @@ Full app is built and running (Next.js 16, App Router, Turbopack) — this isn't
   - `DeleteDebtButton` (new) calls the existing `deactivateDebt` directly (no ledger entry, no linked transaction) — for a debt that's forgiven, or one the user has simply given up on collecting. This is a manual trigger for the same soft-delete `addDebtTransaction` already applies automatically when a payment brings the balance to zero; the manual path just skips the payment.
   - `debt_transactions` gained a `date` column (previously missing entirely — see migration `0016` above) and are now editable/deletable in place, mirroring `reservoirs.service.ts#updateReservoirTransaction`/`deleteReservoirTransaction` — but *less* restrictive: reservoirs blocks editing a withdrawal outright, while `debts.service.ts#updateDebtTransaction` allows editing any entry (linked or not) and propagates amount/date/description/category onto the linked `transactions` row when one exists, per `AI_CONTEXT.md` → "Linked Records Consistency". The one thing editing can never do is flip an entry's direction (a payment can't become an increase) — enforced by comparing `Math.sign()` of the old and new amount server-side, since the create-side UI already treats "aumento" and "pagamento" as two separate dialogs/buttons, never a toggle. `deleteDebtTransaction` deletes the linked `transactions` row too, exactly like `deleteReservoirTransaction`. Both re-run the same settle-to-zero balance check `addDebtTransaction` does post-insert, since an edit or delete can just as well bring a debt to zero as a new entry can (there's no path to *reactivate* a debt this way, since a deactivated one no longer renders in the list `updateDebtTransaction`/`deleteDebtTransaction` are reachable from). `DebtTransactionDTO.categoryId` (new) exposes the linked transaction's own category so the edit dialog can prefill it; account reassignment was deliberately left out of scope (not requested, and riskier — an edit dialog doesn't offer to change which account a linked transaction posted against).
 
+- **Debts gained subtypes — `PERSONAL`/`OVERDUE_BILL`/`INSTALLMENT_PLAN` (migration `0021`, 2026-08-23, at the user's request).** See `AI_CONTEXT.md` → "Dívidas — subtipos" for the full design. `PERSONAL` preserves the original behavior exactly (default value, never touches the dashboard). `OVERDUE_BILL`/`INSTALLMENT_PLAN` are always `PAYABLE` (`DebtFormDialog` locks and hides the direction picker for them) and both now surface in a new, always-visible (period-filter-independent) dashboard card, `OpenDebtsAlert` — "Dívidas em aberto." `INSTALLMENT_PLAN` additionally carries `monthlyAmount`/`dueDay` and a computed `paidThisMonth` (`getDebts()`), driving a due-date badge identical in spirit to Fixed Expenses' — with a "Registrar pagamento" one-click trigger (`DebtTransactionDialog`'s new `defaultAmount` prop) instead of any automatic transaction generation, a decision the user made explicitly ("lembrete + 1 clique," rejecting a fully-automatic monthly post as inconsistent with the rest of the system never creating a ledger entry without an explicit user action). `DebtTransactionDialog`'s `mode="increase"` also gained an optional interest-percentage calculator (suggests `currentBalance × %`, `roundMoney`) — available to any debt, not just the new kinds.
 - **Dashboard chart overhaul (2026-08-14, at the user's request).** Several distinct changes, all in the presentation layer — no schema change, no new domain rule:
   - Every Recharts tooltip across the app was missing an explicit text `color`, defaulting to Recharts' own near-black — unreadable against a dark-mode surface. Centralized into `src/components/ui/chart-tooltip.tsx` (`chartTooltipStyle`, spread onto every `<Tooltip>`), replacing 5 copies of the same near-miss inline style (4 dashboard charts + `debts-charts.tsx`).
   - The plain "Receita vs. Despesa" bar chart (`income-expense-chart.tsx`) was removed outright — it duplicated what the summary cards and Monthly Evolution already show, and added nothing beyond a single-period totals bar.
@@ -80,6 +82,9 @@ Full app is built and running (Next.js 16, App Router, Turbopack) — this isn't
   - **New "Evolução mensal do cartão" chart on `/cards`** (`CardEvolutionChart`, `cards.service.ts#getCardMonthlyEvolution`) — 6 months before through 6 months after the page's viewed month (13 months total; revised from an initial trailing-12 design 2026-08-14, at the user's follow-up request, so upcoming already-scheduled installments are visible alongside history) of `card_installments.amount` by competence (never `purchase_date`), scoped to whichever card(s) the page's existing "Cartão" filter has narrowed to, with its own local multi-select category filter (`evoCategories` URL param, `useEvolutionCategoryFilter`) deliberately independent from the page's existing single-select `categoryId` (which still only filters the installment list below). `total` is the historical billed total per month, same convention as `CardSummaryDTO.currentMonthInvoice` — does not exclude `paid_before_system` installments. **With no category selected the bars show that plain `total`; selecting one or more categories switches to stacked bars** (`CardMonthlyEvolutionDTO.byCategory`, one segment per selected category, colored/named from the category itself) instead of just narrowing the total to a smaller single number — added 2026-08-14 at the user's explicit request ("gostaria das barras dele fossem agregadas com o filtro"), so the filter shows composition, not just a shrunk sum.
   - The generic checkbox-popover UI (`src/components/ui/category-checkbox-filter.tsx`, `CategoryCheckboxFilter`) is shared by both the dashboard's `CategoryMultiSelect` and the Cards page's evolution-chart filter.
 
+- **"Vence essa semana" dashboard alert (2026-08-23, at the user's request, from the system audit's usability findings).** New `src/features/dashboard/components/upcoming-due-alert.tsx` (`UpcomingDueAlert`) renders a small warning card above the summary cards listing every unpaid fixed expense either overdue or due within 7 days — omitted entirely when the list is empty, same "no empty-state noise" convention as the debts pie charts. No schema/service change: it's computed purely from `FixedExpenseDTO.dueDay`/`isPaidThisMonth` already returned by `getFixedExpenses`, via the new pure helper `daysUntilDueThisMonth(dueDay, todayIsoDate)` (`src/lib/utils/date.ts`). Always anchored to **today's real month**, never the dashboard's viewed-period filter — `dashboard/page.tsx` reuses the already-fetched `fixedExpenses` when the viewed month is today's month, and only fires a second `getFixedExpenses(todayIso())` call when browsing a different month, mirroring the existing `usedThroughCurrentMonth`/`openInvoiceMonth` today-anchored convention. Scoped to fixed expenses only for now — card invoice due dates and debt due dates are not yet folded into this alert.
+- **Fixed expense "notices" no longer block the dialog (2026-08-23, at the user's request).** Saving a fixed expense that auto-raises/creates a budget floor (`reconcileFixedExpenseFloors`) used to swap `FixedExpenseFormDialog`'s entire content for a notice screen requiring an explicit "Ok" click before the dialog would close — friction on what's usually a routine, non-decision notification. The dialog now always closes immediately on a successful save; if there were notices, they render instead as a small self-dismissing (8s, or manual ×) banner anchored next to the trigger, never blocking or requiring the user to acknowledge before moving on. Same underlying `notices[]` from `createFixedExpenseAction`/`updateFixedExpenseAction`, just presented as an inline toast instead of a modal.
+
 - **Invoice paid/partial-paid indicator on Cards and Contas (2026-08-12, at the user's request).** No schema change — `card_payments` has no competence/invoice-month column at all, only `{ credit_card_id, account_id, transaction_id, amount, payment_date }`, so "how much of THIS month's invoice is paid" isn't a stored fact, it's derived in `cards.service.ts#getCardSummary` (new `CardSummaryDTO.currentMonthPaidAmount`). The allocation rule: a `paid_before_system` installment in the viewed month counts as paid outright (already settled outside the system, per migration `0014`); the rest is covered by whatever's left of all-time `card_payments` after paying off every non-`paid_before_system` installment strictly before the viewed month — i.e. payments are assumed to apply oldest-competence-first, the same assumption `getCardBalanceThroughMonth`/`overdueAmount` already make implicitly (a payment reduces the oldest unpaid balance, never a month the user explicitly targets). This is a heuristic, not a ground truth: a payment actually intended to prepay a future month in advance will still show as clearing the oldest month first. `src/components/ui/invoice-paid-badge.tsx` (new, shared) renders a green "Paga" badge when `currentMonthPaidAmount >= currentMonthInvoice`, or `"{pago} pago · faltam {resto}"` when partial, and nothing when unpaid (`currentMonthPaidAmount === 0`) — used identically by `/cards` and `AccountCard` so the two screens can't show conflicting paid status for the same invoice, same convention as their shared `totalCommitted/creditLimit` block. See `AI_CONTEXT.md` → "Fatura: indicador de pago/parcial" for the full reasoning.
 
 - **Open-invoice line on Cards and Contas (2026-08-23, at the user's request).** Both screens used to show only one invoice line per card ("Fatura de {mês}"), tied to whichever month is being viewed (the page's filter on `/cards`, always today's real month on `/accounts`). This conflates two genuinely different things once the card's closing day has already passed for the viewed month: the invoice being displayed, and the invoice actually still open (accumulating new charges right now). `cards.service.ts#getCardSummary` gained `CardSummaryDTO.openInvoiceMonth`/`openInvoiceAmount` — the competence a purchase made *today* would land in, via the same `calculateInstallmentCompetences` math a real purchase uses, always anchored to today (never the viewed-month filter), same convention as `usedThroughCurrentMonth`. Both `src/app/(app)/cards/page.tsx` and `AccountCard` now render a second "Fatura aberta ({mês}): {valor}" line — but only when `openInvoiceMonth` differs from the month already shown on the first line; when they're the same competence, the second line is omitted rather than showing a redundant duplicate. See `AI_CONTEXT.md` → "Credit Card Purchases" → "Fatura aberta vs. fatura do mês visualizado".
@@ -87,9 +92,9 @@ Full app is built and running (Next.js 16, App Router, Turbopack) — this isn't
 
 **Known gaps** (not started, don't assume otherwise): no automated tests yet (see "Testing & Migrations" in `AI_GENERATION_RULES.md` for the intended scope); still no *general* account-level edit dialog (name/institution) — only the type-specific actions (balance, yield/reconcile, limit) exist, by design; OFX import remains out of scope per `AI_CONTEXT.md`.
 
-**Known bugs** (found in a full docs-vs-code audit, 2026-08-23 — not yet fixed, flagged here so a future session doesn't have to rediscover them):
-- **Two zod schemas are dead code on their respective edit paths, so real domain rules go unenforced server-side when editing (not creating):** `updateAccountSchema` (`src/lib/validations/accounts.ts`) is never `.parse()`'d by `updateAccountAction` (`src/features/accounts/actions.ts`) before calling `accountsService.updateAccount` — so "Ajustar Cartão"/"Ajustar Limite" can, in principle, submit a `closingDay`/`dueDay` outside 1-28 (no DB `CHECK` backs this range either — only HTML `min`/`max` on the client) or a `creditLimit` that violates the rule, with only the bare Postgres `CHECK (credit_limit > 0)` catching the limit case (an ugly raw error, not the friendly zod message). Same pattern for `updateCardPurchaseSchema` (`src/lib/validations/cards.ts`) vs. `updateCardPurchaseAction` (`src/features/cards/actions.ts`) — editing a purchase skips server-side validation of `amount > 0` and `installments` in 1-48 (no DB `CHECK` for either). Fix is mechanical: call `.parse()` in both actions before delegating to the service, the same way the create-side actions already do.
-- **"Income categories never have subcategories" is not actually enforced in `src/lib/validations`, contrary to `AI_GENERATION_RULES.md`'s explicit instruction.** A function that would do this (`validateCategoryTypeMatchesTransaction`, `src/lib/validations/transactions.ts`) exists but is never called from anywhere. Today this rule holds only because `src/app/(app)/settings/page.tsx` simply never renders a "new subcategory" affordance under an INCOME category — a UI omission, not a validation. `categories.service.ts#createSubcategory` doesn't check the parent category's type either. Nothing currently exploits this gap (no UI path creates the invalid state), but it means the rule would silently break if a future subcategory-creation entry point (e.g. an inline creator on some other form) ever forgot the same omission.
+**Known bugs** (found in a full docs-vs-code audit, 2026-08-23; the first two below were fixed the same day, at the user's request — kept here as the record of what was wrong and why):
+- **FIXED — edit paths now validate.** `updateAccountAction`/`updateCardPurchaseAction` (`src/features/accounts/actions.ts`, `src/features/cards/actions.ts`) previously called their services directly, skipping `updateAccountSchema`/`updateCardPurchaseSchema` entirely — so editing a card's `closingDay`/`dueDay`/`creditLimit` or a purchase's `amount`/`installments` had no server-side range/positivity check outside the bare `CHECK (credit_limit > 0)` in the database. Both actions now `.parse()` the merged `{ id, ...input }` through the existing (previously dead-code) schemas before calling the service, the same pattern the create-side actions already used.
+- **FIXED — income categories can no longer get a subcategory via the service.** `categories.service.ts#createSubcategory` now looks up the parent category's `type` and throws before inserting if it's `INCOME`, instead of relying only on `src/app/(app)/settings/page.tsx` never rendering the create affordance for an income category. `validateCategoryTypeMatchesTransaction` (`src/lib/validations/transactions.ts`) — the separate, still-unused rule about a transaction's own type matching its category's type — remains dead code; not in scope of this fix.
 - **`reservoirs.active` is vestigial, not actually removed.** `AI_CONTEXT.md` → "Reservoir deletion" describes reservoirs as having fully moved to hard-delete, and `deactivateReservoir` genuinely was deleted from the service — but the `active` column itself is still in the schema and `getReservoirs()` still filters `.eq("active", true)`. Since nothing ever writes `active = false` anymore, the column is permanently `true` and functionally dead weight, not a bug with user-visible effect — a future cleanup migration could drop it, but that's optional, not urgent.
 - **`percentage` range disagrees between layers for reservoir accrual entries.** `src/lib/validations/reservoirs.ts` allows `percentage` down to `0` (`z.number().min(0).max(100)`), but the database `CHECK` on both `reservoirs.default_percentage` and `reservoir_transactions.percentage` requires `> 0`. Submitting exactly `0` passes client/zod validation and only fails at the database with a raw Postgres error instead of a friendly message. `AI_CONTEXT.md` describes the rule as "between 0 and 100" without settling which bound is inclusive — worth deciding (probably `> 0`, since a 0% cut is meaningless) and aligning the zod schema to match.
 
@@ -115,6 +120,12 @@ Applied in order; each is additive (no destructive rewrites of an already-shippe
 16. `0016_debt_transaction_date.sql` — `debt_transactions.date` (date, `NOT NULL DEFAULT CURRENT_DATE`, backfilled from `created_at`). Same gap/fix as migration `0011` for `reservoir_transactions`: the date picker in `DebtTransactionDialog` was always shown but only ever reached the linked `transactions` row (when one existed) — an unlinked entry's chosen date was silently discarded. Needed so `updateDebtTransaction` has a real column to edit. See `AI_CONTEXT.md` → "Debts".
 17. `0017_supermercado_own_category.sql` — data-only: promotes "Supermercado" from a default subcategory under "Alimentação" to its own default `EXPENSE` category (decided 2026-08-11, at the user's request — made more sense standalone in their own usage). Only touches the `is_default` catalog rows (`is_default = true`, `user_id IS NULL`) — no schema change, and no effect on any user's already-copied categories/subcategories.
 18. `0018_supermercado_color.sql` — data-only: fixes "Supermercado" (`is_default` catalog) reusing "Alimentação"'s exact color (`#f97316`) since migration `0017` promoted it without giving it its own — the two were indistinguishable on any category chart. New default `#f59e0b`. Found and fixed 2026-08-14 alongside a pass recoloring the owner's own custom categories (see below) — same underlying bug: `CategoryFormDialog` defaults a brand-new category to `CATEGORY_COLORS[0]`, so any category created without the user explicitly touching the color picker ends up identical to every other un-recolored one.
+19. `0019_estorno_refunds.sql` — adds the `Estorno` `is_system` category pair (EXPENSE + INCOME, mirroring `Ajuste`), `transactions.refund_of_transaction_id` (nullable self-FK, traceability only), and the new `card_refunds` table (`card_purchase_id` UNIQUE — full refund only). See `AI_CONTEXT.md` → "Estorno" for the full design, decided 2026-08-23 at the user's request after the system audit flagged refunds as a real coverage gap.
+20. `0020_reload_schema_cache.sql` — no schema change, just `NOTIFY pgrst, 'reload schema'`. `supabase db push` connects directly to Postgres, which doesn't trigger the same schema-cache refresh the Dashboard/SQL Editor does — PostgREST kept returning "Could not find the table 'public.card_refunds'" until this ran. Worth remembering: any migration that adds a new table/column pushed via the CLI may need a same-day follow-up like this.
+21. `0021_debt_kinds.sql` — adds `debts.kind` (`'PERSONAL' | 'OVERDUE_BILL' | 'INSTALLMENT_PLAN'`, default `'PERSONAL'` — preserves every existing debt's behavior), `debts.monthly_amount`, `debts.due_day` (both only meaningful for `INSTALLMENT_PLAN`, validated in `src/lib/validations/debts.ts`, not a DB CHECK). See `AI_CONTEXT.md` → "Dívidas — subtipos", decided 2026-08-23 at the user's request.
+22. `0022_reload_schema_cache.sql` — same reasoning as `0020`, for the `debts` columns above.
+23. `0023_fixed_expense_amount_history.sql` — adds `fixed_expense_amount_history` (`{fixed_expense_id, amount, effective_from}`, unique per `(fixed_expense_id, effective_from)`) — fixes a real bug the user caught testing: editing a fixed expense's amount used to rewrite every past month's `plannedAmount` retroactively, the exact mistake `budgets` migration `0009` already fixed for a different table. Backfills one row per existing fixed expense at `effective_from = '1970-01-01'` so nothing already displayed changes; only a future edit creates a genuinely forward-dated row. See `AI_CONTEXT.md` → "Despesas fixas — histórico de valor."
+24. `0024_reload_schema_cache.sql` — same reasoning as `0020`, for `fixed_expense_amount_history`.
 
 ---
 
@@ -177,12 +188,12 @@ src
  │  └ validations (one file per domain — zod. Note: a schema with .superRefine()/.refine() can't itself be .partial()'d; keep a plain base object schema alongside the refined one and .partial() the base, e.g. accounts.ts/transactions.ts)
  ├ services (one per domain: dashboard, transactions, accounts, categories, cards, reservoirs, debts, budgets, fixed-expenses, profile; _shared.ts holds the budget/fixed-expense actualAmount aggregation both reuse)
  ├ features
- │  ├ dashboard/components (dashboard-filters incl. shared MonthPicker + account-type icons per account + category-multi-select.tsx for the additive category filter, use-category-filter.ts, filters.ts [parseDashboardFilters], summary-cards, monthly-chart [always 12 months back + 3 months forward from the viewed reference month, independent of the page's period preset], category-pie + category-bars [additive multi-select via use-category-filter.ts, shared by both — CategoryBars is clickable too now], expense-source-toggle [segments the expense pair only, by account type], budgets-panel [nests fixed expenses under their parent budget], transaction-explorer [account-type icon per row — no longer has its own "Reclassificar em lote" trigger, see below], editable-category-cell — income-expense-chart removed 2026-08-14, see Implementation Status)
- │  ├ transactions/components (transaction-form-dialog, delete-transaction-button, month-nav, transaction-filters.tsx — Lançamentos is month-scoped like Cards/Dashboard, not an unfiltered all-time list)
+ │  ├ dashboard/components (dashboard-filters incl. shared MonthPicker + account-type icons per account + category-multi-select.tsx for the additive category filter, use-category-filter.ts, filters.ts [parseDashboardFilters], upcoming-due-alert.tsx ["Vence essa semana", always today-anchored], open-debts-alert.tsx ["Dívidas em aberto" — OVERDUE_BILL/INSTALLMENT_PLAN debts, always shown regardless of period filter, see AI_CONTEXT.md "Dívidas — subtipos"], summary-cards, monthly-chart [always 12 months back + 3 months forward from the viewed reference month, independent of the page's period preset], category-pie + category-bars [additive multi-select via use-category-filter.ts, shared by both — CategoryBars is clickable too now], expense-source-toggle [segments the expense pair only, by account type], budgets-panel [nests fixed expenses under their parent budget], transaction-explorer [account-type icon per row — no longer has its own "Reclassificar em lote" trigger, see below], editable-category-cell — income-expense-chart removed 2026-08-14, see Implementation Status)
+ │  ├ transactions/components (transaction-form-dialog, delete-transaction-button, refund-transaction-dialog.tsx [full refund only, see AI_CONTEXT.md "Estorno"], month-nav, transaction-filters.tsx — Lançamentos is month-scoped like Cards/Dashboard, not an unfiltered all-time list)
  │  ├ accounts/components (account-form-dialog [no institution field for CASH], account-card, accounts-overview-charts.tsx [donut pair on /accounts: net balance + credit-card limit usage across cards, composable card selection], balance-adjust-dialog [Informar Rendimento BANK-only], limit-adjust-dialog [Ajustar Limite/Ajustar Cartão — credit_limit/overdraft_limit editable anytime; for CREDIT_CARD also edits closing_day/due_day in the same dialog, just a different trigger label])
- │  ├ cards/components (purchase-form-dialog [create+edit, competence override, over-limit warning], payment-form-dialog, delete-purchase-button, month-nav, card-filters.tsx, card-expense-donut.tsx [current viewed month's billed total, segmented by card], card-evolution-chart [±6 months around the viewed month by competence, own local multi-select category filter via use-evolution-category-filter.ts — stacks bars by category when a filter is active, single total bar otherwise])
+ │  ├ cards/components (purchase-form-dialog [create+edit, competence override, over-limit warning], payment-form-dialog, refund-purchase-dialog.tsx [full refund only, see AI_CONTEXT.md "Estorno"], advance-installments-dialog.tsx ["Antecipar parcelas" — pays off one purchase's remaining not-yet-billed installments early, see AI_CONTEXT.md "Antecipar parcelas"], delete-purchase-button, month-nav, card-filters.tsx, card-expense-donut.tsx [current viewed month's billed total, segmented by card], card-evolution-chart [±6 months around the viewed month by competence, own local multi-select category filter via use-evolution-category-filter.ts — stacks bars by category when a filter is active, single total bar otherwise])
  │  ├ reservoirs/components (reservoir-form-dialog, accrual-dialog [description pre-filled with "Movimentação da receita programada {nome}"], withdrawal-dialog, delete-reservoir-button.tsx, delete-reservoir-transaction-button.tsx — feature displayed as "Receita Programada" in the UI, folder/file names unchanged)
- │  ├ debts/components (debt-form-dialog [create+edit, incl. default category], debt-transaction-dialog [create+edit, defaults description to "Movimentação da dívida {nome}"; warns and requires a second confirm before a payment that fully settles/overpays the debt; editing propagates to the linked transaction, direction locked], delete-debt-button [manual soft delete — forgiven/given-up-on debt], delete-debt-transaction-button [deletes the linked transaction too], debt-side-filter.tsx ["Todas/A pagar/A receber", 2026-08-23], debts-charts ["Dívidas a pagar"/"Dívidas a receber" pies, each rendered only when that side has data])
+ │  ├ debts/components (debt-form-dialog [create+edit, incl. default category + kind selector (Pessoal/Conta em atraso/Parcelamento combinado), locks side to PAYABLE for the latter two, shows monthlyAmount/dueDay fields for INSTALLMENT_PLAN], debt-transaction-dialog [create+edit, defaults description to "Movimentação da dívida {nome}"; optional interest-percentage calculator on mode="increase" (suggests amount = currentBalance × %, still editable); accepts a `defaultAmount` prop for quick-pay triggers; warns and requires a second confirm before a payment that fully settles/overpays the debt; editing propagates to the linked transaction, direction locked], delete-debt-button [manual soft delete — forgiven/given-up-on debt], delete-debt-transaction-button [deletes the linked transaction too], debt-side-filter.tsx ["Todas/A pagar/A receber", 2026-08-23], debts-charts ["Dívidas a pagar"/"Dívidas a receber" pies, each rendered only when that side has data])
  │  ├ budgets/components (budget-form-dialog [create+edit, month-scoped], fixed-expense-form-dialog [create+edit], budget-tree-editor ["Planejar orçamentos" — whole category+subcategory tree in one screen for one month, reuses onboarding's tree pattern; clearing an existing field deletes that row, same guards as the single-row delete], budget-tree-fields [the reusable amount-input tree, shared with the onboarding budget step], budget-tree [the ONLY list on /budgets now — no separate fixed-expense tab; renders category/subcategory boxes plus a `renderFixedExpenseActions` slot per nested fixed-expense row for pay/edit/delete, shared read-only (no action slots passed) by the dashboard panel], progress-row [shared planned-vs-actual bar], clone-budget-button, deactivate-budget-button [hidden by the caller when fixed expenses are attached; deactivateBudget itself also blocks it server-side], deactivate-fixed-expense-button, pay-fixed-expense-dialog)
  │  └ categories/components (category-form-dialog, subcategory-form-dialog, category-tree-item [onboarding/Settings re-import — always renders the full is_default catalog, already-imported items checked+disabled], category-select [CategorySelect/SubcategorySelect — standard picker used everywhere a category/subcategory is assigned, with a "Nova categoria/subcategoria" item at the end of the same dropdown instead of a separate button; replaced the old inline-category-create.tsx, decided 2026-08-09], delete-category-dialog)
  ├ components
@@ -288,6 +299,13 @@ getTransactionsFiltered(filters) → TransactionViewDTO[]
 ## transactions.service.ts
 ```
 createTransaction(data) / updateTransaction(id, data) / deleteTransaction(id) / getTransactions(filters)
+refundTransaction(transactionId, refundDate)
+  -- NOVO (0019) — estorno integral de uma despesa fora do cartão (AI_CONTEXT.md "Estorno").
+  -- Reclassifica a despesa original pra categoria system "Estorno" (EXPENSE) e cria uma nova
+  -- transaction INCOME (categoria "Estorno") no mesmo valor, creditada na MESMA conta de origem,
+  -- na data em que o estorno de fato aconteceu (pode ser meses depois — nunca reescreve o
+  -- lançamento original). refund_of_transaction_id só existe pra rastreabilidade. Bloqueia um
+  -- segundo estorno checando se category_id já é a categoria "Estorno".
 ```
 
 ## accounts.service.ts
@@ -375,14 +393,26 @@ updateCardPurchase(id, input) / deleteCardPurchase(id)
 getCardInstallments(cardId, filters?: { periodStart?, periodEnd? })
 getCardBalanceThroughMonth(creditCardId, throughMonth) → number
   -- installments com competence <= throughMonth E paid_before_system = false, menos pagamentos
-  -- já feitos, floor em 0 — parcelas de compra retroativa já contam como quitadas
+  -- já feitos, floor em 0 — parcelas de compra retroativa já contam como quitadas. NOVO (0019):
+  -- também subtrai card_refunds até throughMonth — um estorno reduz o devido igual um pagamento
 getCardTotalCommitted(creditCardId) → number
   -- TODAS as installments já geradas pro cartão (passadas, do mês atual e futuras ainda não
   -- vencidas) COM paid_before_system = false, menos TODOS os pagamentos já feitos, floor em 0 —
   -- a figura correta de "usado contra o limite" (fixed 2026-08-07). Deliberadamente diferente de
   -- getCardBalanceThroughMonth, que exclui parcelas futuras ainda não vencidas de propósito (ver
   -- AI_CONTEXT.md "CREDIT_CARD_PAYMENT" — essa outra alimenta a sugestão do "Pagar fatura", não o
-  -- card "usado/total")
+  -- card "usado/total"). NOVO (0019): também subtrai TODOS os card_refunds já feitos — um
+  -- estorno integral libera o limite de volta
+refundCardPurchase(purchaseId, refundDate)
+  -- NOVO (0019), revisado 2026-08-23 mesmo dia — estorno integral de uma compra no cartão
+  -- (AI_CONTEXT.md "Estorno"). Reclassifica a compra pra categoria system "Estorno" (EXPENSE),
+  -- ADIANTA toda parcela ainda não faturada (competence > fatura aberta no momento de
+  -- refundDate) pra essa mesma competência — replica o emissor real: parcelas futuras de uma
+  -- compra estornada não continuam pingando pelos meses originais, o restante é jogado de uma
+  -- vez na fatura aberta na hora do estorno — e insere um card_refunds no valor total da compra
+  -- (nunca aceito do client). Parcela já faturada (competence <= a fatura aberta na hora do
+  -- estorno) nunca é tocada. A constraint UNIQUE em card_refunds.card_purchase_id impede estornar
+  -- a mesma compra duas vezes.
 getCardSummary(creditCardId, viewedMonth, creditLimit) → CardSummaryDTO
   -- dois conceitos de mês independentes, de propósito não são o mesmo parâmetro:
   -- usedThroughCurrentMonth/overdueAmount ficam SEMPRE ancorados no mês real de hoje (o quanto
@@ -401,6 +431,18 @@ getCardSummary(creditCardId, viewedMonth, creditLimit) → CardSummaryDTO
   -- convenção de usedThroughCurrentMonth. Ver AI_CONTEXT.md "Credit Card Purchases" → "Fatura
   -- aberta vs. fatura do mês visualizado"
 registerCardPayment(data)
+getPurchaseFutureInstallments(purchaseId) → { id, competence, amount }[]
+  -- parcelas de UMA compra ainda não faturadas (competence > fatura aberta agora), ordenadas por
+  -- competence, excluindo paid_before_system — a lista sobre a qual advancePurchaseInstallments opera
+advancePurchaseInstallments(purchaseId, count)
+  -- NOVO (2026-08-23, sem migration), CORRIGIDO no mesmo dia — "Antecipar parcelas": das parcelas
+  -- ainda não faturadas de uma compra, o usuário escolhe QUANTAS (count, não precisa ser todas).
+  -- As `count` mais próximas viram todas a mesma competence da fatura aberta agora; as demais são
+  -- renumeradas em sequência logo em seguida, sem pular mês — encurtando o parcelamento em
+  -- `count` meses. NUNCA cria pagamento/transaction/card_payments — é só remanejo de
+  -- card_installments.competence, igual refundCardPurchase faz, só que parcial e escolhido pelo
+  -- usuário. Pra de fato pagar as parcelas antecipadas, o fluxo continua sendo "Pagar fatura"
+  -- normal depois. Ver AI_CONTEXT.md "Antecipar parcelas".
 getCardMonthlyEvolution(cardIds, referenceMonth, categoryIds?) → CardMonthlyEvolutionDTO[]
   -- NOVO (2026-08-14), revisado no mesmo dia — 6 meses antes + 6 meses depois de referenceMonth
   -- (13 meses) de card_installments.amount por competence (nunca purchase_date), somado por mês.
@@ -443,10 +485,14 @@ deleteReservoir(id)   -- NOVO (2026-08-10): hard delete, não segue o convênio 
 ## debts.service.ts (NOVO)
 ```
 createDebt(data)   -- data.defaultCategoryId (NOVO 0015) opcional, tipo EXPENSE (PAYABLE) ou
-  -- INCOME (RECEIVABLE) — mesmo tipo que um pagamento contra a dívida sempre produz
-updateDebt(id, data)  -- NOVO (0016): partial update de agent/side/initialBalance/
-  -- defaultCategoryId — todos livremente editáveis depois de criada a dívida; só a fórmula do
-  -- remainingBalance (initial_balance + SUM(debt_transactions.amount)) é fixa
+  -- INCOME (RECEIVABLE) — mesmo tipo que um pagamento contra a dívida sempre produz.
+  -- data.kind (NOVO 0021) — PERSONAL | OVERDUE_BILL | INSTALLMENT_PLAN, ver AI_CONTEXT.md
+  -- "Dívidas — subtipos". monthlyAmount/dueDay obrigatórios (validados em zod) só quando
+  -- kind === INSTALLMENT_PLAN
+updateDebt(id, data)  -- NOVO (0016), estendido 2026-08-23: partial update de agent/side/kind/
+  -- initialBalance/defaultCategoryId/monthlyAmount/dueDay — todos livremente editáveis depois de
+  -- criada a dívida; só a fórmula do remainingBalance (initial_balance +
+  -- SUM(debt_transactions.amount)) é fixa
 addDebtTransaction(data) → { settled: boolean }
   -- amount positivo=aumento, negativo=pagamento; linked_transaction_id opcional. Se
   -- `description` vier vazio, usa "Movimentação da dívida {agent}" como default — tanto na
@@ -468,7 +514,9 @@ updateDebtTransaction(data) → { settled: boolean }  -- NOVO (0016): edita um l
   -- saldo real depois e reaplica a mesma auto-desativação de addDebtTransaction se zerar
 deleteDebtTransaction(id)  -- NOVO (0016): espelha reservoirs.service.ts#deleteReservoirTransaction
   -- — apaga a linha do ledger e, se linked_transaction_id existir, a transaction vinculada junto
-getDebts() → DebtDTO[]   -- filtra active = true, então uma dívida quitada já não aparece
+getDebts() → DebtDTO[]   -- filtra active = true, então uma dívida quitada já não aparece.
+  -- paidThisMonth (NOVO 0021) calculado aqui pra INSTALLMENT_PLAN: existe debt_transactions com
+  -- amount < 0 datado no mês corrente? Ver AI_CONTEXT.md "Dívidas — subtipos"
 getDebtTransactions(debtId) → DebtTransactionDTO[]
 deactivateDebt(id)  -- soft delete; chamado automaticamente por addDebtTransaction/
   -- updateDebtTransaction/deleteDebtTransaction ao zerar o saldo, e manualmente pelo botão
@@ -513,6 +561,8 @@ getBudgetFloor(categoryId, subcategoryId, month) → number
 ## fixed-expenses.service.ts
 ```
 createFixedExpense(data) → { id, notices[] }
+  -- NOVO (0023): também insere a 1ª linha de fixed_expense_amount_history
+  -- (effective_from = '1970-01-01', "vale desde sempre")
 updateFixedExpense(id, data) → { notices[] }
   -- uma despesa fixa é um piso comprometido do orçamento da sua categoria/subcategoria —
   -- nunca bloqueia; ambas chamam reconcileFixedExpenseFloors (_shared.ts) depois de salvar,
@@ -522,12 +572,27 @@ updateFixedExpense(id, data) → { notices[] }
   -- ainda cria/aumenta o orçamento da categoria normalmente; despesa fixa numa
   -- SUBCATEGORIA (revisado 2026-08-10) só cria/aumenta o orçamento da subcategoria — nunca
   -- o da categoria, que só pode ser desativado (nunca criado/aumentado) por reflexo, ver
-  -- reconcileBudgetFloors abaixo
+  -- reconcileBudgetFloors abaixo.
+  -- CORRIGIDO (0023, 2026-08-23): mudar `amount` NUNCA mais reescreve meses passados — grava
+  -- (upsert) uma linha nova em fixed_expense_amount_history com effective_from = mês real
+  -- corrente. `fixed_expenses.amount` continua atualizada como cache do valor mais recente
+  -- (usada pelo piso de orçamento acima, que só olha mês atual/próximo, e pra pré-preencher
+  -- o form). Ver AI_CONTEXT.md "Despesas fixas — histórico de valor".
 deactivateFixedExpense(id)  -- soft delete
 getFixedExpenses(month) → FixedExpenseDTO[]
   -- actualAmount soma transactions.fixed_expense_id (por date) + card_installments das
   -- card_purchases.fixed_expense_id (por competence, NUNCA purchase_date — atualizado 2026-08-10
-  -- junto com o suporte a pagar despesa fixa no cartão, ver payFixedExpense abaixo)
+  -- junto com o suporte a pagar despesa fixa no cartão, ver payFixedExpense abaixo).
+  -- plannedAmount (CORRIGIDO 0023) resolve de fixed_expense_amount_history pro MÊS PEDIDO,
+  -- nunca de fixed_expenses.amount direto — só assim um mês passado mantém o valor que valia
+  -- naquela época mesmo depois de uma edição posterior
+getUnlinkedExpenseCandidates(categoryId) → { id, date, description, amount }[]
+  -- NOVO (2026-08-23) — despesas (EXPENSE) do usuário sem fixed_expense_id nenhum, filtradas pela
+  -- categoria da despesa fixa quando ela tem uma; alimenta "Vincular lançamento existente"
+linkExistingTransaction(fixedExpenseId, transactionId)
+  -- NOVO (2026-08-23) — só reatribui transactions.fixed_expense_id; pro caso de recriar uma
+  -- despesa fixa apagada por engano sem perder o rastro de um pagamento manual já lançado antes.
+  -- Ver AI_CONTEXT.md "Despesas fixas — vincular pagamento já lançado"
 payFixedExpense(data)  -- NOVO (2026-08-09), estendido 2026-08-10 pra aceitar CREDIT_CARD: o
   -- tipo da conta (lido do banco, nunca confiado do client) decide o lançamento — CASH/BANK
   -- continua criando uma transaction EXPENSE (createTransaction com fixedExpenseId); CREDIT_CARD
@@ -588,6 +653,7 @@ type FinancialSummaryDTO = {
   balance: number; income: number; expense: number; result: number
   adjustmentShare: number // % of period total sitting under "Ajuste" — bookkeeping-looseness signal
   retroactiveIncomeShare: number // % of period total from paid-before-system installments (backfilled purchases) — distinct signal from adjustmentShare, see AI_CONTEXT.md "Compras retroativas"
+  refundShare: number // % of period total (either direction) sitting under "Estorno" — distinct signal, see AI_CONTEXT.md "Estorno"
 }
 
 type MonthlyEvolutionDTO = { month: string; income: number; expense: number }
@@ -627,10 +693,14 @@ type ReservoirTransactionDTO = {
 
 type DebtDTO = {
   id: string; side: "PAYABLE" | "RECEIVABLE"; agent: string
+  kind: "PERSONAL" | "OVERDUE_BILL" | "INSTALLMENT_PLAN" // NOVO (0021) — PERSONAL nunca afeta o dashboard; OVERDUE_BILL/INSTALLMENT_PLAN sempre contam em "Dívidas em aberto", ver AI_CONTEXT.md "Dívidas — subtipos"
   originalAmount: number
   remainingBalance: number // NUNCA é coluna — sempre initial_balance + SUM(debt_transactions.amount), calculado no service
   active: boolean
   defaultCategoryId?: string // NOVO (0015) — pré-preenche (sobrescrevível) a categoria de um pagamento contra a dívida
+  monthlyAmount?: number // NOVO (0021) — só INSTALLMENT_PLAN, valor combinado a pagar por mês
+  dueDay?: number // NOVO (0021) — só INSTALLMENT_PLAN, dia de vencimento mensal (1-28)
+  paidThisMonth?: boolean // NOVO (0021) — só INSTALLMENT_PLAN, se já existe um debt_transactions.amount < 0 datado no mês corrente
 }
 
 type DebtTransactionDTO = {
@@ -647,6 +717,9 @@ type CardPurchaseDTO = {
   categoryId: string | null; categoryName: string | null
   subcategoryId: string | null; subcategoryName: string | null
   paidThroughCompetence?: string // "YYYY-MM" — compra retroativa ("já paguei até este mês"); toda parcela gerada com competence <= isso nasce com paid_before_system = true, ver AI_CONTEXT.md "Compras retroativas"
+  refundedAt?: string // setado quando existe um card_refunds pra essa compra — só estorno integral, ver AI_CONTEXT.md "Estorno"
+  remainingUnbilledAmount: number // soma das parcelas ainda não faturadas dessa compra, 0 quando não sobra nada
+  remainingInstallmentsCount: number // quantas parcelas ainda não faturadas restam — o máximo pro campo "quantas antecipar"
 }
 
 // getCardMonthlyEvolution — 6 meses antes + 6 meses depois do mês visualizado (13 meses) de

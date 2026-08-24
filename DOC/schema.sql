@@ -202,6 +202,23 @@ CREATE TABLE public.fixed_expenses (
   CONSTRAINT fixed_expenses_default_account_id_fkey FOREIGN KEY (default_account_id) REFERENCES public.accounts(id)
 );
 
+-- NOVO (0023): fixed_expenses.amount continua existindo como cache do valor MAIS RECENTE (usado
+-- pra pré-preencher o form de edição e pelo piso de orçamento em _shared.ts, que só olha pro mês
+-- atual/próximo). Mas getFixedExpenses(month), que roda pra qualquer mês incluindo passado,
+-- resolve o valor daquele mês específico por aqui — uma despesa fixa editada hoje só muda o que
+-- aparece a partir de hoje, nunca retroativo. Ver AI_CONTEXT.md "Despesas fixas — histórico de valor".
+CREATE TABLE public.fixed_expense_amount_history (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  fixed_expense_id uuid NOT NULL,
+  amount numeric(14,2) NOT NULL CHECK (amount > 0),
+  effective_from date NOT NULL, -- primeiro dia do mês a partir do qual esse valor vale (inclusive)
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT fixed_expense_amount_history_pkey PRIMARY KEY (id),
+  CONSTRAINT fixed_expense_amount_history_fixed_expense_id_fkey FOREIGN KEY (fixed_expense_id) REFERENCES public.fixed_expenses(id) ON DELETE CASCADE,
+  CONSTRAINT fixed_expense_amount_history_unique UNIQUE (fixed_expense_id, effective_from)
+);
+CREATE INDEX fixed_expense_amount_history_lookup_idx ON public.fixed_expense_amount_history (fixed_expense_id, effective_from DESC);
+
 -- ============================================================
 -- TRANSACTIONS
 -- origin_account_id + destination_account_id no mesmo registro cobrem
@@ -221,6 +238,9 @@ CREATE TABLE public.transactions (
   subcategory_id uuid,
   is_reservoir boolean DEFAULT false,
   fixed_expense_id uuid, -- NOVO: liga o lançamento real à despesa fixa que ele quita
+  refund_of_transaction_id uuid, -- NOVO (0019): rastreabilidade apenas — a transação de RECEITA
+                                  -- "Estorno" que devolveu o dinheiro dessa despesa aponta de volta
+                                  -- pra ela. Quem de fato reclassifica a despesa é category_id.
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT transactions_pkey PRIMARY KEY (id),
   CONSTRAINT transactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
@@ -228,7 +248,8 @@ CREATE TABLE public.transactions (
   CONSTRAINT transactions_destination_account_id_fkey FOREIGN KEY (destination_account_id) REFERENCES public.accounts(id),
   CONSTRAINT transactions_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
   CONSTRAINT transactions_subcategory_id_fkey FOREIGN KEY (subcategory_id) REFERENCES public.subcategories(id),
-  CONSTRAINT transactions_fixed_expense_id_fkey FOREIGN KEY (fixed_expense_id) REFERENCES public.fixed_expenses(id) ON DELETE SET NULL
+  CONSTRAINT transactions_fixed_expense_id_fkey FOREIGN KEY (fixed_expense_id) REFERENCES public.fixed_expenses(id) ON DELETE SET NULL,
+  CONSTRAINT transactions_refund_of_transaction_id_fkey FOREIGN KEY (refund_of_transaction_id) REFERENCES public.transactions(id) ON DELETE SET NULL
 );
 
 -- ============================================================
@@ -293,6 +314,29 @@ CREATE TABLE public.card_payments (
   CONSTRAINT card_payments_transaction_id_fkey FOREIGN KEY (transaction_id) REFERENCES public.transactions(id)
 );
 
+-- NOVO (0019): card_refunds — um crédito no cartão que reduz o saldo devido exatamente como um
+-- pagamento reduziria (mesmas fórmulas de getCardBalanceThroughMonth/getCardTotalCommitted), mas
+-- sem conta pagadora real por trás — o crédito veio do lojista/emissor, nunca de uma conta
+-- rastreada do usuário. Só estorno integral (constraint UNIQUE em card_purchase_id: uma compra só
+-- pode ser estornada uma vez). category_id é sempre a categoria system "Estorno" (INCOME). Ver
+-- AI_CONTEXT.md "Estorno".
+CREATE TABLE public.card_refunds (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  card_purchase_id uuid NOT NULL,
+  credit_card_id uuid NOT NULL,
+  category_id uuid NOT NULL,
+  amount numeric(14,2) NOT NULL CHECK (amount > 0),
+  refund_date date NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT card_refunds_pkey PRIMARY KEY (id),
+  CONSTRAINT card_refunds_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT card_refunds_card_purchase_id_fkey FOREIGN KEY (card_purchase_id) REFERENCES public.card_purchases(id) ON DELETE CASCADE,
+  CONSTRAINT card_refunds_credit_card_id_fkey FOREIGN KEY (credit_card_id) REFERENCES public.accounts(id),
+  CONSTRAINT card_refunds_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
+  CONSTRAINT card_refunds_card_purchase_id_key UNIQUE (card_purchase_id)
+);
+
 -- ============================================================
 -- DEBTS + DEBT_TRANSACTIONS (NOVA TABELA)
 -- Espelha o padrão já usado em reservoirs/reservoir_transactions:
@@ -307,14 +351,18 @@ CREATE TABLE public.debts (
   user_id uuid NOT NULL,
   agent text NOT NULL,
   side debt_side NOT NULL,
+  kind text NOT NULL DEFAULT 'PERSONAL' CHECK (kind IN ('PERSONAL', 'OVERDUE_BILL', 'INSTALLMENT_PLAN')), -- NOVO (0021): PERSONAL nunca afeta o dashboard; OVERDUE_BILL/INSTALLMENT_PLAN sempre contam em "Dívidas em aberto", ver AI_CONTEXT.md "Dívidas — subtipos"
   initial_balance numeric(14,2) NOT NULL,
   default_category_id uuid, -- NOVO (0015): pré-preenche (e é sempre sobrescrevível) a categoria de um pagamento registrado contra a dívida
+  monthly_amount numeric(14,2), -- NOVO (0021): só INSTALLMENT_PLAN — valor combinado a pagar por mês, obrigatório nesse caso (validado em src/lib/validations/debts.ts, não em CHECK)
+  due_day integer CHECK (due_day IS NULL OR (due_day >= 1 AND due_day <= 28)), -- NOVO (0021): só INSTALLMENT_PLAN — dia de vencimento mensal
   active boolean DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT debts_pkey PRIMARY KEY (id),
   CONSTRAINT debts_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
   CONSTRAINT debts_default_category_id_fkey FOREIGN KEY (default_category_id) REFERENCES public.categories(id)
 );
+CREATE INDEX IF NOT EXISTS debts_kind_idx ON public.debts (kind);
 
 CREATE TABLE public.debt_transactions ( -- NOVO
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -443,6 +491,11 @@ CREATE INDEX IF NOT EXISTS accounts_user_id_idx ON public.accounts (user_id);
 CREATE INDEX IF NOT EXISTS debts_user_id_idx ON public.debts (user_id);
 CREATE INDEX IF NOT EXISTS reservoirs_user_id_idx ON public.reservoirs (user_id);
 
+-- NOVO (0019)
+CREATE INDEX IF NOT EXISTS card_refunds_credit_card_id_idx ON public.card_refunds (credit_card_id);
+CREATE INDEX IF NOT EXISTS card_refunds_refund_date_idx ON public.card_refunds (refund_date);
+CREATE INDEX IF NOT EXISTS transactions_refund_of_transaction_id_idx ON public.transactions (refund_of_transaction_id) WHERE refund_of_transaction_id IS NOT NULL;
+
 -- ============================================================
 -- POLÍTICA DE DELEÇÃO (CORRIGIDO: estava implícita, agora explícita)
 -- - accounts, categories, subcategories, debts, fixed_expenses, reservoirs,
@@ -521,6 +574,11 @@ ALTER TABLE public.fixed_expenses ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "own fixed expenses" ON public.fixed_expenses
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+ALTER TABLE public.fixed_expense_amount_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "own fixed expense amount history" ON public.fixed_expense_amount_history
+  FOR ALL USING (EXISTS (SELECT 1 FROM public.fixed_expenses fe WHERE fe.id = fixed_expense_amount_history.fixed_expense_id AND fe.user_id = auth.uid()))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.fixed_expenses fe WHERE fe.id = fixed_expense_amount_history.fixed_expense_id AND fe.user_id = auth.uid()));
+
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "own transactions" ON public.transactions
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
@@ -535,6 +593,10 @@ CREATE POLICY "own card installments" ON public.card_installments
 
 ALTER TABLE public.card_payments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "own card payments" ON public.card_payments
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+ALTER TABLE public.card_refunds ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "own card refunds" ON public.card_refunds
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 ALTER TABLE public.debts ENABLE ROW LEVEL SECURITY;

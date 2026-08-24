@@ -7,10 +7,15 @@ values
 (gen_random_uuid(), 'Juros', 'EXPENSE', '💳', '#475569', true, false),
 (gen_random_uuid(), 'Rendimentos', 'INCOME', '📈', '#22c55e', true, false),
 (gen_random_uuid(), 'Ajuste', 'INCOME', '⚖️', '#a855f7', true, false),
-(gen_random_uuid(), 'Ajuste', 'EXPENSE', '⚖️', '#a855f7', true, false);
+(gen_random_uuid(), 'Ajuste', 'EXPENSE', '⚖️', '#a855f7', true, false),
+(gen_random_uuid(), 'Estorno', 'EXPENSE', '↩️', '#0ea5e9', true, false),
+(gen_random_uuid(), 'Estorno', 'INCOME', '↩️', '#0ea5e9', true, false);
 -- ADICIONADO: faltavam as 2 linhas de "Ajuste" (INCOME e EXPENSE) definidas
 -- na sessão de replanejamento — saída do reconcileAccountBalance ("Ajustar
 -- Saldo"), separado de Rendimentos (que é o registerYield/"Informar Rendimento").
+-- ADICIONADO (0019): "Estorno" (EXPENSE + INCOME) — mesma razão de "Ajuste" ter duas linhas
+-- (type é obrigatório). Reclassifica uma compra/despesa estornada (EXPENSE) e credita a receita
+-- de volta (INCOME) sem inflar uma categoria sem relação. Ver AI_CONTEXT.md "Estorno".
 
 -- ============================================
 -- DEFAULT EXPENSE CATEGORIES

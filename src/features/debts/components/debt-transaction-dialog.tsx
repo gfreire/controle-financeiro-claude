@@ -12,7 +12,7 @@ import { addDebtTransactionAction, updateDebtTransactionAction } from "../action
 import { debtTransactionSchema, updateDebtTransactionSchema } from "@/lib/validations/debts";
 import { todayIso } from "@/lib/utils/date";
 import { formatCurrency } from "@/lib/utils/currency";
-import { addMoney } from "@/lib/utils/money";
+import { addMoney, roundMoney } from "@/lib/utils/money";
 import type { AccountDTO, CategoryDTO, DebtTransactionDTO } from "@/types/dto";
 import type { DebtSide } from "@/types/database";
 
@@ -27,6 +27,7 @@ export function DebtTransactionDialog({
   accounts,
   categories: initialCategories,
   defaultCategoryId,
+  defaultAmount,
   entry,
   trigger,
 }: {
@@ -42,6 +43,9 @@ export function DebtTransactionDialog({
   categories: CategoryDTO[];
   /** Only meaningful for mode="payment" — see debt-form-dialog.tsx. */
   defaultCategoryId?: string;
+  /** Pre-fills the amount field (still editable) — e.g. an INSTALLMENT_PLAN's monthlyAmount, or
+   * an OVERDUE_BILL's full remainingBalance, from a dashboard/debts-page quick-pay trigger. */
+  defaultAmount?: number;
   /** Present → edit mode: prefills from this ledger entry and saves via updateDebtTransactionAction. */
   entry?: DebtTransactionDTO;
   trigger: React.ReactNode;
@@ -53,13 +57,14 @@ export function DebtTransactionDialog({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState(entry?.date ?? todayIso());
-  const [amount, setAmount] = useState(entry ? String(Math.abs(entry.amount)) : "");
+  const [amount, setAmount] = useState(entry ? String(Math.abs(entry.amount)) : defaultAmount !== undefined ? String(defaultAmount) : "");
   const [description, setDescription] = useState(entry?.description ?? `Movimentação da dívida ${debtName}`);
   const [createLinkedTransaction, setCreateLinkedTransaction] = useState(true);
   const [linkedAccountId, setLinkedAccountId] = useState(accounts[0]?.id ?? "");
   const [categories, setCategories] = useState(initialCategories);
   const [categoryId, setCategoryId] = useState(entry?.categoryId ?? (mode === "payment" && defaultCategoryId ? defaultCategoryId : NONE));
   const [confirmingSettle, setConfirmingSettle] = useState(false);
+  const [interestPercentage, setInterestPercentage] = useState("");
 
   // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
   // not an Effect: the dialog stays mounted across parent re-renders, so the useState
@@ -70,10 +75,23 @@ export function DebtTransactionDialog({
     if (open) {
       setCategories(initialCategories);
       setDate(entry?.date ?? todayIso());
-      setAmount(entry ? String(Math.abs(entry.amount)) : "");
+      setAmount(entry ? String(Math.abs(entry.amount)) : defaultAmount !== undefined ? String(defaultAmount) : "");
       setDescription(entry?.description ?? `Movimentação da dívida ${debtName}`);
       setCategoryId(entry?.categoryId ?? (mode === "payment" && defaultCategoryId ? defaultCategoryId : NONE));
       setConfirmingSettle(false);
+      setInterestPercentage("");
+    }
+  }
+
+  // Calculadora de juros (AI_CONTEXT.md "Dívidas — subtipos") — só no "aumento" de uma dívida
+  // nova (não faz sentido reabrir a conta ao editar um lançamento já existente). O usuário digita
+  // a porcentagem, o sistema sugere o valor (saldo atual × %) — sempre editável depois, nunca um
+  // par reativo bidirecional como o gross/net do reservoir.
+  function handleInterestPercentageChange(value: string) {
+    setInterestPercentage(value);
+    const pct = Number(value);
+    if (value && Number.isFinite(pct)) {
+      setAmount(String(roundMoney(currentBalance * (pct / 100))));
     }
   }
 
@@ -93,10 +111,11 @@ export function DebtTransactionDialog({
 
   function resetAndClose() {
     setOpen(false);
-    setAmount(entry ? String(Math.abs(entry.amount)) : "");
+    setAmount(entry ? String(Math.abs(entry.amount)) : defaultAmount !== undefined ? String(defaultAmount) : "");
     setDescription(entry?.description ?? `Movimentação da dívida ${debtName}`);
     setCategoryId(entry?.categoryId ?? (mode === "payment" && defaultCategoryId ? defaultCategoryId : NONE));
     setConfirmingSettle(false);
+    setInterestPercentage("");
   }
 
   function handleSubmit() {
@@ -175,7 +194,7 @@ export function DebtTransactionDialog({
               step="0.01"
               min="0"
               value={amount}
-              onChange={(e) => { setAmount(e.target.value); setConfirmingSettle(false); }}
+              onChange={(e) => { setAmount(e.target.value); setConfirmingSettle(false); setInterestPercentage(""); }}
             />
           </Field>
           <Field>
@@ -183,6 +202,13 @@ export function DebtTransactionDialog({
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
         </div>
+        {mode === "increase" && !isEdit && (
+          <Field>
+            <Label>Calcular juros (%) — opcional</Label>
+            <Input type="number" step="0.01" min="0" value={interestPercentage} onChange={(e) => handleInterestPercentageChange(e.target.value)} />
+            <p className="mt-1 text-[11px] opacity-50">Preenche o valor com {formatCurrency(currentBalance)} × a porcentagem — ainda editável.</p>
+          </Field>
+        )}
         <Field>
           <Label>Descrição</Label>
           <Input value={description} onChange={(e) => setDescription(e.target.value)} />

@@ -59,6 +59,55 @@ export async function deleteTransaction(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Estorno integral de uma despesa fora do cartão (AI_CONTEXT.md "Estorno") — mais simples que a
+ * versão de cartão, já que dinheiro real volta pra uma conta real de verdade: reclassifica a
+ * despesa original para a categoria system "Estorno" (EXPENSE) e cria uma nova transação de
+ * RECEITA, categoria "Estorno" (INCOME), no mesmo valor, creditada na mesma conta de origem —
+ * datada de quando o estorno realmente aconteceu (pode ser meses depois), nunca reescrevendo o
+ * lançamento original. Bloqueia um segundo estorno checando se a despesa já está categorizada
+ * como "Estorno".
+ */
+export async function refundTransaction(transactionId: string, refundDate: string): Promise<void> {
+  const supabase = await createClient();
+  const user = await getUser();
+
+  const { data: original, error: originalError } = await supabase
+    .from("transactions")
+    .select("id, type, amount, origin_account_id, description, category_id")
+    .eq("id", transactionId)
+    .single();
+  if (originalError) throw new Error(originalError.message);
+  if (original.type !== "EXPENSE") throw new Error("Só é possível estornar uma despesa.");
+
+  const [{ data: expenseCategory, error: expenseCategoryError }, { data: incomeCategory, error: incomeCategoryError }] = await Promise.all([
+    supabase.from("categories").select("id").eq("is_system", true).eq("name", "Estorno").eq("type", "EXPENSE").single(),
+    supabase.from("categories").select("id").eq("is_system", true).eq("name", "Estorno").eq("type", "INCOME").single(),
+  ]);
+  if (expenseCategoryError) throw new Error(expenseCategoryError.message);
+  if (incomeCategoryError) throw new Error(incomeCategoryError.message);
+
+  if (original.category_id === expenseCategory.id) throw new Error("Este lançamento já foi estornado.");
+
+  const { error: updateError } = await supabase
+    .from("transactions")
+    .update({ category_id: expenseCategory.id, subcategory_id: null })
+    .eq("id", transactionId);
+  if (updateError) throw new Error(updateError.message);
+
+  const { error: insertError } = await supabase.from("transactions").insert({
+    user_id: user.id,
+    type: "INCOME",
+    destination_account_id: original.origin_account_id,
+    amount: original.amount,
+    date: refundDate,
+    category_id: incomeCategory.id,
+    description: `Estorno — ${original.description || "lançamento"}`,
+    refund_of_transaction_id: transactionId,
+  });
+  if (insertError) throw new Error(insertError.message);
+}
+
 export async function getTransactions(filters: TransactionFilters = {}): Promise<TransactionViewDTO[]> {
   const supabase = await createClient();
   const user = await getUser();

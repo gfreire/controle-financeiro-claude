@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
-import { startOfMonth, endOfMonth } from "@/lib/utils/date";
+import { startOfMonth, endOfMonth, todayIso } from "@/lib/utils/date";
 import { sumMoney } from "@/lib/utils/money";
 import { reconcileFixedExpenseFloors } from "./_shared";
 import { createTransaction } from "./transactions.service";
@@ -8,11 +8,47 @@ import { createCardPurchase } from "./cards.service";
 import type { FixedExpenseInput } from "@/lib/validations/fixed-expenses";
 import type { FixedExpenseDTO } from "@/types/dto";
 
+// Sentinel for "this amount has always applied" — what a brand-new fixed expense's first history
+// row gets, and what the pre-migration backfill used, so a never-edited amount still shows
+// identically in every past month (AI_CONTEXT.md "Despesas fixas — histórico de valor").
+const EARLIEST_EFFECTIVE_DATE = "1970-01-01";
+
+/**
+ * Amount effective for `monthStart`, per fixed expense — the history row with the latest
+ * `effective_from <= monthStart`, one query for the whole batch. Every fixed expense always has
+ * at least one row (created alongside the fixed expense itself, or backfilled by migration
+ * `0023`), so the `?? row.amount` fallback below should never actually trigger.
+ */
+async function resolveAmountsForMonth(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  fixedExpenseIds: string[],
+  monthStart: string
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (fixedExpenseIds.length === 0) return result;
+  const { data, error } = await supabase
+    .from("fixed_expense_amount_history")
+    .select("fixed_expense_id, amount, effective_from")
+    .in("fixed_expense_id", fixedExpenseIds)
+    .lte("effective_from", monthStart)
+    .order("effective_from", { ascending: false });
+  if (error) throw new Error(error.message);
+  for (const row of data ?? []) {
+    if (!result.has(row.fixed_expense_id)) result.set(row.fixed_expense_id, row.amount);
+  }
+  return result;
+}
+
 /**
  * Before the real payment lands this month, `projectedAmount` shows the planned amount as a
  * placeholder; once a real transaction (or, for a card-paid fixed expense, a linked
  * card_purchase's installment) is registered, it switches to the real value — this is what
  * avoids ever double-counting the placeholder and the real payment.
+ *
+ * `plannedAmount` resolves from `fixed_expense_amount_history` for the QUERIED month, never
+ * `fixed_expenses.amount` directly — a fixed expense edited today only changes what shows from
+ * today's month forward, past months keep showing whatever was true back then (AI_CONTEXT.md
+ * "Despesas fixas — histórico de valor").
  */
 export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]> {
   const supabase = await createClient();
@@ -28,8 +64,11 @@ export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]
     .order("due_day");
   if (error) throw new Error(error.message);
 
+  const plannedAmounts = await resolveAmountsForMonth(supabase, (fixedExpenses ?? []).map((row) => row.id), monthStart);
+
   const results = await Promise.all(
     (fixedExpenses ?? []).map(async (row) => {
+      const plannedAmount = plannedAmounts.get(row.id) ?? row.amount;
       const [{ data: linked, error: linkedError }, { data: cardPurchases, error: purchaseError }] = await Promise.all([
         supabase.from("transactions").select("amount, date").eq("fixed_expense_id", row.id).gte("date", monthStart).lte("date", monthEnd),
         supabase.from("card_purchases").select("id, purchase_date").eq("fixed_expense_id", row.id),
@@ -56,7 +95,7 @@ export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]
 
       const actualAmount = sumMoney([sumMoney((linked ?? []).map((t) => t.amount)), cardAmount]);
       const isPaidThisMonth = actualAmount > 0;
-      const projectedAmount = isPaidThisMonth ? actualAmount : row.amount;
+      const projectedAmount = isPaidThisMonth ? actualAmount : plannedAmount;
       const paidDate = isPaidThisMonth
         ? [
             ...(linked ?? []).map((t) => t.date),
@@ -71,14 +110,14 @@ export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]
         categoryName: row.categories?.name ?? "",
         subcategoryId: row.subcategory_id ?? undefined,
         subcategoryName: row.subcategories?.name ?? undefined,
-        plannedAmount: row.amount,
+        plannedAmount,
         dueDay: row.due_day,
         defaultAccountId: row.default_account_id ?? undefined,
         actualAmount,
         projectedAmount,
         isPaidThisMonth,
         paidDate,
-        status: actualAmount > row.amount ? "EXCEEDED" : "OK",
+        status: actualAmount > plannedAmount ? "EXCEEDED" : "OK",
       } satisfies FixedExpenseDTO;
     })
   );
@@ -109,17 +148,32 @@ export async function createFixedExpense(input: FixedExpenseInput): Promise<{ id
     .single();
   if (error) throw new Error(error.message);
 
+  const { error: historyError } = await supabase
+    .from("fixed_expense_amount_history")
+    .insert({ fixed_expense_id: data.id, amount: input.amount, effective_from: EARLIEST_EFFECTIVE_DATE });
+  if (historyError) throw new Error(historyError.message);
+
   const notices = await reconcileFixedExpenseFloors(supabase, user.id, input.categoryId, input.subcategoryId);
   return { id: data.id, notices };
 }
 
+/**
+ * A changed `amount` never rewrites history — it takes effect from THIS real calendar month
+ * forward only (AI_CONTEXT.md "Despesas fixas — histórico de valor"): `fixed_expenses.amount`
+ * still gets the new value (it's the "current" cache, used e.g. to prefill the edit form and by
+ * the budget-floor reconciliation below, which only ever looks at the current/next month anyway),
+ * but `getFixedExpenses` for a PAST month keeps resolving whatever was true back then via
+ * `fixed_expense_amount_history`. Editing the amount more than once within the same real month
+ * corrects that same starting point (upsert on `(fixed_expense_id, effective_from)`), not a
+ * second one.
+ */
 export async function updateFixedExpense(id: string, input: Partial<FixedExpenseInput>): Promise<{ notices: string[] }> {
   const supabase = await createClient();
   const user = await getUser();
 
   const { data: existing, error: fetchError } = await supabase
     .from("fixed_expenses")
-    .select("category_id, subcategory_id")
+    .select("category_id, subcategory_id, amount")
     .eq("id", id)
     .single();
   if (fetchError) throw new Error(fetchError.message);
@@ -136,6 +190,16 @@ export async function updateFixedExpense(id: string, input: Partial<FixedExpense
     })
     .eq("id", id);
   if (error) throw new Error(error.message);
+
+  if (input.amount !== undefined && input.amount !== existing.amount) {
+    const { error: historyError } = await supabase
+      .from("fixed_expense_amount_history")
+      .upsert(
+        { fixed_expense_id: id, amount: input.amount, effective_from: startOfMonth(todayIso()) },
+        { onConflict: "fixed_expense_id,effective_from" }
+      );
+    if (historyError) throw new Error(historyError.message);
+  }
 
   const categoryId = input.categoryId !== undefined ? input.categoryId : existing.category_id;
   const subcategoryId = input.subcategoryId !== undefined ? input.subcategoryId : existing.subcategory_id;
@@ -198,6 +262,42 @@ export async function payFixedExpense(input: {
     subcategoryId: input.subcategoryId ?? undefined,
     fixedExpenseId: input.fixedExpenseId,
   });
+}
+
+/**
+ * Candidatas pra "Vincular lançamento existente" (AI_CONTEXT.md "Despesas fixas — vincular
+ * pagamento já lançado") — despesas (EXPENSE) do usuário ainda sem fixed_expense_id nenhum,
+ * filtradas pela categoria da despesa fixa quando ela tem uma (o caso comum: um pagamento
+ * lançado manualmente antes de existir a despesa fixa, ou depois de recriá-la, normalmente já
+ * está na categoria certa). Sem filtro de categoria quando a despesa fixa não tem uma.
+ */
+export async function getUnlinkedExpenseCandidates(categoryId: string | null): Promise<{ id: string; date: string; description: string; amount: number }[]> {
+  const supabase = await createClient();
+  const user = await getUser();
+  let query = supabase
+    .from("transactions")
+    .select("id, date, description, amount")
+    .eq("user_id", user.id)
+    .eq("type", "EXPENSE")
+    .is("fixed_expense_id", null)
+    .order("date", { ascending: false })
+    .limit(50);
+  if (categoryId) query = query.eq("category_id", categoryId);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({ id: row.id, date: row.date, description: row.description ?? "", amount: row.amount }));
+}
+
+/**
+ * Vincula uma transaction já existente (lançada manualmente, sem passar por payFixedExpense) a
+ * uma despesa fixa — pro caso de recriar uma despesa fixa apagada por engano e não perder o
+ * rastro de um pagamento que já tinha sido registrado. Só reatribui fixed_expense_id; a
+ * transaction em si (valor/data/categoria) não é tocada.
+ */
+export async function linkExistingTransaction(fixedExpenseId: string, transactionId: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("transactions").update({ fixed_expense_id: fixedExpenseId }).eq("id", transactionId);
+  if (error) throw new Error(error.message);
 }
 
 /**

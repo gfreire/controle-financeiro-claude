@@ -66,6 +66,19 @@ export function todayIso(): string {
 }
 
 /**
+ * Days from `todayIsoDate` until `dueDay` (1-28) falls in the SAME calendar month as today —
+ * negative when it already passed this month (overdue), 0 today, positive when still ahead.
+ * Used to flag fixed expenses due soon/overdue on the dashboard, independent of the month a
+ * filter might be viewing (this is always anchored to today, same convention as
+ * CardSummaryDTO.usedThroughCurrentMonth/openInvoiceMonth).
+ */
+export function daysUntilDueThisMonth(dueDay: number, todayIsoDate: string): number {
+  const today = toUtcDate(todayIsoDate);
+  const due = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), dueDay));
+  return Math.round((due.getTime() - today.getTime()) / 86_400_000);
+}
+
+/**
  * Central rule (see AI_CONTEXT.md "Credit Card Purchases"): analytics use
  * installment competence, never purchase_date. Two steps decide the
  * competence month, both driven by how closing_day and due_day relate to

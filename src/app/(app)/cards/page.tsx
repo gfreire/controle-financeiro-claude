@@ -10,6 +10,8 @@ import { toPercentage } from "@/lib/utils/number";
 import { PurchaseFormDialog } from "@/features/cards/components/purchase-form-dialog";
 import { PaymentFormDialog } from "@/features/cards/components/payment-form-dialog";
 import { DeletePurchaseButton } from "@/features/cards/components/delete-purchase-button";
+import { RefundPurchaseDialog } from "@/features/cards/components/refund-purchase-dialog";
+import { AdvanceInstallmentsDialog } from "@/features/cards/components/advance-installments-dialog";
 import { MonthNav } from "@/features/cards/components/month-nav";
 import { CardFilters } from "@/features/cards/components/card-filters";
 import { CardEvolutionChart } from "@/features/cards/components/card-evolution-chart";
@@ -169,6 +171,10 @@ export default async function CardsPage({
                                 </button>
                               }
                             />
+                            {!purchase.refundedAt && purchase.remainingUnbilledAmount > 0 && (
+                              <AdvanceInstallmentsDialog purchase={purchase} />
+                            )}
+                            {!purchase.refundedAt && <RefundPurchaseDialog purchase={purchase} />}
                             <DeletePurchaseButton purchaseId={purchase.id} description={purchase.description} />
                           </>
                         );
@@ -192,6 +198,7 @@ export default async function CardsPage({
                                   <p className="text-xs tabular-nums opacity-50">
                                     {r.installmentNumber}/{r.totalInstallments}
                                     {r.paidBeforeSystem && <Badge variant="outline" className="ml-2">paga antes do sistema</Badge>}
+                                    {purchase?.refundedAt && <Badge variant="accent" className="ml-2">estornada</Badge>}
                                   </p>
                                 </div>
                                 <span className="shrink-0 text-sm font-medium tabular-nums">{formatCurrency(r.amount)}</span>
@@ -209,6 +216,7 @@ export default async function CardsPage({
                                 <p className="text-xs tabular-nums opacity-50">
                                   {r.installmentNumber}/{r.totalInstallments}
                                   {r.paidBeforeSystem && <Badge variant="outline" className="ml-2">paga antes do sistema</Badge>}
+                                  {purchase?.refundedAt && <Badge variant="accent" className="ml-2">estornada</Badge>}
                                 </p>
                               </div>
                               <div className="w-24 shrink-0 text-right text-sm font-medium tabular-nums">

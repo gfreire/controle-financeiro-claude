@@ -19,14 +19,18 @@ export function DialogContent({
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-neutral-900/50 p-4 data-[state=open]:animate-in data-[state=open]:fade-in data-[state=closed]:animate-out data-[state=closed]:fade-out">
         <DialogPrimitive.Content
           className={cn(
-            "relative my-8 flex w-full max-w-[440px] max-h-[calc(100dvh-4rem)] flex-col gap-3 overflow-y-auto border border-divider bg-surface p-4 shadow-lg",
+            "relative my-8 flex w-full max-w-[440px] max-h-[calc(100dvh-4rem)] flex-col border border-divider bg-surface shadow-lg",
             "data-[state=open]:animate-in data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:zoom-out-95",
             className
           )}
           {...props}
         >
           <CornerMarks />
-          {children}
+          {/* Scroll isolated to this inner wrapper, never the Content box above — CornerMarks'
+              own corner-tl/tr/bl/br decorations sit at negative offsets (see globals.css), and a
+              scrollable ancestor counts that bleed as real overflow, producing phantom
+              horizontal+vertical scrollbars on every dialog even when content fits. */}
+          <div className="flex flex-col gap-3 overflow-y-auto p-4">{children}</div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Overlay>
     </DialogPrimitive.Portal>

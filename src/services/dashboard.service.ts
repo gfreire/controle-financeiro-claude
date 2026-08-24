@@ -131,6 +131,43 @@ async function fetchPeriodEntries(
     }
   }
 
+  // Card refunds (AI_CONTEXT.md "Estorno") — a credit against the card's balance, always tagged
+  // with the real "Estorno" INCOME system category, counted for the month it actually happened
+  // (refund_date), never the original purchase's competence. Unlike retroactive/paid-before-system
+  // income below, this always has a real categoryId, so it's folded directly into `entries` instead
+  // of a separate computed-only bucket — category charts can show "Estorno" like any other income.
+  // Skipped for uncategorizedOnly/subcategory filters since a refund never matches either.
+  if (includeCards && filters.transactionType !== "EXPENSE" && !filters.uncategorizedOnly && !filters.subcategories?.length) {
+    let refundQuery = supabase
+      .from("card_refunds")
+      .select("amount, refund_date, category_id, credit_card_id, categories(name, color, icon)")
+      .eq("user_id", userId)
+      .gte("refund_date", filters.periodStart)
+      .lte("refund_date", filters.periodEnd);
+    if (filters.categories?.length) refundQuery = refundQuery.in("category_id", filters.categories);
+    if (filters.accounts?.length) refundQuery = refundQuery.in("credit_card_id", filters.accounts);
+
+    const { data: refundsData, error: refundError } = await refundQuery;
+    if (refundError) throw new Error(refundError.message);
+    const refunds = (refundsData ?? []) as unknown as Array<{
+      amount: number;
+      refund_date: string;
+      category_id: string;
+      categories: { name: string; color: string; icon: string | null } | null;
+    }>;
+    for (const row of refunds) {
+      entries.push({
+        amount: row.amount,
+        date: row.refund_date,
+        type: "INCOME",
+        categoryId: row.category_id,
+        categoryName: row.categories?.name ?? "Estorno",
+        categoryColor: row.categories?.color ?? "#0ea5e9",
+        categoryIcon: row.categories?.icon ?? null,
+      });
+    }
+  }
+
   return entries;
 }
 
@@ -193,9 +230,11 @@ export async function getFinancialSummary(filters: DashboardFilters): Promise<Fi
   const balance = sumMoney(liquidAccounts.map((a) => a.balance));
 
   const adjustmentTotal = sumMoney(entries.filter((e) => e.categoryName === "Ajuste").map((e) => e.amount));
+  const refundTotal = sumMoney(entries.filter((e) => e.categoryName === "Estorno").map((e) => e.amount));
   const periodTotal = sumMoney([income, expense]);
   const adjustmentShare = periodTotal === 0 ? 0 : Math.round((adjustmentTotal / periodTotal) * 1000) / 10;
   const retroactiveIncomeShare = periodTotal === 0 ? 0 : Math.round((retroactiveIncomeTotal / periodTotal) * 1000) / 10;
+  const refundShare = periodTotal === 0 ? 0 : Math.round((refundTotal / periodTotal) * 1000) / 10;
 
   return {
     balance,
@@ -204,6 +243,7 @@ export async function getFinancialSummary(filters: DashboardFilters): Promise<Fi
     result: subtractMoney(income, expense),
     adjustmentShare,
     retroactiveIncomeShare,
+    refundShare,
   };
 }
 

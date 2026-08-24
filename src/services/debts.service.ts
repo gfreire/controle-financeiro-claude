@@ -1,9 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { addMoney, sumMoney } from "@/lib/utils/money";
+import { monthKey, todayIso } from "@/lib/utils/date";
 import type { DebtInput, DebtTransactionInput, UpdateDebtTransactionInput } from "@/lib/validations/debts";
 import type { DebtDTO, DebtTransactionDTO } from "@/types/dto";
 
+/**
+ * `paidThisMonth` (INSTALLMENT_PLAN only) — whether a payment (debt_transactions.amount < 0)
+ * dated in the current calendar month already exists, same "isPaidThisMonth" convention Fixed
+ * Expenses already uses. See AI_CONTEXT.md "Dívidas — subtipos".
+ */
 export async function getDebts(): Promise<DebtDTO[]> {
   const supabase = await createClient();
   const user = await getUser();
@@ -16,17 +22,26 @@ export async function getDebts(): Promise<DebtDTO[]> {
     .order("agent");
   if (error) throw new Error(error.message);
 
+  const currentMonth = monthKey(todayIso());
+
   const results = await Promise.all(
     (debts ?? []).map(async (row) => {
-      const { data: entries } = await supabase.from("debt_transactions").select("amount").eq("debt_id", row.id);
+      const { data: entries } = await supabase.from("debt_transactions").select("amount, date").eq("debt_id", row.id);
       return {
         id: row.id,
         side: row.side,
         agent: row.agent,
+        kind: row.kind,
         originalAmount: row.initial_balance,
         remainingBalance: addMoney(row.initial_balance, sumMoney((entries ?? []).map((e) => e.amount))),
         active: row.active,
         defaultCategoryId: row.default_category_id ?? undefined,
+        monthlyAmount: row.monthly_amount ?? undefined,
+        dueDay: row.due_day ?? undefined,
+        paidThisMonth:
+          row.kind === "INSTALLMENT_PLAN"
+            ? (entries ?? []).some((e) => e.amount < 0 && monthKey(e.date) === currentMonth)
+            : undefined,
       };
     })
   );
@@ -42,8 +57,11 @@ export async function createDebt(input: DebtInput): Promise<string> {
       user_id: user.id,
       agent: input.agent,
       side: input.side,
+      kind: input.kind,
       initial_balance: input.initialBalance,
       default_category_id: input.defaultCategoryId ?? null,
+      monthly_amount: input.monthlyAmount ?? null,
+      due_day: input.dueDay ?? null,
     })
     .select("id")
     .single();
@@ -51,15 +69,19 @@ export async function createDebt(input: DebtInput): Promise<string> {
   return data.id;
 }
 
-/** Agent/side/initialBalance/defaultCategoryId are all freely editable after creation — only the
- * computed remainingBalance formula (initial_balance + SUM(debt_transactions.amount)) is fixed. */
+/** Agent/side/kind/initialBalance/defaultCategoryId/monthlyAmount/dueDay are all freely editable
+ * after creation — only the computed remainingBalance formula (initial_balance +
+ * SUM(debt_transactions.amount)) is fixed. */
 export async function updateDebt(id: string, input: Partial<DebtInput>): Promise<void> {
   const supabase = await createClient();
   const updates: Record<string, unknown> = {};
   if (input.agent !== undefined) updates.agent = input.agent;
   if (input.side !== undefined) updates.side = input.side;
+  if (input.kind !== undefined) updates.kind = input.kind;
   if (input.initialBalance !== undefined) updates.initial_balance = input.initialBalance;
   if (input.defaultCategoryId !== undefined) updates.default_category_id = input.defaultCategoryId;
+  if (input.monthlyAmount !== undefined) updates.monthly_amount = input.monthlyAmount;
+  if (input.dueDay !== undefined) updates.due_day = input.dueDay;
   const { error } = await supabase.from("debts").update(updates).eq("id", id);
   if (error) throw new Error(error.message);
 }

@@ -11,6 +11,7 @@ import { textIncludes } from "@/lib/utils/normalize";
 import { EditableCategoryCell } from "./editable-category-cell";
 import { DeleteTransactionButton } from "@/features/transactions/components/delete-transaction-button";
 import { TransactionFormDialog } from "@/features/transactions/components/transaction-form-dialog";
+import { RefundTransactionDialog } from "@/features/transactions/components/refund-transaction-dialog";
 import { AccountTypeIcon } from "@/components/ui/account-type-icon";
 import type { AccountDTO, CategoryDTO, TransactionViewDTO } from "@/types/dto";
 
@@ -57,6 +58,9 @@ export function TransactionExplorer({
                 {t.paidBeforeSystem && (
                   <Badge variant="outline" className="ml-2">paga antes do sistema</Badge>
                 )}
+                {t.type === "EXPENSE" && t.category === "Estorno" && (
+                  <Badge variant="accent" className="ml-2">estornado</Badge>
+                )}
               </TableCell>
               <TableCell><EditableCategoryCell row={t} categories={categories} /></TableCell>
               <TableCell className="whitespace-nowrap text-xs opacity-70">
@@ -76,6 +80,9 @@ export function TransactionExplorer({
                   <div className="flex items-center gap-2">
                     {accounts && t.type !== "CREDIT_CARD_PAYMENT" && (
                       <TransactionFormDialog accounts={accounts} categories={categories} transaction={t} />
+                    )}
+                    {t.type === "EXPENSE" && t.category !== "Estorno" && (
+                      <RefundTransactionDialog transactionId={t.id} description={t.description} amount={t.amount} />
                     )}
                     <DeleteTransactionButton transactionId={t.id} description={t.description} />
                   </div>
