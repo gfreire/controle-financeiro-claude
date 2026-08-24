@@ -11,6 +11,7 @@ import { AccrualDialog } from "@/features/reservoirs/components/accrual-dialog";
 import { WithdrawalDialog } from "@/features/reservoirs/components/withdrawal-dialog";
 import { DeleteReservoirTransactionButton } from "@/features/reservoirs/components/delete-reservoir-transaction-button";
 import { DeleteReservoirButton } from "@/features/reservoirs/components/delete-reservoir-button";
+import { HelpButton } from "@/components/ui/help-button";
 
 export default async function ReservoirsPage() {
   const [reservoirs, accounts, categories] = await Promise.all([getReservoirs(), getAccounts(), getCategories()]);
@@ -19,7 +20,13 @@ export default async function ReservoirsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="font-heading text-2xl font-semibold">Receita Programada</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-heading text-2xl font-semibold">Receita Programada</h1>
+          <HelpButton title="Receita Programada">
+            <p>&quot;Lançar novo valor&quot; registra um ganho previsto ou já sabido, mas que ainda não virou dinheiro na conta.</p>
+            <p>&quot;Sacar&quot; é quando o dinheiro chega de verdade — cria um lançamento de receita numa conta real, não precisa bater exatamente com o valor acumulado.</p>
+          </HelpButton>
+        </div>
         <ReservoirFormDialog categories={categories} accounts={liquidAccounts} />
       </div>
       <p className="text-sm opacity-70">

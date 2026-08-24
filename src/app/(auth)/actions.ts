@@ -33,7 +33,10 @@ export async function signUp(_prevState: AuthState, formData: FormData): Promise
     return { error: "Conta criada! Confirme seu e-mail para continuar e depois faça login." };
   }
 
-  redirect("/onboarding");
+  // First-time flow now starts with the auto-created "Carteira" balance confirmation, not
+  // category picking (AI_CONTEXT.md "Onboarding — conta padrão", reordered 2026-08-24 at the
+  // user's request) — /onboarding/account redirects into /onboarding itself once done.
+  redirect("/onboarding/account");
 }
 
 export async function signOut() {

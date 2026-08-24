@@ -18,8 +18,10 @@ import { CardEvolutionChart } from "@/features/cards/components/card-evolution-c
 import { CardExpenseDonut } from "@/features/cards/components/card-expense-donut";
 import { EditableCategoryCell } from "@/features/dashboard/components/editable-category-cell";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { CreditCard, Receipt, Pencil } from "lucide-react";
 import { textIncludes } from "@/lib/utils/normalize";
+import { HelpButton } from "@/components/ui/help-button";
 
 export default async function CardsPage({
   searchParams,
@@ -61,7 +63,13 @@ export default async function CardsPage({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="font-heading text-2xl font-semibold">Cartões</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-heading text-2xl font-semibold">Cartões</h1>
+          <HelpButton title="Cartões">
+            <p>Compras parceladas e a fatura de cada cartão. O que importa pro cartão é a competência da parcela, não a data da compra.</p>
+            <p>Cada parcela pode ser editada, estornada ou antecipada individualmente. &quot;Pagar fatura&quot; registra o pagamento numa conta de verdade.</p>
+          </HelpButton>
+        </div>
         <div className="flex items-center gap-2">
           <MonthNav />
           <PurchaseFormDialog cards={allCards} cardTotals={cardTotals} categories={categories} />
@@ -78,7 +86,11 @@ export default async function CardsPage({
       )}
 
       {allCards.length === 0 ? (
-        <p className="text-sm opacity-60">Nenhum cartão cadastrado. Crie um cartão de crédito na página de Contas.</p>
+        <Card frame={false} className="items-center gap-2 p-6 text-center">
+          <CreditCard className="size-6 text-accent" strokeWidth={1.5} />
+          <p className="text-sm opacity-70">Nenhum cartão cadastrado ainda.</p>
+          <Button asChild size="sm"><Link href="/accounts?newAccountType=CREDIT_CARD">Criar cartão de crédito</Link></Button>
+        </Card>
       ) : (
         <div className="flex flex-col gap-4">
           {await Promise.all(

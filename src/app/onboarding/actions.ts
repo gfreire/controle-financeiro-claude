@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { copyDefaultCategories } from "@/services/categories.service";
 import { markOnboardingCompleted } from "@/services/profile.service";
+import { updateAccount } from "@/services/accounts.service";
 
 export async function completeOnboarding(formData: FormData) {
   const categoryIds = formData.getAll("categoryId").map(String);
@@ -19,9 +20,14 @@ export async function completeOnboarding(formData: FormData) {
   }
   await markOnboardingCompleted();
 
-  // First-time signup with at least one category picked: go straight to planning this month's
-  // budget (AI_CONTEXT.md "Budgets") instead of the dashboard. Skipping category selection
-  // entirely, or a later re-import from Settings, never triggers this — "se ele pular esta
-  // etapa não fazemos nada", per the user's own framing.
-  redirect(isFirstTime && importedSomething ? "/onboarding/budget" : redirectTo);
+  // First-time signup always continues to budget planning next (AI_CONTEXT.md "Onboarding —
+  // conta padrão") — account confirmation now runs BEFORE this step, not after (reordered
+  // 2026-08-24 at the user's request) — regardless of whether any category was actually picked
+  // (the budget step degrades gracefully with nothing to show). A later re-import from Settings
+  // never triggers this step, "se ele pular esta etapa não fazemos nada", per the user's own framing.
+  redirect(isFirstTime ? "/onboarding/budget" : redirectTo);
+}
+
+export async function completeOnboardingAccount(accountId: string, balance: number) {
+  await updateAccount(accountId, { type: "CASH", initialBalance: balance });
 }

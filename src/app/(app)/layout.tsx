@@ -13,7 +13,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // (e.g. logging in later after confirming email) — see profiles.onboarding_completed.
   const profile = await getProfile();
   if (!profile.onboardingCompleted) {
-    redirect("/onboarding");
+    // Onboarding now starts at the wallet-balance step, not category picking (reordered
+    // 2026-08-24) — see AI_CONTEXT.md "Onboarding — conta padrão".
+    redirect("/onboarding/account");
   }
 
   return (

@@ -13,12 +13,24 @@ import type { FinancialInstitutionDTO } from "@/types/dto";
 
 const NONE = "NONE";
 
-export function AccountFormDialog({ institutions }: { institutions: FinancialInstitutionDTO[] }) {
+export function AccountFormDialog({
+  institutions,
+  initialOpen,
+  initialType,
+}: {
+  institutions: FinancialInstitutionDTO[];
+  // Lets a caller land on this page with the dialog already open to a given type — e.g. the
+  // Cards page's "Criar cartão de crédito" button when there's no card yet (decided 2026-08-24,
+  // at the user's request: the empty state used to just say "create one in Accounts" with no
+  // actual way to get there pre-filled).
+  initialOpen?: boolean;
+  initialType?: "CASH" | "BANK" | "CREDIT_CARD";
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen ?? false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [type, setType] = useState<"CASH" | "BANK" | "CREDIT_CARD">("BANK");
+  const [type, setType] = useState<"CASH" | "BANK" | "CREDIT_CARD">(initialType ?? "BANK");
   const [institutionId, setInstitutionId] = useState(NONE);
   const [name, setName] = useState("");
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);

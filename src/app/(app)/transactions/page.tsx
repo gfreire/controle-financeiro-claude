@@ -6,6 +6,7 @@ import { TransactionFormDialog } from "@/features/transactions/components/transa
 import { TransactionExplorer } from "@/features/dashboard/components/transaction-explorer";
 import { MonthNav } from "@/features/transactions/components/month-nav";
 import { TransactionFilters } from "@/features/transactions/components/transaction-filters";
+import { HelpButton } from "@/components/ui/help-button";
 
 export default async function TransactionsPage({
   searchParams,
@@ -33,7 +34,13 @@ export default async function TransactionsPage({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="font-heading text-2xl font-semibold">Movimentações</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-heading text-2xl font-semibold">Movimentações</h1>
+          <HelpButton title="Movimentações">
+            <p>Todos os seus lançamentos do mês — receitas, despesas e transferências entre contas.</p>
+            <p>Categoria e descrição podem ser editadas direto na lista. Pagamentos de fatura de cartão aparecem aqui, mas só são criados pela tela de Cartões.</p>
+          </HelpButton>
+        </div>
         <div className="flex items-center gap-2">
           <MonthNav />
           <TransactionFormDialog accounts={accounts} categories={categories} />

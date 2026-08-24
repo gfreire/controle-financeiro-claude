@@ -8,6 +8,12 @@ import { Button } from "@/components/ui/button";
 import { CategoryTreeItem } from "@/features/categories/components/category-tree-item";
 import { Wallet2, PartyPopper } from "lucide-react";
 
+// Onboarding-only quick-start whitelist — decided 2026-08-24 at the user's request, to keep the
+// first-time form fast (most common categories pre-checked, everything else opt-in). This has
+// no relation to the `is_default` flag on the categories themselves (that flag just marks the
+// catalog as copyable at all) — it only exists here, as a shortlist for this one screen.
+const QUICK_START_CATEGORY_NAMES = new Set(["Alimentação", "Compras", "Moradia", "Transporte", "Salário"]);
+
 export default async function OnboardingPage() {
   await getUser();
   const [options, profile] = await Promise.all([getDefaultCategoryImportOptions(), getProfile()]);
@@ -32,6 +38,7 @@ export default async function OnboardingPage() {
       </p>
       <p className="text-xs opacity-60">
         Cada categoria pode ser aberta pra escolher só as subcategorias que fazem sentido pra você — por exemplo, manter &quot;Moradia&quot; mas só com &quot;Aluguel&quot;, sem &quot;IPTU&quot;.
+        {isFirstTime && " Já vem marcado o que a maioria usa pra começar — adicione mais quando quiser."}
       </p>
 
       {showEmptyState ? (
@@ -39,7 +46,7 @@ export default async function OnboardingPage() {
           <PartyPopper className="size-6 text-accent" strokeWidth={1.5} />
           <CardTitle className="text-base">Você já importou todas as categorias padrão</CardTitle>
           <CardBody>Não sobrou nenhuma categoria nova do pacote inicial. Você pode criar categorias personalizadas nas Configurações.</CardBody>
-          <Button asChild size="sm"><Link href={isFirstTime ? "/dashboard" : "/settings"}>Voltar</Link></Button>
+          <Button asChild size="sm"><Link href={isFirstTime ? "/onboarding/budget" : "/settings"}>Voltar</Link></Button>
         </Card>
       ) : (
         <form action={completeOnboarding} className="flex flex-col gap-6">
@@ -51,7 +58,11 @@ export default async function OnboardingPage() {
               <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-accent">Despesas</h2>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {expenseOptions.map((category) => (
-                  <CategoryTreeItem key={category.id} category={category} initialChecked={isFirstTime} />
+                  <CategoryTreeItem
+                    key={category.id}
+                    category={category}
+                    initialChecked={isFirstTime && QUICK_START_CATEGORY_NAMES.has(category.name)}
+                  />
                 ))}
               </div>
             </section>
@@ -62,7 +73,11 @@ export default async function OnboardingPage() {
               <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-accent">Receitas</h2>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {incomeOptions.map((category) => (
-                  <CategoryTreeItem key={category.id} category={category} initialChecked={isFirstTime} />
+                  <CategoryTreeItem
+                    key={category.id}
+                    category={category}
+                    initialChecked={isFirstTime && QUICK_START_CATEGORY_NAMES.has(category.name)}
+                  />
                 ))}
               </div>
             </section>

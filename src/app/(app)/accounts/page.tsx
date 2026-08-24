@@ -4,8 +4,14 @@ import { monthKey, todayIso } from "@/lib/utils/date";
 import { AccountFormDialog } from "@/features/accounts/components/account-form-dialog";
 import { AccountCard } from "@/features/accounts/components/account-card";
 import { AccountsOverviewCharts } from "@/features/accounts/components/accounts-overview-charts";
+import { HelpButton } from "@/components/ui/help-button";
 
-export default async function AccountsPage() {
+export default async function AccountsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ newAccountType?: string }>;
+}) {
+  const { newAccountType } = await searchParams;
   const [accounts, institutions] = await Promise.all([getAccounts(), getFinancialInstitutions()]);
   const nonCards = accounts.filter((a) => a.type !== "CREDIT_CARD");
   const cards = accounts.filter((a) => a.type === "CREDIT_CARD");
@@ -18,8 +24,19 @@ export default async function AccountsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="font-heading text-2xl font-semibold">Contas</h1>
-        <AccountFormDialog institutions={institutions} />
+        <div className="flex items-center gap-2">
+          <h1 className="font-heading text-2xl font-semibold">Contas</h1>
+          <HelpButton title="Contas">
+            <p>Onde seu dinheiro de verdade está — carteira, contas bancárias e cartões de crédito.</p>
+            <p>Cada tipo tem suas próprias ações: &quot;Informar Rendimento&quot; e &quot;Ajustar Saldo&quot; pra dinheiro/banco, &quot;Ajustar Cartão&quot; pra limite e datas da fatura.</p>
+            <p>Crie quantas quiser — não tem limite de contas ou cartões.</p>
+          </HelpButton>
+        </div>
+        <AccountFormDialog
+          institutions={institutions}
+          initialOpen={newAccountType === "CREDIT_CARD"}
+          initialType={newAccountType === "CREDIT_CARD" ? "CREDIT_CARD" : undefined}
+        />
       </div>
 
       {accounts.length === 0 ? (

@@ -8,6 +8,7 @@ import { CategoryFormDialog } from "@/features/categories/components/category-fo
 import { SubcategoryFormDialog } from "@/features/categories/components/subcategory-form-dialog";
 import { DeleteCategoryDialog } from "@/features/categories/components/delete-category-dialog";
 import { User, PackagePlus, Pencil } from "lucide-react";
+import { HelpButton } from "@/components/ui/help-button";
 
 export default async function SettingsPage() {
   const [categories, profile] = await Promise.all([getCategories(), getProfile()]);
@@ -16,7 +17,13 @@ export default async function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="font-heading text-2xl font-semibold">Configurações</h1>
+      <div className="flex items-center gap-2">
+        <h1 className="font-heading text-2xl font-semibold">Configurações</h1>
+        <HelpButton title="Configurações">
+          <p>Suas categorias e subcategorias — crie, edite ou apague (com opção de reclassificar o que já foi lançado nelas).</p>
+          <p>&quot;Importar categorias padrão&quot; reabre o pacote inicial pra pegar algo que faltou, tipo &quot;Transporte&quot; só quando você comprar um carro.</p>
+        </HelpButton>
+      </div>
 
       <Card elevation="sm" className="max-w-md">
         <CardKicker className="flex items-center gap-1"><User className="size-3" strokeWidth={1.5} /> Perfil</CardKicker>

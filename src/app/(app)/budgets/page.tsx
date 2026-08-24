@@ -15,6 +15,7 @@ import { DeactivateBudgetButton } from "@/features/budgets/components/deactivate
 import { DeactivateFixedExpenseButton } from "@/features/budgets/components/deactivate-fixed-expense-button";
 import { MonthNav } from "@/features/cards/components/month-nav";
 import { CreditCard } from "lucide-react";
+import { HelpButton } from "@/components/ui/help-button";
 
 export default async function BudgetsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const resolvedSearchParams = await searchParams;
@@ -44,7 +45,14 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="font-heading text-2xl font-semibold">Orçamentos e despesas fixas</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-heading text-2xl font-semibold">Orçamentos e despesas fixas</h1>
+          <HelpButton title="Orçamentos e despesas fixas">
+            <p>Orçamento é um teto de gasto planejado por categoria/mês — só serve de alerta, nunca bloqueia.</p>
+            <p>Despesa fixa (aluguel, streaming) é um compromisso que empurra o orçamento da sua categoria pra cima automaticamente.</p>
+            <p>Só o mês atual e o próximo podem ser editados — meses anteriores ficam como histórico.</p>
+          </HelpButton>
+        </div>
         <MonthNav />
       </div>
 

@@ -40,16 +40,29 @@ CREATE TABLE public.profiles (
 -- momento do insert). Uma trigger SECURITY DEFINER não depende do estado da
 -- sessão do cliente e funciona igual com ou sem confirmação de e-mail, OAuth
 -- futuro, etc.
+-- ALTERADO (0025): também cria a conta "Carteira" (CASH, saldo inicial 0) — sem isso um usuário
+-- novo terminava o onboarding sem NENHUMA conta cadastrada e não conseguia lançar nada até ir em
+-- Contas manualmente. O onboarding só precisa perguntar o saldo real dela depois.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  new_account_id uuid;
 BEGIN
   INSERT INTO public.profiles (user_id, name, email)
   VALUES (NEW.id, NEW.raw_user_meta_data ->> 'name', NEW.email)
   ON CONFLICT (user_id) DO NOTHING;
+
+  INSERT INTO public.accounts (user_id, type, name)
+  VALUES (NEW.id, 'CASH', 'Carteira')
+  RETURNING id INTO new_account_id;
+
+  INSERT INTO public.cash_accounts (account_id, initial_balance)
+  VALUES (new_account_id, 0);
+
   RETURN NEW;
 END;
 $$;

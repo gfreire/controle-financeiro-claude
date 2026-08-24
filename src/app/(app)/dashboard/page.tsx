@@ -24,6 +24,7 @@ import { ExpenseSourceToggle } from "@/features/dashboard/components/expense-sou
 import { BudgetsPanel } from "@/features/dashboard/components/budgets-panel";
 import { UpcomingDueAlert } from "@/features/dashboard/components/upcoming-due-alert";
 import { OpenDebtsAlert } from "@/features/dashboard/components/open-debts-alert";
+import { HelpButton } from "@/components/ui/help-button";
 import { TransactionExplorer } from "@/features/dashboard/components/transaction-explorer";
 
 export default async function DashboardPage({
@@ -101,7 +102,14 @@ export default async function DashboardPage({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-heading text-2xl font-semibold">Dashboard</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-heading text-2xl font-semibold">Dashboard</h1>
+          <HelpButton title="Dashboard">
+            <p>Visão geral do período: quanto entrou, quanto saiu, e como isso se distribui por categoria.</p>
+            <p>Use os filtros pra mudar o período, a conta ou o tipo — e clique numa fatia do gráfico ou numa categoria pra filtrar por ela.</p>
+            <p>Cada linha do Explorador de Lançamentos pode ser editada direto ali, sem abrir outra tela.</p>
+          </HelpButton>
+        </div>
         <DashboardFilters preset={filters.preset} accounts={accounts} categories={categories} />
       </div>
 
