@@ -156,7 +156,11 @@ export function AccountsOverviewCharts({
       value: a.balance,
       color: a.institutionColor ?? CATEGORY_COLORS[i % CATEGORY_COLORS.length],
     }));
-  const balanceTotal = balanceData.reduce((sum, entry) => sum + entry.value, 0);
+  // The pie can only chart positive slices, but the real total must include every account
+  // (including negative balances) — summing only balanceData here silently undercounted
+  // whenever an account was overdrawn, and hid the true total entirely once it went negative.
+  const netTotal = liquidAccounts.reduce((sum, a) => sum + a.balance, 0);
+  const pieTotal = balanceData.reduce((sum, entry) => sum + entry.value, 0);
 
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -164,10 +168,10 @@ export function AccountsOverviewCharts({
         <CardTitle>Total em contas</CardTitle>
         <DonutWithTotal
           data={balanceData}
-          total={balanceTotal}
-          centerLabel={formatCurrency(balanceTotal)}
+          total={pieTotal}
+          centerLabel={formatCurrency(netTotal)}
           centerSubLabel="saldo total"
-          emptyMessage="Sem saldo em contas."
+          emptyMessage={netTotal !== 0 ? `Saldo total: ${formatCurrency(netTotal)} (nenhuma conta com saldo positivo para exibir no gráfico)` : "Sem saldo em contas."}
         />
       </Card>
       <CardLimitDonut cardEntries={cardEntries} />

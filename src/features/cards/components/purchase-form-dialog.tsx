@@ -36,6 +36,15 @@ function nonPaidAmount(
   return subtractMoney(totalAmount, sumMoney(split.slice(0, paidCount)));
 }
 
+// Same suggestion `suggestCompetence` computes on a date/card change, used to seed the
+// field's initial value too — without this, a card whose closing/due combination pushes the
+// suggestion to a different month (e.g. dueDay <= closingDay) opens the dialog showing
+// today's real month instead, since nothing had fired the onChange handlers yet.
+function initialCompetenceMonth(purchaseDate: string, card: { closingDay?: number; dueDay?: number } | undefined): string {
+  if (!card?.closingDay || !card.dueDay) return monthKey(todayIso());
+  return monthKey(calculateInstallmentCompetences(purchaseDate, card.closingDay, card.dueDay, 1)[0]);
+}
+
 export function PurchaseFormDialog({
   cards,
   cardTotals,
@@ -66,7 +75,9 @@ export function PurchaseFormDialog({
   const [installments, setInstallments] = useState(purchase ? String(purchase.installmentsCount) : "1");
   const [categoryId, setCategoryId] = useState(purchase?.categoryId ?? NONE);
   const [subcategoryId, setSubcategoryId] = useState(purchase?.subcategoryId ?? NONE);
-  const [firstCompetenceMonth, setFirstCompetenceMonth] = useState(purchase?.firstCompetenceMonth ?? monthKey(todayIso()));
+  const [firstCompetenceMonth, setFirstCompetenceMonth] = useState(
+    purchase?.firstCompetenceMonth ?? initialCompetenceMonth(purchase?.purchaseDate ?? todayIso(), cards.find((c) => c.id === (purchase?.creditCardId ?? cards[0]?.id)))
+  );
   const [competenceManuallyEdited, setCompetenceManuallyEdited] = useState(false);
   const [overLimitAcknowledged, setOverLimitAcknowledged] = useState(false);
   const [isBackfill, setIsBackfill] = useState(!!purchase?.paidThroughCompetence);
@@ -88,7 +99,9 @@ export function PurchaseFormDialog({
       setInstallments(purchase ? String(purchase.installmentsCount) : "1");
       setCategoryId(purchase?.categoryId ?? NONE);
       setSubcategoryId(purchase?.subcategoryId ?? NONE);
-      setFirstCompetenceMonth(purchase?.firstCompetenceMonth ?? monthKey(todayIso()));
+      setFirstCompetenceMonth(
+        purchase?.firstCompetenceMonth ?? initialCompetenceMonth(purchase?.purchaseDate ?? todayIso(), cards.find((c) => c.id === (purchase?.creditCardId ?? cards[0]?.id)))
+      );
       setCompetenceManuallyEdited(false);
       setOverLimitAcknowledged(false);
       setIsBackfill(!!purchase?.paidThroughCompetence);
@@ -167,7 +180,7 @@ export function PurchaseFormDialog({
   function resetForm() {
     setAmount(""); setDescription(""); setInstallments("1"); setCategoryId(NONE); setSubcategoryId(NONE);
     setCompetenceManuallyEdited(false);
-    setFirstCompetenceMonth(monthKey(todayIso()));
+    setFirstCompetenceMonth(initialCompetenceMonth(purchaseDate, selectedCard));
     setOverLimitAcknowledged(false);
     setIsBackfill(false);
     setPaidThroughCompetence("");
