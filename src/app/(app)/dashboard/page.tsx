@@ -113,7 +113,7 @@ export default async function DashboardPage({
         <DashboardFilters preset={filters.preset} accounts={accounts} categories={categories} />
       </div>
 
-      <UpcomingDueAlert fixedExpenses={todaysFixedExpenses} />
+      <UpcomingDueAlert fixedExpenses={todaysFixedExpenses} accounts={accounts} />
       <OpenDebtsAlert debts={openDebts} totalOpenDebts={totalOpenDebts} accounts={liquidAccounts} categories={categories} />
 
       <SummaryCards summary={summary} />

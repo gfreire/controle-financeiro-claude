@@ -4,6 +4,7 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils/currency";
 import { CATEGORY_COLORS } from "@/components/ui/color-picker";
 import { DonutWithTotal, type DonutEntry } from "@/components/ui/donut-with-total";
+import { cn } from "@/lib/utils/cn";
 import type { AccountDTO, CardSummaryDTO } from "@/types/dto";
 
 /**
@@ -24,7 +25,7 @@ export function CardExpenseDonut({ cardEntries }: { cardEntries: { account: Acco
   const total = data.reduce((sum, entry) => sum + entry.value, 0);
 
   return (
-    <Card elevation="sm" className="min-h-[320px]">
+    <Card elevation="sm" className={cn(data.length > 0 && "min-h-[320px]")}>
       <CardTitle>Gastos do mês por cartão</CardTitle>
       <DonutWithTotal
         data={data}

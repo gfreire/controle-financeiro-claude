@@ -35,7 +35,9 @@ export default async function DebtsPage({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      {/* flex-wrap (mobile audit 2026-08-26, defensive) — same fix as reservoirs/page.tsx,
+          applied here too so this header can't silently misalign if the title/trigger ever grow. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <h1 className="font-heading text-2xl font-semibold">Dívidas</h1>
           <HelpButton title="Dívidas">

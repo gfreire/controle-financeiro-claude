@@ -106,7 +106,10 @@ export function TransactionFormDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {isEdit ? (
-          <button className="p-1.5 -m-1.5 text-text/40 hover:text-accent" aria-label="Editar lançamento">
+          // Real padding, no negative margin — see delete-transaction-button.tsx for why: this
+          // sits alongside estornar/excluir, and an expanded-but-overlapping hit zone would let
+          // taps meant for this button land on a more destructive neighbor instead.
+          <button className="p-2.5 text-text/40 hover:text-accent" aria-label="Editar lançamento">
             <Pencil className="size-3.5" strokeWidth={1.5} />
           </button>
         ) : (

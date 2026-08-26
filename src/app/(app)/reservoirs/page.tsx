@@ -19,7 +19,12 @@ export default async function ReservoirsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      {/* flex-wrap (mobile audit 2026-08-26) — "Receita Programada" is the one page title long
+          enough to wrap to two lines at 375px; without flex-wrap the trigger button stayed
+          pinned to the row's vertical center against that whole two-line block instead of
+          dropping to its own line, the only header in the app that looked visibly off. Every
+          other page's header already uses this same flex-wrap/gap pattern. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <h1 className="font-heading text-2xl font-semibold">Receita Programada</h1>
           <HelpButton title="Receita Programada">

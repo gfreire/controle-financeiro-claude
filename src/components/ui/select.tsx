@@ -28,9 +28,12 @@ export function SelectTrigger({ className, children, ...props }: React.Component
       )}
       {...props}
     >
-      {children}
+      {/* min-w-0 lets truncate actually shrink inside a flex row instead of the row growing
+          taller — without it, a long value (e.g. "Receita e despesa") wrapped to two lines and
+          made this trigger's height disagree with a shorter neighboring Select's single line. */}
+      <span className="min-w-0 flex-1 truncate text-left">{children}</span>
       <SelectPrimitive.Icon asChild>
-        <ChevronDown className="size-4 opacity-60" />
+        <ChevronDown className="size-4 shrink-0 opacity-60" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );

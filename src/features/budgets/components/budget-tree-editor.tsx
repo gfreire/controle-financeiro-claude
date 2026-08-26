@@ -130,7 +130,11 @@ export function BudgetTreeEditor({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="secondary"><ListTree className="size-3.5" strokeWidth={1.5} /> Planejar orçamentos</Button>
+        {/* Primary weight (mobile audit 2026-08-26): of the three top-level actions on
+            /budgets, this is the one that plans a whole category + subcategory tree in one
+            place and is the closest thing to a "recommended path" for someone just getting
+            started — the other two (nova despesa/novo orçamento) are one-off, secondary edits. */}
+        <Button size="sm"><ListTree className="size-3.5" strokeWidth={1.5} /> Planejar orçamentos</Button>
       </DialogTrigger>
       <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogTitle>Planejar orçamentos</DialogTitle>

@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { CATEGORY_COLORS } from "@/components/ui/color-picker";
 import { DonutWithTotal, type DonutEntry } from "@/components/ui/donut-with-total";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
+import { cn } from "@/lib/utils/cn";
 import type { AccountDTO, CardSummaryDTO } from "@/types/dto";
 
 /**
@@ -33,7 +34,7 @@ function CardLimitDonut({ cardEntries }: { cardEntries: { account: AccountDTO; s
 
   if (cardEntries.length === 0) {
     return (
-      <Card elevation="sm" className="min-h-[320px]">
+      <Card elevation="sm">
         <CardTitle>Limite usado nos cartões</CardTitle>
         <p className="flex-1 text-sm opacity-60">Nenhum cartão de crédito cadastrado.</p>
       </Card>
@@ -159,7 +160,7 @@ export function AccountsOverviewCharts({
 
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-      <Card elevation="sm" className="min-h-[320px]">
+      <Card elevation="sm" className={cn(balanceData.length > 0 && "min-h-[320px]")}>
         <CardTitle>Total em contas</CardTitle>
         <DonutWithTotal
           data={balanceData}

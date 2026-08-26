@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils/currency";
 import { daysUntilDueThisMonth, todayIso } from "@/lib/utils/date";
 import { DebtTransactionDialog } from "@/features/debts/components/debt-transaction-dialog";
@@ -67,7 +68,7 @@ export function OpenDebtsAlert({
                     categories={categories}
                     defaultCategoryId={debt.defaultCategoryId}
                     defaultAmount={defaultAmount}
-                    trigger={<button className="text-xs text-accent underline underline-offset-2">Registrar pagamento</button>}
+                    trigger={<Button variant="ghost" size="sm" className="h-auto px-2 py-1 text-xs">Registrar pagamento</Button>}
                   />
                 )}
               </span>

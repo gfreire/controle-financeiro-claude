@@ -117,7 +117,9 @@ export function FixedExpenseFormDialog({
               <Pencil className="size-3.5" strokeWidth={1.5} />
             </button>
           ) : (
-            <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova despesa programada</Button>
+            /* Secondary weight (mobile audit 2026-08-26) — "Planejar orçamentos" is the
+               recommended top-level action now; this and "Novo orçamento" are one-off edits. */
+            <Button size="sm" variant="secondary"><Plus className="size-3.5" strokeWidth={1.5} /> Nova despesa programada</Button>
           )}
         </DialogTrigger>
         <DialogContent>

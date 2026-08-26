@@ -77,13 +77,21 @@ export function DashboardFilters({
           (or upcoming card installments already scheduled) one month at a time. */}
       <MonthPicker month={currentMonth} onChange={setMonth} />
 
-      <div className="inline-flex overflow-hidden border border-divider">
+      {/* overflow-x-auto (not overflow-hidden) so this row scrolls instead of clipping presets
+          off the edge on narrow screens — a plain overflow-hidden here left "Personalizado"
+          entirely unreachable on mobile (its content width exceeds the viewport, and no
+          ancestor offered horizontal scroll to reach it). min-w-0 is load-bearing: without it, a
+          flex item that scrolls internally still refuses to shrink below its content's width,
+          which just pushed the overflow (and the clipping) up to this row's own flex parent
+          instead of fixing it. shrink-0 on each button keeps them full size instead of being
+          squeezed to fit. */}
+      <div className="flex w-0 min-w-0 flex-1 overflow-x-auto border border-divider sm:w-auto sm:flex-none">
         {PRESETS.map((p) => (
           <button
             key={p.value}
             onClick={() => setParam("period", p.value)}
             className={cn(
-              "border-l border-divider px-3 py-1.5 text-[13px] first:border-l-0",
+              "shrink-0 whitespace-nowrap border-l border-divider px-3 py-1.5 text-[13px] first:border-l-0",
               preset === p.value ? "bg-accent text-bg" : "hover:bg-text/[0.06]"
             )}
           >

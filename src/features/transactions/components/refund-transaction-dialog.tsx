@@ -38,7 +38,10 @@ export function RefundTransactionDialog({ transactionId, description, amount }: 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="p-1.5 -m-1.5 text-text/40 hover:text-accent" aria-label="Estornar lançamento">
+        {/* Real padding, no negative margin — see delete-transaction-button.tsx for why: these
+            sit in a row of up to three, and a negative margin would let hit zones overlap with
+            the later (more destructive) button winning taps aimed at this one. */}
+        <button className="p-2.5 text-text/40 hover:text-accent" aria-label="Estornar lançamento">
           <Undo2 className="size-3.5" strokeWidth={1.5} />
         </button>
       </DialogTrigger>

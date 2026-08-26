@@ -5,6 +5,7 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils/currency";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import { ArrowLeft } from "lucide-react";
+import { cn } from "@/lib/utils/cn";
 import type { CategoryComparisonDTO } from "@/types/dto";
 import { useCategoryFilter } from "@/features/dashboard/use-category-filter";
 
@@ -18,7 +19,7 @@ export function CategoryBars({ data, title = "Comparativo por categoria" }: { da
   const chartData = data.slice(0, 10).reverse();
 
   return (
-    <Card elevation="sm" className="min-h-[320px]">
+    <Card elevation="sm" className={cn(chartData.length > 0 && "min-h-[320px]")}>
       <div className="flex items-center gap-2">
         {activeIds.length > 0 && (
           <button

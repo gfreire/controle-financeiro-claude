@@ -101,7 +101,9 @@ export function BudgetFormDialog({ categories: initialCategories, budget, month 
             <Pencil className="size-3.5" strokeWidth={1.5} />
           </button>
         ) : (
-          <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Novo orçamento</Button>
+          // Secondary weight (mobile audit 2026-08-26) — see fixed-expense-form-dialog.tsx's
+          // trigger for the same reasoning; "Planejar orçamentos" carries the primary weight now.
+          <Button size="sm" variant="secondary"><Plus className="size-3.5" strokeWidth={1.5} /> Novo orçamento</Button>
         )}
       </DialogTrigger>
       <DialogContent>

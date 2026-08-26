@@ -6,6 +6,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { toPercentage } from "@/lib/utils/number";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import { ArrowLeft } from "lucide-react";
+import { cn } from "@/lib/utils/cn";
 import type { CategoryDistributionDTO } from "@/types/dto";
 import { useCategoryFilter } from "@/features/dashboard/use-category-filter";
 
@@ -14,7 +15,7 @@ export function CategoryPie({ data, title = "Distribuição por categoria" }: { 
   const total = data.reduce((sum, d) => sum + d.total, 0);
 
   return (
-    <Card elevation="sm" className="min-h-[320px]">
+    <Card elevation="sm" className={cn(data.length > 0 && "min-h-[320px]")}>
       <div className="flex items-center gap-2">
         {activeIds.length > 0 && (
           <button
