@@ -47,7 +47,7 @@ export function UpcomingDueAlert({ fixedExpenses }: { fixedExpenses: FixedExpens
         ))}
       </ul>
       <Link href="/budgets" className="w-fit text-xs text-accent underline underline-offset-2">
-        Ver despesas fixas
+        Ver despesas programadas
       </Link>
     </Card>
   );

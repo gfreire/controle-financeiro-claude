@@ -109,7 +109,7 @@ export function BudgetFormDialog({ categories: initialCategories, budget, month 
 
         {notices.length > 0 ? (
           <>
-            <DialogDescription>Orçamento salvo. Como o valor comprometido em despesas fixas/subcategorias mudou, o sistema também ajustou:</DialogDescription>
+            <DialogDescription>Orçamento salvo. Como o valor comprometido em despesas programadas/subcategorias mudou, o sistema também ajustou:</DialogDescription>
             <ul className="flex flex-col gap-1 text-sm text-accent">
               {notices.map((n, i) => <li key={i}>• {n}</li>)}
             </ul>
@@ -150,7 +150,7 @@ export function BudgetFormDialog({ categories: initialCategories, budget, month 
             <Field>
               <Label>Valor planejado / mês</Label>
               <Input type="number" step="0.01" min={floor > 0 ? floor : "0.01"} value={amount} onChange={(e) => setAmount(e.target.value)} />
-              {floor > 0 && <p className="mt-1 text-[11px] opacity-60">Mínimo: {formatCurrency(floor)} (já comprometido em despesas fixas/subcategorias)</p>}
+              {floor > 0 && <p className="mt-1 text-[11px] opacity-60">Mínimo: {formatCurrency(floor)} (já comprometido em despesas programadas/subcategorias)</p>}
             </Field>
             <FieldError>{error}</FieldError>
             <DialogActions>

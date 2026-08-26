@@ -18,7 +18,7 @@ const NONE = "NONE";
 const KIND_LABELS: Record<DebtKind, string> = {
   PERSONAL: "Pessoal (amigo/família)",
   OVERDUE_BILL: "Conta em atraso",
-  INSTALLMENT_PLAN: "Parcelamento combinado",
+  INSTALLMENT_PLAN: "Parcelamento programado",
 };
 
 export function DebtFormDialog({

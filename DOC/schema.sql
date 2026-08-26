@@ -197,6 +197,9 @@ CREATE TABLE public.subcategories (
 -- FIXED EXPENSES (despesas fixas recorrentes — aluguel, streaming, etc.)
 -- Existe ANTES de transactions porque transactions referencia esta tabela.
 -- ============================================================
+-- Exibida na UI como "Despesas Programadas" (ex-"Despesas Fixas", renomeado 2026-08-25) — mesma
+-- convenção de display-only rename já usada pro Reservoir/"Receita Programada" (ver AI_CONTEXT.md
+-- "Reservoir (Cofre)"): nome/tabela/service internos continuam fixed_expense*.
 CREATE TABLE public.fixed_expenses (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
@@ -206,13 +209,23 @@ CREATE TABLE public.fixed_expenses (
   subcategory_id uuid,
   default_account_id uuid,
   due_day integer NOT NULL,
+  -- NOVO (0026): janela de competência — start_competence obrigatório, end_competence opcional
+  -- (NULL = ainda vigente). Uma despesa só conta em getFixedExpenses(month)/no piso do
+  -- orçamento pra um mês M quando start_competence <= M <= (end_competence ou infinito). Toda
+  -- despesa pré-existente foi backfilled com start_competence = '1970-01-01' (mesmo sentinela
+  -- "desde sempre" de fixed_expense_amount_history.effective_from) e end_competence = NULL,
+  -- preservando o comportamento perpétuo que já tinham. Ver AI_CONTEXT.md "Despesas
+  -- Programadas — janela de competência".
+  start_competence date NOT NULL DEFAULT '1970-01-01',
+  end_competence date,
   active boolean DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT fixed_expenses_pkey PRIMARY KEY (id),
   CONSTRAINT fixed_expenses_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
   CONSTRAINT fixed_expenses_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
   CONSTRAINT fixed_expenses_subcategory_id_fkey FOREIGN KEY (subcategory_id) REFERENCES public.subcategories(id),
-  CONSTRAINT fixed_expenses_default_account_id_fkey FOREIGN KEY (default_account_id) REFERENCES public.accounts(id)
+  CONSTRAINT fixed_expenses_default_account_id_fkey FOREIGN KEY (default_account_id) REFERENCES public.accounts(id),
+  CONSTRAINT fixed_expenses_competence_window_check CHECK (end_competence IS NULL OR end_competence >= start_competence)
 );
 
 -- NOVO (0023): fixed_expenses.amount continua existindo como cache do valor MAIS RECENTE (usado

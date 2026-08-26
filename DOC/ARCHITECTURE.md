@@ -92,6 +92,7 @@ Full app is built and running (Next.js 16, App Router, Turbopack) — this isn't
 
 - **Onboarding reordered to account → categories → budget, plus a quick-start category whitelist (2026-08-24, at the user's request).** First-time onboarding used to run categories → account → budget; `signUp` (`(auth)/actions.ts`) and the `(app)/layout.tsx` gate now redirect straight to `/onboarding/account` instead of `/onboarding`, and each step's own forward redirect was updated to match the new order (account → categories → budget → dashboard) — see `AI_CONTEXT.md` → "Onboarding — conta padrão". The categories step (`/onboarding/page.tsx`) also stopped pre-checking the *entire* `is_default` catalog for a first-time user — only a 5-category shortlist (`QUICK_START_CATEGORY_NAMES`: Alimentação, Compras, Moradia, Transporte, Salário) comes pre-checked now, everything else opt-in; this list is onboarding-screen-only, unrelated to the `is_default` flag itself. As a side effect (not new logic), the budget step that follows is naturally shorter for a first-time user, since it only ever shows categories the user actually imported.
 - **Cards page empty state gained a working "create card" shortcut (2026-08-24, at the user's request).** `/cards` with zero cards used to just show static text pointing at Contas with no actual link. The button now navigates to `/accounts?newAccountType=CREDIT_CARD`; `AccountsPage` reads that param and passes `initialOpen`/`initialType` into `AccountFormDialog` (both new, optional props), so the "nova conta" dialog opens pre-set to `CREDIT_CARD` instead of its default `BANK`.
+- **"Despesas Fixas" renamed to "Despesas Programadas" + competence window (migration `0026`, 2026-08-25, at the user's request).** Display-only rename (same pattern as Reservoir → "Receita Programada" — internal identifiers stay `fixed_expense*`), bundled with the actual feature gap it was meant to fix: a fixed expense had no notion of when it starts or stops applying, so a canceled or not-yet-started subscription still committed its floor onto every month's budget forever. `fixed_expenses` gained `start_competence` (required) / `end_competence` (optional, blank = ongoing); `getFixedExpenses(month)` and the `_shared.ts` floor functions (`getCategoryBudgetFloor`, and `getSubcategoryBudgetFloor` — which gained a new required `month` parameter it didn't have before) now all filter to this window. `FixedExpenseFormDialog` gained "Início"/"Fim" month pickers (plain `<input type="month">`, same convention as the card purchase form's competence fields) — "Fim" is a direct user choice, never auto-computed from a raw cancellation date; no extra blocking was added anywhere, since an out-of-window expense simply doesn't appear in that month's UI to begin with. Also renamed in the same change: the debts `INSTALLMENT_PLAN` kind's display label "Parcelamento Combinado" → "Parcelamento Programado" (label only, no `DebtKind` enum change). See `AI_CONTEXT.md` → "Despesas Programadas — janela de competência".
 
 **Known gaps** (not started, don't assume otherwise): no automated tests yet (see "Testing & Migrations" in `AI_GENERATION_RULES.md` for the intended scope); still no *general* account-level edit dialog (name/institution) — only the type-specific actions (balance, yield/reconcile, limit) exist, by design; OFX import remains out of scope per `AI_CONTEXT.md`.
 
@@ -130,6 +131,8 @@ Applied in order; each is additive (no destructive rewrites of an already-shippe
 23. `0023_fixed_expense_amount_history.sql` — adds `fixed_expense_amount_history` (`{fixed_expense_id, amount, effective_from}`, unique per `(fixed_expense_id, effective_from)`) — fixes a real bug the user caught testing: editing a fixed expense's amount used to rewrite every past month's `plannedAmount` retroactively, the exact mistake `budgets` migration `0009` already fixed for a different table. Backfills one row per existing fixed expense at `effective_from = '1970-01-01'` so nothing already displayed changes; only a future edit creates a genuinely forward-dated row. See `AI_CONTEXT.md` → "Despesas fixas — histórico de valor."
 24. `0024_reload_schema_cache.sql` — same reasoning as `0020`, for `fixed_expense_amount_history`.
 25. `0025_default_wallet_account.sql` — `CREATE OR REPLACE FUNCTION public.handle_new_user()`, no new table/column. The signup trigger (migration `0003`) now also inserts a "Carteira" `CASH` account (`accounts` + `cash_accounts`, `initial_balance = 0`) alongside the `profiles` row, so a brand-new user always has at least one account to log against before ever reaching the dashboard. See `AI_CONTEXT.md` → "Onboarding — conta padrão."
+26. `0026_fixed_expense_competence_window.sql` — adds `fixed_expenses.start_competence` (`NOT NULL`, backfilled `'1970-01-01'`) and `fixed_expenses.end_competence` (nullable), plus a `CHECK (end_competence IS NULL OR end_competence >= start_competence)`. Lets a "Despesa Programada" (ex-"Despesas Fixas", renamed in the same change) declare when it starts/stops being real, instead of committing its floor onto every month's budget forever. See `AI_CONTEXT.md` → "Despesas Programadas — janela de competência", decided 2026-08-25 at the user's request.
+27. `0027_reload_schema_cache.sql` — same reasoning as `0020`/`0022`/`0024`, for the two columns above.
 
 ---
 
@@ -197,7 +200,7 @@ src
  │  ├ accounts/components (account-form-dialog [no institution field for CASH], account-card, accounts-overview-charts.tsx [donut pair on /accounts: net balance + credit-card limit usage across cards, composable card selection], balance-adjust-dialog [Informar Rendimento BANK-only], limit-adjust-dialog [Ajustar Limite/Ajustar Cartão — credit_limit/overdraft_limit editable anytime; for CREDIT_CARD also edits closing_day/due_day in the same dialog, just a different trigger label])
  │  ├ cards/components (purchase-form-dialog [create+edit, competence override, over-limit warning], payment-form-dialog, refund-purchase-dialog.tsx [full refund only, see AI_CONTEXT.md "Estorno"], advance-installments-dialog.tsx ["Antecipar parcelas" — pays off one purchase's remaining not-yet-billed installments early, see AI_CONTEXT.md "Antecipar parcelas"], delete-purchase-button, month-nav, card-filters.tsx, card-expense-donut.tsx [current viewed month's billed total, segmented by card], card-evolution-chart [±6 months around the viewed month by competence, own local multi-select category filter via use-evolution-category-filter.ts — stacks bars by category when a filter is active, single total bar otherwise])
  │  ├ reservoirs/components (reservoir-form-dialog, accrual-dialog [description pre-filled with "Movimentação da receita programada {nome}"], withdrawal-dialog, delete-reservoir-button.tsx, delete-reservoir-transaction-button.tsx — feature displayed as "Receita Programada" in the UI, folder/file names unchanged)
- │  ├ debts/components (debt-form-dialog [create+edit, incl. default category + kind selector (Pessoal/Conta em atraso/Parcelamento combinado), locks side to PAYABLE for the latter two, shows monthlyAmount/dueDay fields for INSTALLMENT_PLAN], debt-transaction-dialog [create+edit, defaults description to "Movimentação da dívida {nome}"; optional interest-percentage calculator on mode="increase" (suggests amount = currentBalance × %, still editable); accepts a `defaultAmount` prop for quick-pay triggers; warns and requires a second confirm before a payment that fully settles/overpays the debt; editing propagates to the linked transaction, direction locked], delete-debt-button [manual soft delete — forgiven/given-up-on debt], delete-debt-transaction-button [deletes the linked transaction too], debt-side-filter.tsx ["Todas/A pagar/A receber", 2026-08-23], debts-charts ["Dívidas a pagar"/"Dívidas a receber" pies, each rendered only when that side has data])
+ │  ├ debts/components (debt-form-dialog [create+edit, incl. default category + kind selector (Pessoal/Conta em atraso/Parcelamento programado), locks side to PAYABLE for the latter two, shows monthlyAmount/dueDay fields for INSTALLMENT_PLAN], debt-transaction-dialog [create+edit, defaults description to "Movimentação da dívida {nome}"; optional interest-percentage calculator on mode="increase" (suggests amount = currentBalance × %, still editable); accepts a `defaultAmount` prop for quick-pay triggers; warns and requires a second confirm before a payment that fully settles/overpays the debt; editing propagates to the linked transaction, direction locked], delete-debt-button [manual soft delete — forgiven/given-up-on debt], delete-debt-transaction-button [deletes the linked transaction too], debt-side-filter.tsx ["Todas/A pagar/A receber", 2026-08-23], debts-charts ["Dívidas a pagar"/"Dívidas a receber" pies, each rendered only when that side has data])
  │  ├ budgets/components (budget-form-dialog [create+edit, month-scoped], fixed-expense-form-dialog [create+edit], budget-tree-editor ["Planejar orçamentos" — whole category+subcategory tree in one screen for one month, reuses onboarding's tree pattern; clearing an existing field deletes that row, same guards as the single-row delete], budget-tree-fields [the reusable amount-input tree, shared with the onboarding budget step], budget-tree [the ONLY list on /budgets now — no separate fixed-expense tab; renders category/subcategory boxes plus a `renderFixedExpenseActions` slot per nested fixed-expense row for pay/edit/delete, shared read-only (no action slots passed) by the dashboard panel], progress-row [shared planned-vs-actual bar], clone-budget-button, deactivate-budget-button [hidden by the caller when fixed expenses are attached; deactivateBudget itself also blocks it server-side], deactivate-fixed-expense-button, pay-fixed-expense-dialog)
  │  └ categories/components (category-form-dialog, subcategory-form-dialog, category-tree-item [onboarding/Settings re-import — always renders the full is_default catalog, already-imported items checked+disabled], category-select [CategorySelect/SubcategorySelect — standard picker used everywhere a category/subcategory is assigned, with a "Nova categoria/subcategoria" item at the end of the same dropdown instead of a separate button; replaced the old inline-category-create.tsx, decided 2026-08-09], delete-category-dialog)
  ├ components
@@ -238,7 +241,7 @@ Money precision: DB uses `numeric(14,2)`. All arithmetic goes through `src/lib/u
  cards/page.tsx
  reservoirs/page.tsx
  debts/page.tsx
- budgets/page.tsx        (inclui despesas fixas)
+ budgets/page.tsx        (inclui despesas programadas)
  settings/page.tsx
 ```
 
@@ -589,7 +592,10 @@ getFixedExpenses(month) → FixedExpenseDTO[]
   -- junto com o suporte a pagar despesa fixa no cartão, ver payFixedExpense abaixo).
   -- plannedAmount (CORRIGIDO 0023) resolve de fixed_expense_amount_history pro MÊS PEDIDO,
   -- nunca de fixed_expenses.amount direto — só assim um mês passado mantém o valor que valia
-  -- naquela época mesmo depois de uma edição posterior
+  -- naquela época mesmo depois de uma edição posterior.
+  -- NOVO (0026): só devolve a despesa se start_competence <= month <= (end_competence ou
+  -- infinito) — fora da janela ela simplesmente não aparece, ver AI_CONTEXT.md "Despesas
+  -- Programadas — janela de competência"
 getUnlinkedExpenseCandidates(categoryId) → { id, date, description, amount }[]
   -- NOVO (2026-08-23) — despesas (EXPENSE) do usuário sem fixed_expense_id nenhum, filtradas pela
   -- categoria da despesa fixa quando ela tem uma; alimenta "Vincular lançamento existente"
@@ -620,9 +626,12 @@ cancelFixedExpensePayment(fixedExpenseId, month)  -- NOVO (2026-08-10): contrapa
 getActualAmountForCategory(...)  -- reusado por budgets e fixed-expenses pro actualAmount do mês
 getCategoryBudgetFloor(supabase, userId, categoryId, month) → number
   -- SUM(budgets de subcategoria ativos da categoria NAQUELE month) + SUM(fixed_expenses
-  -- ativas direto na categoria, sem subcategoria — essas não são escopadas por mês)
-getSubcategoryBudgetFloor(supabase, userId, subcategoryId) → number
-  -- SUM(fixed_expenses ativas daquela subcategoria) — sem parâmetro month, só lê fixed_expenses
+  -- ativas direto na categoria, sem subcategoria, E dentro da janela start_competence/
+  -- end_competence pra esse month — NOVO (0026), ver getFixedExpenses acima)
+getSubcategoryBudgetFloor(supabase, userId, subcategoryId, month) → number
+  -- SUM(fixed_expenses ativas daquela subcategoria dentro da janela start_competence/
+  -- end_competence pra esse month) — ganhou o parâmetro month em 0026 (antes não tinha,
+  -- porque despesa fixa era perpétua por padrão)
 reconcileBudgetFloors(supabase, userId, categoryId, subcategoryId, month) → string[]
   -- auto-raise/create pra UM mês específico, só chamada a partir de reconcileFixedExpenseFloors.
   -- REVISADO (2026-08-10): com subcategoryId setado, só cria/aumenta a SUBcategoria — nunca
@@ -758,6 +767,8 @@ type FixedExpenseDTO = {
   id: string; name: string; categoryId: string; categoryName: string
   subcategoryId?: string; subcategoryName?: string
   plannedAmount: number; dueDay: number; defaultAccountId?: string
+  startCompetence: string      // NOVO (0026) — "YYYY-MM", obrigatório; mês a partir do qual a despesa conta
+  endCompetence?: string       // NOVO (0026) — "YYYY-MM", opcional; ausente = ainda vigente
   actualAmount: number         // soma da(s) transaction(s) do mês vinculada(s) via fixed_expense_id
   projectedAmount: number      // exibido no dashboard: actualAmount > 0 ? actualAmount : plannedAmount
   isPaidThisMonth: boolean     // actualAmount > 0

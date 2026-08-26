@@ -185,6 +185,8 @@ export type FixedExpenseDTO = {
   plannedAmount: number;
   dueDay: number;
   defaultAccountId?: string;
+  startCompetence: string; // "YYYY-MM" — obrigatório; mês a partir do qual a despesa passa a existir/contar no orçamento
+  endCompetence?: string; // "YYYY-MM" — opcional; ausente = ainda vigente. Ver AI_CONTEXT.md "Despesas Programadas — janela de competência"
   actualAmount: number;
   projectedAmount: number;
   isPaidThisMonth: boolean;

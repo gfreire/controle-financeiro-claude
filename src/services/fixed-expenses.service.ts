@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
-import { startOfMonth, endOfMonth, todayIso } from "@/lib/utils/date";
+import { startOfMonth, endOfMonth, todayIso, monthKey } from "@/lib/utils/date";
 import { sumMoney } from "@/lib/utils/money";
 import { reconcileFixedExpenseFloors } from "./_shared";
 import { createTransaction } from "./transactions.service";
@@ -61,6 +61,8 @@ export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]
     .select("*, categories(name), subcategories(name)")
     .eq("user_id", user.id)
     .eq("active", true)
+    .lte("start_competence", monthStart)
+    .or(`end_competence.is.null,end_competence.gte.${monthStart}`)
     .order("due_day");
   if (error) throw new Error(error.message);
 
@@ -113,6 +115,8 @@ export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]
         plannedAmount,
         dueDay: row.due_day,
         defaultAccountId: row.default_account_id ?? undefined,
+        startCompetence: monthKey(row.start_competence),
+        endCompetence: row.end_competence ? monthKey(row.end_competence) : undefined,
         actualAmount,
         projectedAmount,
         isPaidThisMonth,
@@ -143,6 +147,8 @@ export async function createFixedExpense(input: FixedExpenseInput): Promise<{ id
       subcategory_id: input.subcategoryId ?? null,
       default_account_id: input.defaultAccountId ?? null,
       due_day: input.dueDay,
+      start_competence: `${input.startCompetence}-01`,
+      end_competence: input.endCompetence ? `${input.endCompetence}-01` : null,
     })
     .select("id")
     .single();
@@ -187,6 +193,8 @@ export async function updateFixedExpense(id: string, input: Partial<FixedExpense
       ...(input.subcategoryId !== undefined ? { subcategory_id: input.subcategoryId } : {}),
       ...(input.defaultAccountId !== undefined ? { default_account_id: input.defaultAccountId } : {}),
       ...(input.dueDay !== undefined ? { due_day: input.dueDay } : {}),
+      ...(input.startCompetence !== undefined ? { start_competence: `${input.startCompetence}-01` } : {}),
+      ...(input.endCompetence !== undefined ? { end_competence: input.endCompetence ? `${input.endCompetence}-01` : null } : {}),
     })
     .eq("id", id);
   if (error) throw new Error(error.message);

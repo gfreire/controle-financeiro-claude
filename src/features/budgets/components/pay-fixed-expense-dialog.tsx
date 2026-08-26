@@ -146,7 +146,7 @@ export function PayFixedExpenseDialog({ expense, accounts, month, trigger }: { e
         <DialogContent>
           <DialogTitle>Vincular lançamento existente — {expense.name}</DialogTitle>
           <p className="text-xs opacity-70">
-            Pra quando esse pagamento já foi lançado manualmente antes (ex: a despesa fixa foi recriada depois de apagada por engano). Mostra despesas ainda sem despesa fixa vinculada, priorizando a mesma categoria.
+            Pra quando esse pagamento já foi lançado manualmente antes (ex: a despesa programada foi recriada depois de apagada por engano). Mostra despesas ainda sem despesa programada vinculada, priorizando a mesma categoria.
           </p>
           <Field>
             <Label>Buscar por descrição</Label>

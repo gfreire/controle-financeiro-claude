@@ -91,7 +91,7 @@ export function DeleteCategoryDialog({ target, categories }: { target: Target; c
             <DialogDescription>
               {usage.count} lançamento(s) usam esta categoria
               {(usage.budgetsCount || usage.fixedExpensesCount || usage.reservoirsCount || usage.debtsCount) > 0 &&
-                ` (além de ${usage.budgetsCount} orçamento(s), ${usage.fixedExpensesCount} despesa(s) fixa(s), ${usage.reservoirsCount} receita(s) programada(s) e ${usage.debtsCount} dívida(s) configuradas com ela)`}
+                ` (além de ${usage.budgetsCount} orçamento(s), ${usage.fixedExpensesCount} despesa(s) programada(s), ${usage.reservoirsCount} receita(s) programada(s) e ${usage.debtsCount} dívida(s) configuradas com ela)`}
               . Escolha o que fazer com essas referências:
             </DialogDescription>
 

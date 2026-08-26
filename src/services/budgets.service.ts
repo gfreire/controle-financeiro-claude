@@ -200,7 +200,7 @@ export async function getBudgetFloor(categoryId: string, subcategoryId: string |
   const supabase = await createClient();
   const user = await getUser();
   return subcategoryId
-    ? getSubcategoryBudgetFloor(supabase, user.id, subcategoryId)
+    ? getSubcategoryBudgetFloor(supabase, user.id, subcategoryId, month)
     : getCategoryBudgetFloor(supabase, user.id, categoryId, startOfMonth(month));
 }
 
@@ -215,10 +215,10 @@ export async function createBudget(input: BudgetInput): Promise<{ id: string; no
   const monthStart = startOfMonth(input.month);
 
   const floor = input.subcategoryId
-    ? await getSubcategoryBudgetFloor(supabase, user.id, input.subcategoryId)
+    ? await getSubcategoryBudgetFloor(supabase, user.id, input.subcategoryId, monthStart)
     : await getCategoryBudgetFloor(supabase, user.id, input.categoryId, monthStart);
   if (input.amount < floor) {
-    throw new Error(`O orçamento não pode ser menor que ${formatCurrency(floor)} — já comprometido em despesas fixas${input.subcategoryId ? "" : "/subcategorias"}.`);
+    throw new Error(`O orçamento não pode ser menor que ${formatCurrency(floor)} — já comprometido em despesas programadas${input.subcategoryId ? "" : "/subcategorias"}.`);
   }
 
   const { data, error } = await supabase
@@ -252,10 +252,10 @@ export async function updateBudget(id: string, input: Partial<BudgetInput>): Pro
 
   if (input.amount !== undefined) {
     const floor = subcategoryId
-      ? await getSubcategoryBudgetFloor(supabase, user.id, subcategoryId)
+      ? await getSubcategoryBudgetFloor(supabase, user.id, subcategoryId, month)
       : await getCategoryBudgetFloor(supabase, user.id, categoryId, month);
     if (input.amount < floor) {
-      throw new Error(`O orçamento não pode ser menor que ${formatCurrency(floor)} — já comprometido em despesas fixas${subcategoryId ? "" : "/subcategorias"}.`);
+      throw new Error(`O orçamento não pode ser menor que ${formatCurrency(floor)} — já comprometido em despesas programadas${subcategoryId ? "" : "/subcategorias"}.`);
     }
   }
 
@@ -286,19 +286,25 @@ export async function deactivateBudget(id: string): Promise<void> {
 
   const { data: existing, error: fetchError } = await supabase
     .from("budgets")
-    .select("category_id, subcategory_id")
+    .select("category_id, subcategory_id, month")
     .eq("id", id)
     .single();
   if (fetchError) throw new Error(fetchError.message);
 
-  let fixedExpenseQuery = supabase.from("fixed_expenses").select("id").eq("user_id", user.id).eq("active", true);
+  let fixedExpenseQuery = supabase
+    .from("fixed_expenses")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("active", true)
+    .lte("start_competence", existing.month)
+    .or(`end_competence.is.null,end_competence.gte.${existing.month}`);
   fixedExpenseQuery = existing.subcategory_id
     ? fixedExpenseQuery.eq("subcategory_id", existing.subcategory_id)
     : fixedExpenseQuery.eq("category_id", existing.category_id).is("subcategory_id", null);
   const { data: fixedExpenses, error: feError } = await fixedExpenseQuery.limit(1);
   if (feError) throw new Error(feError.message);
   if (fixedExpenses && fixedExpenses.length > 0) {
-    throw new Error("Este orçamento não pode ser excluído — há despesas fixas vinculadas a ele. Edite o valor em vez de excluir.");
+    throw new Error("Este orçamento não pode ser excluído — há despesas programadas vinculadas a ele. Edite o valor em vez de excluir.");
   }
 
   const { error } = await supabase.from("budgets").update({ active: false }).eq("id", id);

@@ -84,6 +84,8 @@ export interface FixedExpenseRow {
   subcategory_id: string | null;
   default_account_id: string | null;
   due_day: number;
+  start_competence: string;
+  end_competence: string | null;
   active: boolean;
   created_at: string;
 }

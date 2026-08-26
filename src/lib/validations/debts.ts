@@ -6,7 +6,7 @@ export const debtSideSchema = z.enum(["PAYABLE", "RECEIVABLE"]);
  * PERSONAL: empréstimo entre pessoas (comportamento original — nunca afeta o dashboard).
  * OVERDUE_BILL: conta em atraso (água/luz/telefone/aluguel) — sempre PAYABLE na prática, sempre
  * aparece com alerta e conta pra "Dívidas em aberto" do dashboard.
- * INSTALLMENT_PLAN: parcelamento combinado (boleto ou acordo informal com valor mensal) — mesma
+ * INSTALLMENT_PLAN: parcelamento programado (boleto ou acordo informal com valor mensal) — mesma
  * exposição no dashboard de OVERDUE_BILL, mais um lembrete mensal (monthlyAmount/dueDay).
  * Ver AI_CONTEXT.md "Dívidas — subtipos".
  */

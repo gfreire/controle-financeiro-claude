@@ -18,7 +18,7 @@ import { HelpButton } from "@/components/ui/help-button";
 const KIND_LABELS: Record<string, string> = {
   PERSONAL: "Pessoal",
   OVERDUE_BILL: "Conta em atraso",
-  INSTALLMENT_PLAN: "Parcelamento combinado",
+  INSTALLMENT_PLAN: "Parcelamento programado",
 };
 
 export default async function DebtsPage({
@@ -40,7 +40,7 @@ export default async function DebtsPage({
           <h1 className="font-heading text-2xl font-semibold">Dívidas</h1>
           <HelpButton title="Dívidas">
             <p><strong>Pessoal</strong> é emprestado entre pessoas — não afeta o resto do sistema.</p>
-            <p><strong>Conta em atraso</strong> e <strong>Parcelamento combinado</strong> sempre aparecem em alerta no Dashboard, em &quot;Dívidas em aberto&quot;.</p>
+            <p><strong>Conta em atraso</strong> e <strong>Parcelamento programado</strong> sempre aparecem em alerta no Dashboard, em &quot;Dívidas em aberto&quot;.</p>
             <p>&quot;Novo valor&quot; aumenta a dívida (com calculadora de juros opcional); &quot;Pagamento&quot; reduz.</p>
           </HelpButton>
         </div>

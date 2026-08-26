@@ -11,7 +11,7 @@ import { AccountSelect } from "@/components/ui/account-select";
 import { Plus, Pencil } from "lucide-react";
 import { createFixedExpenseAction, updateFixedExpenseAction } from "../actions";
 import { fixedExpenseSchema } from "@/lib/validations/fixed-expenses";
-import { formatMonthLabel, todayIso } from "@/lib/utils/date";
+import { formatMonthLabel, monthKey, todayIso } from "@/lib/utils/date";
 import type { AccountDTO, CategoryDTO, FixedExpenseDTO } from "@/types/dto";
 
 const NONE = "NONE";
@@ -43,6 +43,8 @@ export function FixedExpenseFormDialog({
   const [categoryId, setCategoryId] = useState(expense?.categoryId || NONE);
   const [subcategoryId, setSubcategoryId] = useState(expense?.subcategoryId ?? NONE);
   const [defaultAccountId, setDefaultAccountId] = useState(expense?.defaultAccountId ?? NONE);
+  const [startCompetence, setStartCompetence] = useState(expense?.startCompetence ?? monthKey(todayIso()));
+  const [endCompetence, setEndCompetence] = useState(expense?.endCompetence ?? "");
 
   // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
   // not an Effect: the dialog stays mounted across parent re-renders, so the useState
@@ -58,6 +60,8 @@ export function FixedExpenseFormDialog({
       setCategoryId(expense?.categoryId || NONE);
       setSubcategoryId(expense?.subcategoryId ?? NONE);
       setDefaultAccountId(expense?.defaultAccountId ?? NONE);
+      setStartCompetence(expense?.startCompetence ?? monthKey(todayIso()));
+      setEndCompetence(expense?.endCompetence ?? "");
     }
   }
 
@@ -73,6 +77,8 @@ export function FixedExpenseFormDialog({
       categoryId: categoryId === NONE ? undefined : categoryId,
       subcategoryId: subcategoryId === NONE ? undefined : subcategoryId,
       defaultAccountId: defaultAccountId === NONE ? undefined : defaultAccountId,
+      startCompetence,
+      endCompetence: endCompetence || undefined,
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
@@ -86,7 +92,7 @@ export function FixedExpenseFormDialog({
         if (!isEdit) { setName(""); setAmount(""); }
         if (result.notices.length > 0) setLastNotices(result.notices);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Erro ao salvar despesa fixa");
+        setError(e instanceof Error ? e.message : "Erro ao salvar despesa programada");
       }
     });
   }
@@ -107,15 +113,15 @@ export function FixedExpenseFormDialog({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogTrigger asChild>
           {isEdit ? (
-            <button className="p-1.5 -m-1.5 text-text/40 hover:text-accent" aria-label="Editar despesa fixa">
+            <button className="p-1.5 -m-1.5 text-text/40 hover:text-accent" aria-label="Editar despesa programada">
               <Pencil className="size-3.5" strokeWidth={1.5} />
             </button>
           ) : (
-            <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova despesa fixa</Button>
+            <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova despesa programada</Button>
           )}
         </DialogTrigger>
         <DialogContent>
-          <DialogTitle>{isEdit ? "Editar despesa fixa" : "Nova despesa fixa"}</DialogTitle>
+          <DialogTitle>{isEdit ? "Editar despesa programada" : "Nova despesa programada"}</DialogTitle>
 
           <Field>
             <Label>Nome</Label>
@@ -134,6 +140,19 @@ export function FixedExpenseFormDialog({
               <Input type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
             </Field>
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field>
+              <Label>Início</Label>
+              <Input type="month" value={startCompetence} onChange={(e) => setStartCompetence(e.target.value)} />
+            </Field>
+            <Field>
+              <Label>Fim (opcional)</Label>
+              <Input type="month" min={startCompetence} value={endCompetence} onChange={(e) => setEndCompetence(e.target.value)} />
+            </Field>
+          </div>
+          <p className="text-[11px] opacity-50">
+            Deixe o fim em branco se a despesa continua valendo. Se você cancelou antes do dia de vencimento, o fim é o mês anterior a este; se cancelou no dia do vencimento ou depois, o fim é este mês — a cobrança já deve ter acontecido.
+          </p>
           <Field>
             <Label>Categoria</Label>
             <CategorySelect
@@ -184,7 +203,7 @@ export function FixedExpenseFormDialog({
       {lastNotices.length > 0 && (
         <div className="absolute top-full left-0 z-20 mt-1.5 flex w-72 flex-col gap-1.5 border border-accent bg-surface p-2.5 text-xs shadow-md">
           <div className="flex items-start justify-between gap-2">
-            <p className="opacity-70">Despesa fixa salva. O sistema também ajustou:</p>
+            <p className="opacity-70">Despesa programada salva. O sistema também ajustou:</p>
             <button type="button" onClick={() => setLastNotices([])} aria-label="Dispensar aviso" className="shrink-0 opacity-50 hover:opacity-100">
               <X className="size-3.5" strokeWidth={1.5} />
             </button>

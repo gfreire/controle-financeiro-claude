@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { ProgressRow } from "./progress-row";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils/currency";
-import { formatDate } from "@/lib/utils/date";
+import { formatDate, formatMonthLabel } from "@/lib/utils/date";
 import type { BudgetTreeCategoryDTO, BudgetTreeSubcategoryDTO, FixedExpenseDTO, TransactionViewDTO } from "@/types/dto";
 
 /**
@@ -48,7 +48,7 @@ function FixedExpenseRow({ f, actions }: { f: FixedExpenseDTO; actions?: ReactNo
     <ProgressRow
       indent
       label={`↳ ${f.name}`}
-      meta={f.isPaidThisMonth ? "pago" : `vence dia ${f.dueDay}`}
+      meta={`${f.isPaidThisMonth ? "pago" : `vence dia ${f.dueDay}`}${f.endCompetence ? ` · até ${formatMonthLabel(f.endCompetence)}` : ""}`}
       planned={f.plannedAmount}
       actual={f.actualAmount}
       status={f.status}

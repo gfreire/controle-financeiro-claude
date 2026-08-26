@@ -14,8 +14,8 @@ export function BudgetsPanel({ categories }: { categories: BudgetTreeCategoryDTO
   if (categories.length === 0) {
     return (
       <Card elevation="sm">
-        <CardTitle>Orçamentos e despesas fixas</CardTitle>
-        <p className="text-sm opacity-60">Nenhum orçamento ou despesa fixa configurada ainda.</p>
+        <CardTitle>Orçamentos e despesas programadas</CardTitle>
+        <p className="text-sm opacity-60">Nenhum orçamento ou despesa programada configurada ainda.</p>
         <Button asChild size="sm" variant="secondary" className="w-fit">
           <Link href="/budgets"><PlusCircle className="size-3.5" strokeWidth={1.5} /> Criar orçamento</Link>
         </Button>
@@ -25,7 +25,7 @@ export function BudgetsPanel({ categories }: { categories: BudgetTreeCategoryDTO
 
   return (
     <Card elevation="sm" className="gap-4">
-      <CardTitle>Orçamentos e despesas fixas</CardTitle>
+      <CardTitle>Orçamentos e despesas programadas</CardTitle>
       <BudgetTree categories={categories} />
     </Card>
   );

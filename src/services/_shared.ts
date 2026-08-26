@@ -62,7 +62,15 @@ export async function getCategoryBudgetFloor(
   const monthStart = startOfMonth(month);
   const [{ data: subBudgets, error: subError }, { data: fixedExpenses, error: feError }] = await Promise.all([
     supabase.from("budgets").select("amount").eq("user_id", userId).eq("category_id", categoryId).eq("month", monthStart).eq("active", true).not("subcategory_id", "is", null),
-    supabase.from("fixed_expenses").select("amount").eq("user_id", userId).eq("category_id", categoryId).eq("active", true).is("subcategory_id", null),
+    supabase
+      .from("fixed_expenses")
+      .select("amount")
+      .eq("user_id", userId)
+      .eq("category_id", categoryId)
+      .eq("active", true)
+      .is("subcategory_id", null)
+      .lte("start_competence", monthStart)
+      .or(`end_competence.is.null,end_competence.gte.${monthStart}`),
   ]);
   if (subError) throw new Error(subError.message);
   if (feError) throw new Error(feError.message);
@@ -70,20 +78,26 @@ export async function getCategoryBudgetFloor(
 }
 
 /**
- * A subcategory's budget must always be >= the sum of fixed expenses attached to it. No month
- * param — fixed expenses aren't month-scoped, and this floor never reads `budgets` itself.
+ * A subcategory's budget must always be >= the sum of fixed expenses attached to it that are
+ * actually active (start/end competence window) in `month` — a fixed expense that hasn't started
+ * yet or has already ended doesn't count toward the floor of a month outside its window (see
+ * AI_CONTEXT.md "Despesas Programadas — janela de competência").
  */
 export async function getSubcategoryBudgetFloor(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-  subcategoryId: string
+  subcategoryId: string,
+  month: string
 ): Promise<number> {
+  const monthStart = startOfMonth(month);
   const { data, error } = await supabase
     .from("fixed_expenses")
     .select("amount")
     .eq("user_id", userId)
     .eq("subcategory_id", subcategoryId)
-    .eq("active", true);
+    .eq("active", true)
+    .lte("start_competence", monthStart)
+    .or(`end_competence.is.null,end_competence.gte.${monthStart}`);
   if (error) throw new Error(error.message);
   return sumMoney((data ?? []).map((f) => f.amount));
 }
@@ -146,7 +160,7 @@ export async function reconcileBudgetFloors(
 
   if (subcategoryId) {
     const { data: subcategory } = await supabase.from("subcategories").select("name").eq("id", subcategoryId).single();
-    const subFloor = await getSubcategoryBudgetFloor(supabase, userId, subcategoryId);
+    const subFloor = await getSubcategoryBudgetFloor(supabase, userId, subcategoryId, month);
     const subNotice = await raiseOrCreateBudgetToFloor(supabase, userId, categoryId, subcategoryId, month, subcategory?.name ?? "subcategoria", subFloor);
     if (subNotice) notices.push(subNotice);
 
@@ -240,7 +254,15 @@ export async function deactivateCategoryBudgetIfOverCommitted(
 
   const [{ data: subBudgets, error: subError }, { data: directFixedExpenses, error: feError }] = await Promise.all([
     supabase.from("budgets").select("amount").eq("user_id", userId).eq("category_id", categoryId).eq("month", monthStart).eq("active", true).not("subcategory_id", "is", null),
-    supabase.from("fixed_expenses").select("id").eq("user_id", userId).eq("category_id", categoryId).eq("active", true).is("subcategory_id", null),
+    supabase
+      .from("fixed_expenses")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("category_id", categoryId)
+      .eq("active", true)
+      .is("subcategory_id", null)
+      .lte("start_competence", monthStart)
+      .or(`end_competence.is.null,end_competence.gte.${monthStart}`),
   ]);
   if (subError) throw new Error(subError.message);
   if (feError) throw new Error(feError.message);

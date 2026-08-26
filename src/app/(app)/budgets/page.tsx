@@ -46,10 +46,10 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h1 className="font-heading text-2xl font-semibold">Orçamentos e despesas fixas</h1>
-          <HelpButton title="Orçamentos e despesas fixas">
+          <h1 className="font-heading text-2xl font-semibold">Orçamentos e despesas programadas</h1>
+          <HelpButton title="Orçamentos e despesas programadas">
             <p>Orçamento é um teto de gasto planejado por categoria/mês — só serve de alerta, nunca bloqueia.</p>
-            <p>Despesa fixa (aluguel, streaming) é um compromisso que empurra o orçamento da sua categoria pra cima automaticamente.</p>
+            <p>Despesa programada (aluguel, streaming) é um compromisso que empurra o orçamento da sua categoria pra cima automaticamente, dentro do período de início/fim que você definir.</p>
             <p>Só o mês atual e o próximo podem ser editados — meses anteriores ficam como histórico.</p>
           </HelpButton>
         </div>
@@ -64,10 +64,12 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
         </p>
       )}
 
-      {/* Despesas fixas são perpétuas (não pertencem a um mês específico), então "Nova despesa
-          fixa" fica sempre disponível — só as ações de orçamento em si dependem do mês estar
-          na janela editável. Uma lista só (a árvore) em vez de abas separadas: despesa fixa já
-          aparece aninhada dentro da categoria/subcategoria dela, decidido 2026-08-08. */}
+      {/* Despesas programadas não pertencem a um mês específico (elas têm sua própria janela de
+          início/fim, ver AI_CONTEXT.md "Despesas Programadas — janela de competência"), então
+          "Nova despesa programada" fica sempre disponível — só as ações de orçamento em si
+          dependem do mês estar na janela editável. Uma lista só (a árvore) em vez de abas
+          separadas: despesa programada já aparece aninhada dentro da categoria/subcategoria
+          dela, decidido 2026-08-08. */}
       <div className="flex flex-wrap justify-end gap-2">
         {isEditableMonth && canClone && <CloneBudgetButton fromMonth={monthWindow.lastRegisteredMonth!} toMonth={monthDate} />}
         {isEditableMonth && <BudgetTreeEditor categories={categories} budgets={budgets} fixedExpenses={fixedExpenses} month={monthDate} />}
