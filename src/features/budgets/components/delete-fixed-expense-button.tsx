@@ -2,10 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
-import { deactivateFixedExpenseAction } from "../actions";
+import { deleteFixedExpenseAction } from "../actions";
 import { Trash2 } from "lucide-react";
 
-export function DeactivateFixedExpenseButton({ fixedExpenseId, name }: { fixedExpenseId: string; name: string }) {
+export function DeleteFixedExpenseButton({ fixedExpenseId, name }: { fixedExpenseId: string; name: string }) {
   const router = useRouter();
 
   return (
@@ -16,9 +16,9 @@ export function DeactivateFixedExpenseButton({ fixedExpenseId, name }: { fixedEx
         </button>
       }
       title={`Excluir despesa programada "${name}"?`}
-      description="A despesa deixa de contar como piso do orçamento da categoria, mas o orçamento em si não é reduzido automaticamente."
+      description="A despesa deixa de contar como piso do orçamento da categoria (o orçamento em si não é reduzido automaticamente). Pagamentos já registrados não são apagados — só perdem o vínculo, e podem ser vinculados de novo depois em outra despesa programada."
       onConfirm={async () => {
-        await deactivateFixedExpenseAction(fixedExpenseId);
+        await deleteFixedExpenseAction(fixedExpenseId);
         router.refresh();
       }}
     />

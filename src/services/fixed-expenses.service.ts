@@ -60,7 +60,6 @@ export async function getFixedExpenses(month: string): Promise<FixedExpenseDTO[]
     .from("fixed_expenses")
     .select("*, categories(name), subcategories(name)")
     .eq("user_id", user.id)
-    .eq("active", true)
     .lte("start_competence", monthStart)
     .or(`end_competence.is.null,end_competence.gte.${monthStart}`)
     .order("due_day");
@@ -394,8 +393,22 @@ export async function cancelFixedExpensePayment(fixedExpenseId: string, month: s
   }
 }
 
-export async function deactivateFixedExpense(id: string): Promise<void> {
+/**
+ * Hard delete — fixed_expenses dropped the `active` soft-delete convention (migration `0028`,
+ * at the user's request). A "despesa programada" that's excluída must genuinely stop existing,
+ * not linger hidden while still holding a `fixed_expense_id` on whatever real transaction/card
+ * purchase it paid — that dangling link was exactly the bug: a user who deletes a fixed expense
+ * by mistake (or on purpose, meaning to recreate it) could never re-link that old payment via
+ * "Vincular lançamento existente", because it never showed up as unlinked.
+ *
+ * `transactions.fixed_expense_id`/`card_purchases.fixed_expense_id` are `ON DELETE SET NULL`
+ * (schema.sql), so this DELETE never touches the real transaction/purchase — it only clears the
+ * link, leaving the record clean and available to be re-linked to a newly recreated fixed
+ * expense. `fixed_expense_amount_history` cascades away with it — that history only ever meant
+ * anything in relation to this specific fixed expense.
+ */
+export async function deleteFixedExpense(id: string): Promise<void> {
   const supabase = await createClient();
-  const { error } = await supabase.from("fixed_expenses").update({ active: false }).eq("id", id);
+  const { error } = await supabase.from("fixed_expenses").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }

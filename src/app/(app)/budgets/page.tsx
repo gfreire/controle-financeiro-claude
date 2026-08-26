@@ -12,7 +12,7 @@ import { CloneBudgetButton } from "@/features/budgets/components/clone-budget-bu
 import { FixedExpenseFormDialog } from "@/features/budgets/components/fixed-expense-form-dialog";
 import { PayFixedExpenseDialog } from "@/features/budgets/components/pay-fixed-expense-dialog";
 import { DeactivateBudgetButton } from "@/features/budgets/components/deactivate-budget-button";
-import { DeactivateFixedExpenseButton } from "@/features/budgets/components/deactivate-fixed-expense-button";
+import { DeleteFixedExpenseButton } from "@/features/budgets/components/delete-fixed-expense-button";
 import { MonthNav } from "@/features/cards/components/month-nav";
 import { CreditCard } from "lucide-react";
 import { HelpButton } from "@/components/ui/help-button";
@@ -132,7 +132,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
               }
             />
             <FixedExpenseFormDialog categories={categories} accounts={accounts} expense={f} />
-            <DeactivateFixedExpenseButton fixedExpenseId={f.id} name={f.name} />
+            <DeleteFixedExpenseButton fixedExpenseId={f.id} name={f.name} />
           </div>
         )}
       />

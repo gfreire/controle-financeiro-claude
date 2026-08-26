@@ -67,7 +67,6 @@ export async function getCategoryBudgetFloor(
       .select("amount")
       .eq("user_id", userId)
       .eq("category_id", categoryId)
-      .eq("active", true)
       .is("subcategory_id", null)
       .lte("start_competence", monthStart)
       .or(`end_competence.is.null,end_competence.gte.${monthStart}`),
@@ -95,7 +94,6 @@ export async function getSubcategoryBudgetFloor(
     .select("amount")
     .eq("user_id", userId)
     .eq("subcategory_id", subcategoryId)
-    .eq("active", true)
     .lte("start_competence", monthStart)
     .or(`end_competence.is.null,end_competence.gte.${monthStart}`);
   if (error) throw new Error(error.message);
@@ -259,7 +257,6 @@ export async function deactivateCategoryBudgetIfOverCommitted(
       .select("id")
       .eq("user_id", userId)
       .eq("category_id", categoryId)
-      .eq("active", true)
       .is("subcategory_id", null)
       .lte("start_competence", monthStart)
       .or(`end_competence.is.null,end_competence.gte.${monthStart}`),

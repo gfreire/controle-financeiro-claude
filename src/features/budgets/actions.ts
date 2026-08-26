@@ -55,10 +55,12 @@ export async function cloneBudgetMonthAction(fromMonth: string, toMonth: string)
   return result;
 }
 
-export async function deactivateFixedExpenseAction(id: string) {
-  await fixedExpensesService.deactivateFixedExpense(id);
+export async function deleteFixedExpenseAction(id: string) {
+  await fixedExpensesService.deleteFixedExpense(id);
   revalidatePath("/budgets");
   revalidatePath("/dashboard");
+  revalidatePath("/transactions");
+  revalidatePath("/cards");
 }
 
 export async function payFixedExpenseAction(input: {

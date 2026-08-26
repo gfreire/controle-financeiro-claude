@@ -218,7 +218,10 @@ CREATE TABLE public.fixed_expenses (
   -- Programadas — janela de competência".
   start_competence date NOT NULL DEFAULT '1970-01-01',
   end_competence date,
-  active boolean DEFAULT true,
+  -- NOVO (0028): sem `active`/soft-delete — excluir uma despesa programada é um DELETE de
+  -- verdade. transactions.fixed_expense_id/card_purchases.fixed_expense_id (ON DELETE SET NULL,
+  -- abaixo) garantem que a compra/transação real vinculada nunca é apagada, só perde o vínculo —
+  -- ver AI_CONTEXT.md "Fixed Expenses" → "Exclusão".
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT fixed_expenses_pkey PRIMARY KEY (id),
   CONSTRAINT fixed_expenses_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
@@ -417,7 +420,7 @@ CREATE TABLE public.reservoirs (
   subcategory_id uuid,
   default_percentage numeric(5,2), -- NOVO (0010): pré-preenche o % no AccrualDialog
   default_destination_account_id uuid, -- NOVO (0010): pré-preenche a conta no WithdrawalDialog
-  active boolean DEFAULT true, -- CORRIGIDO: faltava, inconsistente com accounts/debts/fixed_expenses
+  active boolean DEFAULT true, -- CORRIGIDO: faltava, inconsistente com accounts/debts (vestigial hoje — reservoirs virou hard-delete, ver ARCHITECTURE.md "Known bugs")
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT reservoirs_pkey PRIMARY KEY (id),
   CONSTRAINT reservoirs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
@@ -524,13 +527,21 @@ CREATE INDEX IF NOT EXISTS transactions_refund_of_transaction_id_idx ON public.t
 
 -- ============================================================
 -- POLÍTICA DE DELEÇÃO (CORRIGIDO: estava implícita, agora explícita)
--- - accounts, categories, subcategories, debts, fixed_expenses, reservoirs,
---   budgets: têm `active`. Preferir desativar (active=false) a apagar de
---   verdade quando já existe histórico ligado — apagar é permitido pelo
---   schema (RESTRICT é o padrão do Postgres), mas services devem preferir
---   updateX({active:false}) na prática.
+-- - accounts, categories, subcategories, debts, reservoirs, budgets: têm
+--   `active`. Preferir desativar (active=false) a apagar de verdade quando já
+--   existe histórico ligado — apagar é permitido pelo schema (RESTRICT é o
+--   padrão do Postgres), mas services devem preferir updateX({active:false})
+--   na prática.
+-- - fixed_expenses (NOVO 0028): SEM `active` — excluir é sempre um DELETE de
+--   verdade (deliberadamente diferente do resto da lista acima). Não faz
+--   sentido "esconder" uma despesa programada excluída, já que
+--   transactions.fixed_expense_id/card_purchases.fixed_expense_id (SET NULL,
+--   abaixo) já garantem que a compra/transação real vinculada nunca é
+--   apagada — só perde o vínculo, ficando livre pra ser relinkada depois via
+--   linkExistingTransaction(). Ver AI_CONTEXT.md "Fixed Expenses" → "Exclusão".
 -- - card_installments, subcategories, reservoir_transactions,
---   debt_transactions: CASCADE — não têm sentido sem o pai.
+--   debt_transactions, fixed_expense_amount_history: CASCADE — não têm
+--   sentido sem o pai.
 -- - reservoir_transactions.linked_*, debt_transactions.linked_transaction_id,
 --   transactions.fixed_expense_id, card_purchases.fixed_expense_id: SET NULL —
 --   apagar a transaction/compra real ou a despesa fixa não deve travar nem

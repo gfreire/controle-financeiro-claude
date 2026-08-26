@@ -295,7 +295,6 @@ export async function deactivateBudget(id: string): Promise<void> {
     .from("fixed_expenses")
     .select("id")
     .eq("user_id", user.id)
-    .eq("active", true)
     .lte("start_competence", existing.month)
     .or(`end_competence.is.null,end_competence.gte.${existing.month}`);
   fixedExpenseQuery = existing.subcategory_id
