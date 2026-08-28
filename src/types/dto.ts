@@ -29,6 +29,10 @@ export type DashboardFilters = {
 export type FinancialSummaryDTO = {
   balance: number;
   income: number;
+  // `expense` (and therefore `result`) includes the viewed month's UNPAID projected obligations
+  // — despesas programadas / INSTALLMENT_PLAN / OVERDUE_BILL not yet paid — the same rule as the
+  // "Despesas do mês" card (2026-08-28). A deliberate break from "Money Reality Rules" for the
+  // dashboard's expense side; see AI_CONTEXT.md "Despesas do mês (dashboard)".
   expense: number;
   result: number;
   adjustmentAmount: number; // R$ under "Ajuste" in the period — bookkeeping-looseness signal, shown as a badge next to Balanço Mensal (was a % share until 2026-08-28; percentages read poorly on the card)
@@ -36,17 +40,21 @@ export type FinancialSummaryDTO = {
   refundAmount: number; // R$ flowing through "Estorno" in the period (both directions, so ~2× a single refund) — computed, no UI consumer since 2026-08-28 (badge removed), see AI_CONTEXT.md "Estorno"
 };
 
+// `expense` on the viewed month's bar also includes that month's unpaid projected obligations
+// (see FinancialSummaryDTO.expense), so it stays reconciled with the "Despesas por categoria"
+// donut. Every other month in the 15-month window is actuals-only.
 export type MonthlyEvolutionDTO = { month: string; income: number; expense: number };
 
 /**
- * "Despesas de {mês}" dashboard card (getCurrentMonthObligations) — the current REAL calendar
- * month's spending, split into what's already settled and what still has to be paid. Always
- * today-anchored, never the dashboard's period filter (same as OpenDebtsAlert).
+ * "Despesas de {mês}" dashboard card (getCurrentMonthObligations) — the viewed month's spending,
+ * split into what's already settled and what still has to be paid. Follows the dashboard's period
+ * filter (`month`, defaults to today's real month); `getDebts().paidThisMonth` stays today-anchored.
  *
- * `total` = `paidTotal + remainingTotal` = "despesas realizadas do mês + o que falta pagar":
- * reconciles with the DESPESAS summary card (competence-basis) plus the month's still-unpaid
- * despesas programadas / dívidas programadas on top (DESPESAS doesn't count those until they're
- * a real transaction). Card spend is by COMPETENCE like every other analytic — each card's
+ * `total` = `paidTotal + remainingTotal` = "despesas realizadas do mês + o que falta pagar".
+ * Since 2026-08-28 the DESPESAS summary card also folds in the month's unpaid despesas
+ * programadas / dívidas programadas, so `total` now reconciles exactly with DESPESAS (both are
+ * real EXPENSE by competence + the same unpaid projections). Card spend is by COMPETENCE like
+ * every other analytic — each card's
  * unpaid slice of this month's invoice (`currentMonthInvoice - currentMonthPaidAmount`) is one
  * "Fatura {cartão}" item; the paid slice is folded into `paidTotal`. See AI_CONTEXT.md
  * "Despesas do mês (dashboard)". All sums computed in the service (Chart Rules — no reduce()
@@ -61,7 +69,7 @@ export type MonthObligationItemDTO = {
 };
 
 export type MonthObligationsDTO = {
-  month: string; // "YYYY-MM" — the real current month this reflects
+  month: string; // "YYYY-MM" — the viewed month this reflects (dashboard period filter; today's month by default)
   items: MonthObligationItemDTO[]; // unpaid only, sorted by amount desc — each is one donut slice and one actionable list row
   paidTotal: number; // Σ EXPENSE transactions dated this month + Σ each card's currentMonthPaidAmount — the "Pago" slice (donut only, not the list)
   remainingTotal: number; // sum of items[].amount
@@ -160,9 +168,10 @@ export type CardSummaryDTO = {
   creditLimit: number | null;
   usedThroughCurrentMonth: number; // = getCardBalanceThroughMonth(cardId, todayMonth) — installments due through TODAY's real month minus payments, floored at 0. Drives the "Pagar fatura" suggested amount; always today-anchored, independent of the page's month filter.
   currentMonthInvoice: number; // sum of card_installments.amount where competence falls in the page's VIEWED month (the month filter), not necessarily today's month
-  currentMonthPaidAmount: number; // how much of currentMonthInvoice is already covered — derived (card_payments has no month of its own), oldest-competence-first, see cards.service.ts#getCardSummary. Always 0 <= this <= currentMonthInvoice.
+  currentMonthPaidAmount: number; // how much of currentMonthInvoice is already covered — derived (card_payments has no month of its own), oldest-competence-first, see cards.service.ts#getCardSummary. Includes card_refunds credited through the viewed month (a refund pays down the invoice like a payment). Always 0 <= this <= currentMonthInvoice.
   overdueAmount: number; // = usedThroughCurrentMonth - (today's month invoice), floored at 0 — unpaid balance from prior months, always today-anchored
-  totalCommitted: number; // = getCardTotalCommitted — ALL installments ever generated (incl. future not-yet-due) minus all payments, floored at 0. The correct "used against the limit" figure.
+  totalCommitted: number; // = getCardTotalCommitted — ALL installments ever generated (incl. future not-yet-due) minus all payments AND refunds, floored at 0. The correct "used against the limit" figure.
+  creditBalance: number; // "saldo a favor" — payments + refunds beyond everything ever billed (excl. paid_before_system), >= 0. Non-zero only when an estorno/overpayment left the card in credit; consumed automatically by future invoices (via the oldest-first allocation in currentMonthPaidAmount). Card-only — never withdrawable, never touches account balances.
   openInvoiceMonth: string; // "YYYY-MM" — the competence month a purchase made TODAY would land in (via calculateInstallmentCompetences + the card's closing_day/due_day), i.e. whichever invoice is still accumulating charges right now. Always today-anchored, independent of the page's month filter — same convention as usedThroughCurrentMonth/overdueAmount.
   openInvoiceAmount: number; // sum of card_installments.amount for openInvoiceMonth — does NOT exclude paid_before_system, same historical-fact convention as currentMonthInvoice
 };

@@ -52,3 +52,11 @@ export const registerYieldSchema = z.object({
 });
 
 export const reconcileBalanceSchema = registerYieldSchema;
+
+// "Lançar Juros": an explicit amount (not a delta against a stated balance like the two above) —
+// the account's own type decides how it's recorded (see accounts.service.ts#registerInterest).
+export const registerInterestSchema = z.object({
+  accountId: z.string().uuid(),
+  amount: z.number().positive("Informe um valor maior que zero"),
+  date: z.string().min(1, "Data é obrigatória"),
+});

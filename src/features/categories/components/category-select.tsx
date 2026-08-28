@@ -21,6 +21,12 @@ const CREATE_SUBCATEGORY = "__create_subcategory__";
  * category also lets them create one, via a "Nova categoria" item at the end of the same dropdown
  * (AI_GENERATION_RULES.md "Form Rules") — no separate button needed, so it fits even a compact
  * table-row cell. Selecting the sentinel opens a small creation dialog instead of a real value.
+ *
+ * `is_system` categories (Juros/Rendimentos/Ajuste/Estorno/Compras retroativas) are never offered
+ * here — they're only ever applied by their own dedicated system flow ("Informar Rendimento",
+ * "Ajustar Saldo", "Lançar Juros", estorno, backfill), never hand-picked from a form (AI_CONTEXT.md
+ * "is_default vs is_system"). Dashboard/Cards/Transactions *filter* dropdowns are separate
+ * components and still list them, so the user can filter by "Estorno"/"Compras retroativas".
  */
 export function CategorySelect({
   categories,
@@ -52,7 +58,7 @@ export function CategorySelect({
   const [icon, setIcon] = useState(CATEGORY_ICONS[0]);
   const [color, setColor] = useState(CATEGORY_COLORS[0]);
 
-  const relevantCategories = categories.filter((c) => c.type === type);
+  const relevantCategories = categories.filter((c) => c.type === type && !c.isSystem);
 
   function handleValueChange(v: string) {
     if (v === CREATE_CATEGORY) {

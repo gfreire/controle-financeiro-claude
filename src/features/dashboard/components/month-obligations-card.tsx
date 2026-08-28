@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import { formatCurrency } from "@/lib/utils/currency";
-import { formatMonthLabel, daysUntilDueThisMonth, todayIso } from "@/lib/utils/date";
+import { formatMonthLabel, daysUntilDueThisMonth, monthKey, todayIso } from "@/lib/utils/date";
 import { PaymentFormDialog } from "@/features/cards/components/payment-form-dialog";
 import { PayFixedExpenseDialog } from "@/features/budgets/components/pay-fixed-expense-dialog";
 import { DebtTransactionDialog } from "@/features/debts/components/debt-transaction-dialog";
@@ -20,10 +20,11 @@ import type {
 } from "@/types/dto";
 
 /**
- * "Despesas de {mês}" — the month's spending as a donut: "Pago" slice (everything already
+ * "Despesas de {mês}" — the viewed month's spending as a donut: "Pago" slice (everything already
  * settled) + one slice per still-open commitment (faturas de cartão by competence, despesas
  * programadas, dívidas OVERDUE_BILL/INSTALLMENT_PLAN), each with a one-click payment trigger.
- * Replaces the old "Vence essa semana" alert. See AI_CONTEXT.md "Despesas do mês (dashboard)".
+ * Follows the dashboard's period filter (`data.month`), not today's month. Replaces the old
+ * "Vence essa semana" alert. See AI_CONTEXT.md "Despesas do mês (dashboard)".
  *
  * The donut carries the "Pago" slice and `total` in the centre (like every other donut in the
  * app); the list below is only the unpaid items (each = one slice). Aggregation is all in
@@ -44,8 +45,13 @@ const SLICE_COLORS = [
 ];
 const PAID_COLOR = "var(--color-success-600)";
 
-function DueBadge({ dueDay }: { dueDay?: number }) {
+function DueBadge({ dueDay, month }: { dueDay?: number; month: string }) {
   if (dueDay === undefined) return <Badge variant="danger">Atrasada</Badge>;
+  // The day-countdown only makes sense for today's real month. When the card is browsing a
+  // different month, fall back to a plain past/future indicator.
+  const todayMonth = monthKey(todayIso());
+  if (month > todayMonth) return <Badge variant="warning">Vence dia {dueDay}</Badge>;
+  if (month < todayMonth) return <Badge variant="danger">Atrasada</Badge>;
   const days = daysUntilDueThisMonth(dueDay, todayIso());
   if (days < 0) return <Badge variant="danger">Atrasada há {Math.abs(days)}d</Badge>;
   if (days === 0) return <Badge variant="warning">Vence hoje</Badge>;
@@ -151,7 +157,7 @@ export function MonthObligationsCard({
               </span>
               <span className="flex items-center gap-2">
                 <span className="font-medium tabular-nums">{formatCurrency(item.amount)}</span>
-                <DueBadge dueDay={item.dueDay} />
+                <DueBadge dueDay={item.dueDay} month={data.month} />
                 {renderAction(item)}
               </span>
             </li>

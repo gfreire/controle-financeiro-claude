@@ -38,7 +38,14 @@ type Entry = {
 async function fetchPeriodEntries(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-  filters: DashboardFilters
+  filters: DashboardFilters,
+  /**
+   * When set ("YYYY-MM"), the unpaid projected obligations of that month (despesas programadas /
+   * INSTALLMENT_PLAN / OVERDUE_BILL not yet paid) are appended as EXPENSE entries — see
+   * `fetchUnpaidObligationEntries`. Callers pass the single viewed month; for the 15-month
+   * evolution window the entries' competence date buckets them into that one month's bar.
+   */
+  obligationsMonth?: string
 ): Promise<Entry[]> {
   const entries: Entry[] = [];
   // "liquid" = only CASH/BANK transactions; "cards" = only card_installments. A plain EXPENSE
@@ -228,7 +235,91 @@ async function fetchPeriodEntries(
     }
   }
 
+  if (obligationsMonth) {
+    entries.push(...(await fetchUnpaidObligationEntries(supabase, filters, obligationsMonth)));
+  }
+
   return entries;
+}
+
+/**
+ * Unpaid projected obligations for a single month, returned as EXPENSE `Entry`s so they flow
+ * into the dashboard's expense totals (DESPESAS card, Balanço Mensal, "Despesas por categoria"
+ * donut, and the viewed-month bar of Evolução mensal) exactly like a real transaction would.
+ *
+ * Mirrors the "Despesas do mês" card's rule (`getCurrentMonthObligations`): every despesa
+ * programada not yet paid this month (`plannedAmount`), every INSTALLMENT_PLAN debt not yet paid
+ * this month (`monthlyAmount`), every OVERDUE_BILL debt (`remainingBalance`). This is a
+ * deliberate, documented break from "Money Reality Rules" for the dashboard's expense side —
+ * decided 2026-08-28, see AI_CONTEXT.md "Despesas do mês (dashboard)".
+ *
+ * Card invoices are NOT projected here — real `card_installments` already carry the full invoice
+ * by competence, paid or not, so the DESPESAS card ends up reconciling exactly with the
+ * "Despesas do mês" card's `total`.
+ *
+ * Skipped whenever a filter makes a projection meaningless: an account filter (a projection
+ * isn't posted against any account), the expense-source toggle set to liquid/cards, or an
+ * INCOME-only view. The category / subcategory / uncategorized filters are honoured the same way
+ * the real-entry queries are (debts have no subcategory, so a subcategory filter drops them).
+ */
+async function fetchUnpaidObligationEntries(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  filters: DashboardFilters,
+  month: string
+): Promise<Entry[]> {
+  if (filters.transactionType === "INCOME") return [];
+  if (filters.accounts?.length) return [];
+  if (filters.source === "liquid" || filters.source === "cards") return [];
+
+  const [fixedExpenses, debts] = await Promise.all([getFixedExpenses(`${month}-01`), getDebts()]);
+
+  type Raw = { amount: number; categoryId: string | null; subcategoryId: string | null };
+  const raws: Raw[] = [];
+
+  for (const fe of fixedExpenses) {
+    if (fe.isPaidThisMonth) continue;
+    raws.push({ amount: fe.plannedAmount, categoryId: fe.categoryId, subcategoryId: fe.subcategoryId ?? null });
+  }
+  for (const debt of debts) {
+    if (debt.side !== "PAYABLE" || debt.kind === "PERSONAL") continue;
+    if (debt.kind === "INSTALLMENT_PLAN") {
+      if (debt.paidThisMonth) continue;
+      raws.push({ amount: debt.monthlyAmount ?? debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null });
+    } else {
+      // OVERDUE_BILL — always outstanding
+      raws.push({ amount: debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null });
+    }
+  }
+
+  let filtered = raws.filter((r) => r.amount > 0);
+  if (filters.uncategorizedOnly) filtered = filtered.filter((r) => r.categoryId === null);
+  else if (filters.categories?.length) filtered = filtered.filter((r) => r.categoryId !== null && filters.categories!.includes(r.categoryId));
+  if (filters.subcategories?.length) filtered = filtered.filter((r) => r.subcategoryId !== null && filters.subcategories!.includes(r.subcategoryId));
+  if (!filtered.length) return [];
+
+  const catIds = [...new Set(filtered.map((r) => r.categoryId).filter((v): v is string => v !== null))];
+  const catById = new Map<string, { name: string; color: string; icon: string | null }>();
+  if (catIds.length) {
+    const { data, error } = await supabase.from("categories").select("id, name, color, icon").in("id", catIds);
+    if (error) throw new Error(error.message);
+    for (const c of (data ?? []) as Array<{ id: string; name: string; color: string; icon: string | null }>) {
+      catById.set(c.id, { name: c.name, color: c.color, icon: c.icon });
+    }
+  }
+
+  const date = `${month}-01`;
+  return filtered.map((r) => {
+    const cat = r.categoryId ? catById.get(r.categoryId) : undefined;
+    return {
+      amount: r.amount,
+      date,
+      type: "EXPENSE" as const,
+      categoryId: r.categoryId,
+      categoryName: cat?.name ?? "Sem categoria",
+      categoryColor: cat?.color ?? "#98989b",
+      categoryIcon: cat?.icon ?? null,
+    };
+  });
 }
 
 /**
@@ -255,10 +346,13 @@ const getRetroactiveIncomeCategory = cache(async (): Promise<{
   return data as { id: string; name: string; color: string; icon: string | null };
 });
 
-export async function getFinancialSummary(filters: DashboardFilters): Promise<FinancialSummaryDTO> {
+export async function getFinancialSummary(
+  filters: DashboardFilters,
+  obligationsMonth?: string
+): Promise<FinancialSummaryDTO> {
   const supabase = await createClient();
   const user = await getUser();
-  const entries = await fetchPeriodEntries(supabase, user.id, filters);
+  const entries = await fetchPeriodEntries(supabase, user.id, filters, obligationsMonth);
 
   const income = sumMoney(entries.filter((e) => e.type === "INCOME").map((e) => e.amount));
   const expense = sumMoney(entries.filter((e) => e.type === "EXPENSE").map((e) => e.amount));
@@ -286,10 +380,16 @@ export async function getFinancialSummary(filters: DashboardFilters): Promise<Fi
   };
 }
 
-export async function getMonthlyEvolution(filters: DashboardFilters): Promise<MonthlyEvolutionDTO[]> {
+export async function getMonthlyEvolution(
+  filters: DashboardFilters,
+  obligationsMonth?: string
+): Promise<MonthlyEvolutionDTO[]> {
   const supabase = await createClient();
   const user = await getUser();
-  const entries = await fetchPeriodEntries(supabase, user.id, filters);
+  // Obligation entries carry `${obligationsMonth}-01` as their date, so they bucket into that
+  // single month's bar (the viewed month) — the other months in the 15-month window stay
+  // actuals-only, which keeps the viewed month's bar reconciled with the category donut.
+  const entries = await fetchPeriodEntries(supabase, user.id, filters, obligationsMonth);
 
   const months: string[] = [];
   let cursor = filters.periodStart.slice(0, 7);
@@ -310,11 +410,14 @@ export async function getMonthlyEvolution(filters: DashboardFilters): Promise<Mo
 }
 
 /** Defaults to EXPENSE when no transactionType filter is set — a spending breakdown is the common case for a donut chart. */
-export async function getCategoryDistribution(filters: DashboardFilters): Promise<CategoryDistributionDTO[]> {
+export async function getCategoryDistribution(
+  filters: DashboardFilters,
+  obligationsMonth?: string
+): Promise<CategoryDistributionDTO[]> {
   const supabase = await createClient();
   const user = await getUser();
   const effectiveFilters: DashboardFilters = { ...filters, transactionType: filters.transactionType ?? "EXPENSE" };
-  const entries = await fetchPeriodEntries(supabase, user.id, effectiveFilters);
+  const entries = await fetchPeriodEntries(supabase, user.id, effectiveFilters, obligationsMonth);
 
   const byCategory = new Map<string, { categoryId: string; categoryName: string; color: string; icon: string | null; amounts: number[] }>();
   for (const entry of entries) {
@@ -451,15 +554,19 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
 }
 
 /**
- * "Despesas de {mês}" dashboard card — the current REAL calendar month's spending, split into
- * what's already settled (`paidTotal`) and what still has to be paid (`items`, one per open
- * commitment). Always today-anchored, never `filters` — same convention as OpenDebtsAlert.
+ * "Despesas de {mês}" dashboard card — a calendar month's spending, split into what's already
+ * settled (`paidTotal`) and what still has to be paid (`items`, one per open commitment).
+ * Follows the dashboard's viewed month (`month`, defaulting to today's real month when omitted)
+ * so it moves along with the rest of the page's period filter instead of staying pinned to today.
+ * `getDebts()`'s `paidThisMonth` (INSTALLMENT_PLAN) is the one figure still anchored to today's
+ * real month — `getDebts()` takes no month parameter — a small, accepted inaccuracy when browsing
+ * a non-current month.
  *
  * `total` = `paidTotal + remainingTotal` = "despesas realizadas do mês + o que ainda falta
- * pagar": it reconciles with the dashboard's DESPESAS summary card (competence-basis) plus,
- * on top, the still-unpaid despesas programadas and dívidas programadas of the month (which
- * DESPESAS doesn't count until they become a real transaction). When nothing is pending the two
- * match; otherwise `total` sits above DESPESAS by exactly `remainingTotal`'s projection part.
+ * pagar". Since 2026-08-28 the DESPESAS summary card folds in the same unpaid despesas
+ * programadas / dívidas programadas projection (via `fetchUnpaidObligationEntries`), so `total`
+ * now reconciles exactly with DESPESAS — both are real EXPENSE by competence plus the identical
+ * set of unpaid projections.
  *
  * Card spend is counted BY COMPETENCE, same as every other analytic (getCardSummary's
  * `currentMonthInvoice`/`currentMonthPaidAmount`), NOT by outstanding balance — an earlier
@@ -478,10 +585,11 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
  * with the page's own getFixedExpenses/getDebts/getAccounts calls is small (month-scoped, and
  * getOptionalUser is request-cached).
  */
-export async function getCurrentMonthObligations(): Promise<MonthObligationsDTO> {
+export async function getCurrentMonthObligations(
+  month: string = monthKey(todayIso())
+): Promise<MonthObligationsDTO> {
   const supabase = await createClient();
   const user = await getUser();
-  const month = monthKey(todayIso());
   const monthStart = startOfMonth(`${month}-01`);
   const monthEnd = endOfMonth(`${month}-01`);
 
@@ -490,7 +598,7 @@ export async function getCurrentMonthObligations(): Promise<MonthObligationsDTO>
 
   const [cardSummaries, fixedExpenses, debts, paidResult] = await Promise.all([
     Promise.all(cards.map(async (card) => ({ card, summary: await getCardSummary(card.id, month, card.creditLimit ?? null) }))),
-    getFixedExpenses(todayIso()),
+    getFixedExpenses(`${month}-01`),
     getDebts(),
     supabase
       .from("transactions")
@@ -543,4 +651,25 @@ export async function getCurrentMonthObligations(): Promise<MonthObligationsDTO>
   const total = addMoney(paidTotal, remainingTotal);
 
   return { month, items, paidTotal, remainingTotal, total };
+}
+
+/**
+ * Default month the Dashboard lands on when the user hasn't picked one (no `?month=` in the URL,
+ * and the default "month" preset). Mirrors `getDefaultCardsMonth`'s practicality tweak: if every
+ * expense of the current real month is already paid (`getCurrentMonthObligations(currentMonth)`
+ * has nothing left in `remainingTotal`), jump straight to next month — but only when next month
+ * actually has expenses to look at; with next month empty, stay on the current month.
+ *
+ * Reuses `getCurrentMonthObligations` so "todas as despesas já foram pagas" means exactly what
+ * the "Despesas de {mês}" card shows. When the current month still has something unpaid (the
+ * common case) this is a single extra call.
+ */
+export async function getDefaultDashboardMonth(): Promise<string> {
+  const currentMonth = monthKey(todayIso());
+  const current = await getCurrentMonthObligations(currentMonth);
+  if (current.remainingTotal > 0) return currentMonth;
+
+  const nextMonth = monthKey(addMonthsToIsoDate(`${currentMonth}-01`, 1));
+  const next = await getCurrentMonthObligations(nextMonth);
+  return next.total > 0 ? nextMonth : currentMonth;
 }

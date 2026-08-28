@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import * as accountsService from "@/services/accounts.service";
-import { accountSchema, updateAccountSchema, registerYieldSchema, reconcileBalanceSchema, type AccountInput } from "@/lib/validations/accounts";
+import { accountSchema, updateAccountSchema, registerYieldSchema, reconcileBalanceSchema, registerInterestSchema, type AccountInput } from "@/lib/validations/accounts";
 
 export async function createAccountAction(input: AccountInput) {
   const parsed = accountSchema.parse(input);
@@ -36,4 +36,12 @@ export async function reconcileBalanceAction(accountId: string, realBalance: num
   await accountsService.reconcileAccountBalance(parsed.accountId, parsed.realBalance);
   revalidatePath("/accounts");
   revalidatePath("/dashboard");
+}
+
+export async function registerInterestAction(input: { accountId: string; amount: number; date: string }) {
+  const parsed = registerInterestSchema.parse(input);
+  await accountsService.registerInterest(parsed);
+  revalidatePath("/accounts");
+  revalidatePath("/dashboard");
+  revalidatePath("/cards");
 }

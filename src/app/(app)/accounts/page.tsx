@@ -30,7 +30,7 @@ export default async function AccountsPage({
           <h1 className="font-heading text-2xl font-semibold">Contas</h1>
           <HelpButton title="Contas">
             <p>Onde seu dinheiro de verdade está — carteira, contas bancárias e cartões de crédito.</p>
-            <p>Cada tipo tem suas próprias ações: &quot;Informar Rendimento&quot; e &quot;Ajustar Saldo&quot; pra dinheiro/banco, &quot;Ajustar Cartão&quot; pra limite e datas da fatura.</p>
+            <p>Cada tipo tem suas próprias ações: &quot;Informar Rendimento&quot; e &quot;Ajustar Saldo&quot; pra dinheiro/banco, &quot;Editar Conta&quot; / &quot;Editar Cartão&quot; pra nome, instituição, limite e datas da fatura.</p>
             <p>Crie quantas quiser — não tem limite de contas ou cartões.</p>
           </HelpButton>
         </div>
@@ -51,7 +51,7 @@ export default async function AccountsPage({
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {nonCards.map((account) => (
-              <AccountCard key={account.id} account={account} />
+              <AccountCard key={account.id} account={account} institutions={institutions} />
             ))}
           </div>
           {cards.length > 0 && (
@@ -59,7 +59,7 @@ export default async function AccountsPage({
               <h2 className="mt-2 font-heading text-lg font-semibold">Cartões de crédito</h2>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {cards.map((account) => (
-                  <AccountCard key={account.id} account={account} cardSummary={summaryByCardId.get(account.id)} cardSummaryMonth={month} />
+                  <AccountCard key={account.id} account={account} institutions={institutions} cardSummary={summaryByCardId.get(account.id)} cardSummaryMonth={month} />
                 ))}
               </div>
             </>

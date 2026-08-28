@@ -1,18 +1,18 @@
 import { parseDashboardFilters, type DashboardSearchParams } from "@/features/dashboard/filters";
-import { startOfMonth, endOfMonth, addMonthsToIsoDate, monthKey, todayIso } from "@/lib/utils/date";
+import { startOfMonth, endOfMonth, addMonthsToIsoDate, monthKey } from "@/lib/utils/date";
 import {
   getFinancialSummary,
   getMonthlyEvolution,
   getCategoryDistribution,
   getTransactionsFiltered,
   getCurrentMonthObligations,
+  getDefaultDashboardMonth,
 } from "@/services/dashboard.service";
 import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
 import { getBudgetTree } from "@/services/budgets.service";
 import { getFixedExpenses } from "@/services/fixed-expenses.service";
 import { getDebts } from "@/services/debts.service";
-import { sumMoney } from "@/lib/utils/money";
 import type { DashboardFilters as DashboardFiltersType } from "@/types/dto";
 
 import { DashboardFilters } from "@/features/dashboard/components/dashboard-filters";
@@ -22,7 +22,6 @@ import { CategoryPie } from "@/features/dashboard/components/category-pie";
 import { ExpenseSourceToggle } from "@/features/dashboard/components/expense-source-toggle";
 import { BudgetsPanel } from "@/features/dashboard/components/budgets-panel";
 import { MonthObligationsCard } from "@/features/dashboard/components/month-obligations-card";
-import { OpenDebtsAlert } from "@/features/dashboard/components/open-debts-alert";
 import { HelpButton } from "@/components/ui/help-button";
 import { TransactionExplorer } from "@/features/dashboard/components/transaction-explorer";
 
@@ -32,13 +31,22 @@ export default async function DashboardPage({
   searchParams: Promise<DashboardSearchParams>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const filters = parseDashboardFilters(resolvedSearchParams);
 
-  // Evolução mensal sempre mostra 12 meses no passado + 3 no futuro (a partir do mês de
-  // referência visualizado), independente do preset de período do resto do dashboard — um único
-  // mês de barra não conta uma evolução, e os 3 meses futuros mostram parcelas de cartão já
-  // agendadas (competence futura já existe em card_installments). Herda o mesmo filtro de
-  // categoria/conta/tipo do resto da página.
+  // When the user hasn't explicitly picked a month (no `?month=`), auto-resolve which month to
+  // open on — same practicality logic as /cards: if every expense of the current month is
+  // already paid, jump to next month, unless next month has nothing to show.
+  const autoMonth = !resolvedSearchParams.month ? await getDefaultDashboardMonth() : undefined;
+
+  const filters = parseDashboardFilters(
+    autoMonth ? { ...resolvedSearchParams, month: autoMonth } : resolvedSearchParams
+  );
+  const viewedMonth = monthKey(filters.periodEnd);
+
+  // Evolução mensal sempre mostra 12 meses no passado + 3 no futuro (a partir do mês
+  // visualizado) — um único mês de barra não conta uma evolução, e os 3 meses futuros mostram
+  // parcelas de cartão já agendadas (competence futura já existe em card_installments). Herda o
+  // mesmo filtro de categoria/conta/tipo do resto da página. As despesas projetadas não pagas
+  // (ver `viewedMonth` passado aos serviços abaixo) entram só na barra do mês visualizado.
   const referenceMonthStart = startOfMonth(filters.periodEnd);
   const monthlyEvolutionFilters: DashboardFiltersType = {
     ...filters,
@@ -68,10 +76,10 @@ export default async function DashboardPage({
     debts,
     monthObligations,
   ] = await Promise.all([
-    getFinancialSummary(filters),
-    getMonthlyEvolution(monthlyEvolutionFilters),
-    getCategoryDistribution(expenseFilters),
-    getCategoryDistribution(incomeFilters),
+    getFinancialSummary(filters, viewedMonth),
+    getMonthlyEvolution(monthlyEvolutionFilters, viewedMonth),
+    getCategoryDistribution(expenseFilters, viewedMonth),
+    getCategoryDistribution(incomeFilters, viewedMonth),
     getTransactionsFiltered(filters),
     getAccounts(),
     getCategories(),
@@ -79,22 +87,9 @@ export default async function DashboardPage({
     // month via the filters expects the budgets/fixed-expenses panel to follow along.
     getFixedExpenses(filters.periodEnd),
     getDebts(),
-    getCurrentMonthObligations(),
+    getCurrentMonthObligations(viewedMonth),
   ]);
   const budgetTree = await getBudgetTree(filters.periodEnd, fixedExpenses);
-  const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
-
-  // "Dívidas em aberto" (AI_CONTEXT.md "Dívidas — subtipos") — só OVERDUE_BILL/INSTALLMENT_PLAN
-  // PAYABLE contam aqui; PERSONAL nunca afeta o dashboard (Money Reality Rules). Não é escopado
-  // por período — é um compromisso em aberto, não um evento datado, então independe do filtro.
-  const openDebts = debts.filter((d) => d.side === "PAYABLE" && d.kind !== "PERSONAL");
-  const totalOpenDebts = sumMoney(openDebts.map((d) => d.remainingBalance));
-
-  // "A pagar em {mês}" is always anchored to today's real month, never the viewed-period filter
-  // (see MonthObligationsCard) — reuse the already-fetched list when the viewed month IS today's
-  // month instead of firing a redundant second query. Feeds the card's per-item PayFixedExpenseDialog.
-  const todaysFixedExpenses =
-    monthKey(filters.periodEnd) === monthKey(todayIso()) ? fixedExpenses : await getFixedExpenses(todayIso());
 
   return (
     <div className="flex flex-col gap-4">
@@ -103,14 +98,13 @@ export default async function DashboardPage({
           <h1 className="font-heading text-2xl font-semibold">Dashboard</h1>
           <HelpButton title="Dashboard">
             <p>Visão geral do período: quanto entrou, quanto saiu, e como isso se distribui por categoria.</p>
-            <p>Use os filtros pra mudar o período, a conta ou o tipo — e clique numa fatia do gráfico ou numa categoria pra filtrar por ela.</p>
+            <p>Use a navegação de mês, a conta ou o tipo — e clique numa fatia do gráfico ou numa categoria pra filtrar por ela.</p>
+          <p>As despesas incluem também as despesas programadas e os parcelamentos ainda não pagos do mês, além do que já foi lançado.</p>
             <p>Cada linha do Explorador de Lançamentos pode ser editada direto ali, sem abrir outra tela.</p>
           </HelpButton>
         </div>
-        <DashboardFilters preset={filters.preset} accounts={accounts} categories={categories} />
+        <DashboardFilters month={viewedMonth} accounts={accounts} categories={categories} />
       </div>
-
-      <OpenDebtsAlert debts={openDebts} totalOpenDebts={totalOpenDebts} accounts={liquidAccounts} categories={categories} />
 
       <SummaryCards summary={summary} />
 
@@ -118,7 +112,7 @@ export default async function DashboardPage({
         data={monthObligations}
         accounts={accounts}
         categories={categories}
-        fixedExpenses={todaysFixedExpenses}
+        fixedExpenses={fixedExpenses}
         debts={debts}
       />
 

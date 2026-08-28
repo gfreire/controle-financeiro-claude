@@ -53,6 +53,14 @@ export function EditableCategoryCell({
     return <span className="text-xs opacity-40">—</span>;
   }
 
+  // A row already tagged with an is_system category (e.g. an installment of a refunded purchase,
+  // now "Estorno") is never hand-editable — those categories are applied only by their own system
+  // flow and don't appear in CategorySelect. Show the name as plain text, like TRANSFER above.
+  const currentCategory = categories.find((c) => c.id === row.categoryId);
+  if (currentCategory?.isSystem) {
+    return <span className="text-xs opacity-70">{currentCategory.icon} {currentCategory.name}</span>;
+  }
+
   const relevantCategories = categories.filter((c) => c.type === row.type);
   const selectedCategory = relevantCategories.find((c) => c.id === categoryId);
   const subcategories = selectedCategory?.subcategories ?? [];

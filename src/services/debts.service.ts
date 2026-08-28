@@ -142,6 +142,20 @@ export async function addDebtTransaction(input: DebtTransactionInput): Promise<{
   if (input.createLinkedTransaction) {
     if (!input.linkedAccountId) throw new Error("linkedAccountId is required when creating a linked transaction");
 
+    // A debt movement always passes through real money in a cash/bank account — never a credit
+    // card. "Se a dívida é no cartão, ela é uma compra no cartão", not a debt (the create-side
+    // UI already passes only liquidAccounts, this guards any other/future caller — same
+    // never-trust-the-client stance as payFixedExpense reading the account type server-side).
+    const { data: linkedAccount, error: linkedAccountError } = await supabase
+      .from("accounts")
+      .select("type")
+      .eq("id", input.linkedAccountId)
+      .single();
+    if (linkedAccountError) throw new Error(linkedAccountError.message);
+    if (linkedAccount.type === "CREDIT_CARD") {
+      throw new Error("Um pagamento de dívida sai de uma conta em dinheiro ou banco — se a dívida é no cartão, registre-a como compra no cartão.");
+    }
+
     // A payment (negative amount) reducing a PAYABLE debt: money leaves the account (EXPENSE).
     // A payment reducing a RECEIVABLE debt: money enters the account (INCOME).
     // An increase (positive amount) on a RECEIVABLE (lending more): money leaves (EXPENSE).

@@ -9,19 +9,21 @@ import { Badge } from "@/components/ui/badge";
 import { InvoicePaidBadge } from "@/components/ui/invoice-paid-badge";
 import { BalanceAdjustDialog } from "./balance-adjust-dialog";
 import { LimitAdjustDialog } from "./limit-adjust-dialog";
+import { InterestDialog } from "./interest-dialog";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatMonthLabel } from "@/lib/utils/date";
 import { toPercentage } from "@/lib/utils/number";
 import { deactivateAccountAction } from "../actions";
-import { MoreVertical, ArrowLeftRight, CreditCard as CreditCardIcon } from "lucide-react";
+import { MoreVertical, ArrowLeftRight, CreditCard as CreditCardIcon, TriangleAlert } from "lucide-react";
 import { AccountTypeIcon, ACCOUNT_TYPE_LABEL } from "@/components/ui/account-type-icon";
-import type { AccountDTO, CardSummaryDTO } from "@/types/dto";
+import type { AccountDTO, CardSummaryDTO, FinancialInstitutionDTO } from "@/types/dto";
 
 // Same figure, same "usado/total" framing as the Cards page (getCardSummary#totalCommitted vs.
 // creditLimit) — a credit card's "balance" here must never diverge from what /cards shows.
-export function AccountCard({ account, cardSummary, cardSummaryMonth }: { account: AccountDTO; cardSummary?: CardSummaryDTO; cardSummaryMonth?: string }) {
+export function AccountCard({ account, institutions, cardSummary, cardSummaryMonth }: { account: AccountDTO; institutions: FinancialInstitutionDTO[]; cardSummary?: CardSummaryDTO; cardSummaryMonth?: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const inconsistency = getInconsistency(account, cardSummary);
 
   return (
     <Card elevation="sm">
@@ -29,6 +31,11 @@ export function AccountCard({ account, cardSummary, cardSummaryMonth }: { accoun
         <CardKicker className="flex items-center gap-1">
           <AccountTypeIcon type={account.type} className="size-3" />
           {ACCOUNT_TYPE_LABEL[account.type]}
+          {inconsistency && (
+            <span title={inconsistency} aria-label={inconsistency} className="text-danger-600">
+              <TriangleAlert className="size-3.5" strokeWidth={1.5} />
+            </span>
+          )}
         </CardKicker>
         <div className="flex items-center gap-2">
           <Link
@@ -53,19 +60,21 @@ export function AccountCard({ account, cardSummary, cardSummaryMonth }: { accoun
               {account.type === "BANK" && (
                 <BalanceAdjustDialog account={account} mode="yield" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Informar Rendimento</DropdownMenuItem>} />
               )}
+              {account.type === "BANK" && (
+                <InterestDialog account={account} trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Lançar Juros</DropdownMenuItem>} />
+              )}
               {account.type !== "CREDIT_CARD" && (
                 <BalanceAdjustDialog account={account} mode="reconcile" trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Ajustar Saldo</DropdownMenuItem>} />
               )}
-              {(account.type === "BANK" || account.type === "CREDIT_CARD") && (
-                <LimitAdjustDialog
-                  account={account}
-                  trigger={
-                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                      {account.type === "CREDIT_CARD" ? "Ajustar Cartão" : "Ajustar Limite"}
-                    </DropdownMenuItem>
-                  }
-                />
-              )}
+              <LimitAdjustDialog
+                account={account}
+                institutions={institutions}
+                trigger={
+                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                    {account.type === "CREDIT_CARD" ? "Editar Cartão" : "Editar Conta"}
+                  </DropdownMenuItem>
+                }
+              />
               <DropdownMenuItem
                 disabled={pending}
                 onSelect={() => startTransition(async () => {
@@ -111,6 +120,11 @@ export function AccountCard({ account, cardSummary, cardSummaryMonth }: { accoun
                 <span>Fatura aberta ({formatMonthLabel(cardSummary.openInvoiceMonth)}): <strong className="tabular-nums">{formatCurrency(cardSummary.openInvoiceAmount)}</strong></span>
               </div>
             )}
+            {cardSummary.creditBalance > 0 && (
+              <div className="flex flex-wrap items-center gap-2 text-success-600">
+                <span>Saldo a favor: <strong className="tabular-nums">{formatCurrency(cardSummary.creditBalance)}</strong></span>
+              </div>
+            )}
           </div>
         </>
       ) : (
@@ -133,4 +147,33 @@ export function AccountCard({ account, cardSummary, cardSummaryMonth }: { accoun
 
 function usagePercent(summary: CardSummaryDTO): number | null {
   return summary.creditLimit ? toPercentage(summary.totalCommitted, summary.creditLimit) : null;
+}
+
+/**
+ * A single "this account's numbers don't add up" flag, surfaced as a red icon-only warning on the
+ * card. Deliberately not aggregation (just a comparison of figures the DTO already carries, like
+ * the existing `balance < 0` / `usagePercent >= 90` checks in this file) — the three cases the
+ * user asked for:
+ *  - CASH with a negative balance (physical cash can't go below zero).
+ *  - BANK negative beyond its overdraft limit (cheque especial).
+ *  - CREDIT_CARD committed above its informed limit (usually a bill payment not yet logged).
+ */
+function getInconsistency(account: AccountDTO, cardSummary?: CardSummaryDTO): string | null {
+  if (account.type === "CASH" && account.balance < 0) {
+    return `Conta em dinheiro com saldo negativo (${formatCurrency(account.balance)}) — dinheiro em espécie não fica negativo. Revise os lançamentos.`;
+  }
+  if (account.type === "BANK") {
+    const overdraft = account.overdraftLimit ?? 0;
+    if (account.balance < -overdraft) {
+      return `Saldo negativo (${formatCurrency(account.balance)}) além do limite de cheque especial (${formatCurrency(overdraft)}). Revise os lançamentos ou o limite.`;
+    }
+  }
+  if (
+    account.type === "CREDIT_CARD" &&
+    cardSummary?.creditLimit != null &&
+    cardSummary.totalCommitted > cardSummary.creditLimit
+  ) {
+    return `Uso do cartão (${formatCurrency(cardSummary.totalCommitted)}) acima do limite informado (${formatCurrency(cardSummary.creditLimit)}). Pode faltar registrar um pagamento de fatura.`;
+  }
+  return null;
 }

@@ -1,29 +1,25 @@
-import { resolvePeriodPreset, todayIso, type DashboardPeriodPreset } from "@/lib/utils/date";
+import { startOfMonth, endOfMonth, todayIso } from "@/lib/utils/date";
 import type { DashboardFilters } from "@/types/dto";
 
+/**
+ * The dashboard is single-month only (2026-08-28 — the period presets / custom range were
+ * removed; the user found them heavy for this screen and wants a dedicated reports tab later).
+ * `month` ("YYYY-MM") is the only period control now; everything else is category/account/type.
+ */
 export type DashboardSearchParams = {
-  period?: string;
   month?: string;
-  periodStart?: string;
-  periodEnd?: string;
   accounts?: string;
   categories?: string;
   subcategories?: string;
   type?: string;
-  /** Local to the expense donut+comparison pair only — see DashboardFilters.source. Not read by parseDashboardFilters. */
+  /** Local to the expense donut only — see DashboardFilters.source. Not read by parseDashboardFilters. */
   expenseSource?: string;
 };
 
-const VALID_PRESETS: DashboardPeriodPreset[] = ["month", "last3", "last6", "last12", "year", "custom"];
-
-export function parseDashboardFilters(searchParams: DashboardSearchParams): DashboardFilters & { preset: DashboardPeriodPreset } {
-  const preset = (VALID_PRESETS.includes(searchParams.period as DashboardPeriodPreset) ? searchParams.period : "month") as DashboardPeriodPreset;
+export function parseDashboardFilters(searchParams: DashboardSearchParams): DashboardFilters {
   const reference = searchParams.month ? `${searchParams.month}-01` : todayIso();
-
-  const { periodStart, periodEnd } =
-    preset === "custom" && searchParams.periodStart && searchParams.periodEnd
-      ? { periodStart: searchParams.periodStart, periodEnd: searchParams.periodEnd }
-      : resolvePeriodPreset(preset, reference);
+  const periodStart = startOfMonth(reference);
+  const periodEnd = endOfMonth(reference);
 
   // "uncategorized" is a UI-only sentinel (clicking the null-category slice of a chart) — never
   // a real category id, so it must never reach a `.in("category_id", [...])` filter as a string.
@@ -32,7 +28,6 @@ export function parseDashboardFilters(searchParams: DashboardSearchParams): Dash
   const realCategoryIds = categoryTokens.filter((id) => id !== "uncategorized");
 
   return {
-    preset,
     periodStart,
     periodEnd,
     accounts: searchParams.accounts ? searchParams.accounts.split(",").filter(Boolean) : undefined,

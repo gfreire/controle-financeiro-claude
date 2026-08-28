@@ -452,6 +452,8 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
     { data: billedBeforeViewedRows, error: billedBeforeError },
     { data: paymentRows, error: paymentsError },
     openInstallmentsResult,
+    { data: refundRows, error: refundsError },
+    { data: allInstallmentRows, error: allInstallmentsError },
   ] = await Promise.all([
     getCardBalanceThroughMonth(creditCardId, todayMonth),
     getCardTotalCommitted(creditCardId),
@@ -464,12 +466,16 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
     viewingOpenMonth
       ? Promise.resolve(null)
       : supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).gte("competence", openStart).lte("competence", openEnd),
+    supabase.from("card_refunds").select("amount, refund_date").eq("credit_card_id", creditCardId),
+    supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).eq("paid_before_system", false),
   ]);
   if (viewedError) throw new Error(viewedError.message);
   if (todayInstallmentsResult?.error) throw new Error(todayInstallmentsResult.error.message);
   if (billedBeforeError) throw new Error(billedBeforeError.message);
   if (paymentsError) throw new Error(paymentsError.message);
   if (openInstallmentsResult?.error) throw new Error(openInstallmentsResult.error.message);
+  if (refundsError) throw new Error(refundsError.message);
+  if (allInstallmentsError) throw new Error(allInstallmentsError.message);
 
   const currentMonthInvoice = sumMoney((viewedInstallments ?? []).map((i) => i.amount));
   const todayInvoice = viewingCurrentMonth ? currentMonthInvoice : sumMoney((todayInstallmentsResult?.data ?? []).map((i) => i.amount));
@@ -483,11 +489,29 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
     billedNotBeforeSystemBeforeViewedMonth
   );
   const totalPayments = sumMoney((paymentRows ?? []).map((p) => p.amount));
+  // A `card_refunds` credit behaves like a payment for allocation: it pays down the oldest unpaid
+  // competence first (AI_CONTEXT.md "Estorno") and any surplus carries forward to later invoices.
+  // Only refunds credited on or before the viewed month's end count — a refund logged later never
+  // retroactively settles an earlier month, same convention as getCardBalanceThroughMonth.
+  const refundsThroughViewedMonth = sumMoney(
+    (refundRows ?? []).filter((r) => r.refund_date <= viewedEnd).map((r) => r.amount)
+  );
+  const allRefunds = sumMoney((refundRows ?? []).map((r) => r.amount));
+  const creditPoolThroughViewedMonth = addMoney(totalPayments, refundsThroughViewedMonth);
   const monthPaidViaPayments = subtractMoney(
-    Math.min(billedNotBeforeSystemThroughViewedMonth, totalPayments),
-    Math.min(billedNotBeforeSystemBeforeViewedMonth, totalPayments)
+    Math.min(billedNotBeforeSystemThroughViewedMonth, creditPoolThroughViewedMonth),
+    Math.min(billedNotBeforeSystemBeforeViewedMonth, creditPoolThroughViewedMonth)
   );
   const currentMonthPaidAmount = sumMoney([monthPaidBeforeSystemAmount, monthPaidViaPayments]);
+
+  // Surplus credit — payments + refunds beyond everything ever billed (excl. paid_before_system).
+  // Shown as "saldo a favor"; consumed automatically by future invoices via the allocation above.
+  // Never withdrawable, never touches account balances — it's card-only credit.
+  const allInstallmentsNotBeforeSystem = sumMoney((allInstallmentRows ?? []).map((i) => i.amount));
+  const creditBalance = Math.max(
+    0,
+    subtractMoney(addMoney(totalPayments, allRefunds), allInstallmentsNotBeforeSystem)
+  );
 
   return {
     accountId: creditCardId,
@@ -497,6 +521,7 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
     currentMonthPaidAmount,
     overdueAmount,
     totalCommitted,
+    creditBalance,
     openInvoiceMonth,
     openInvoiceAmount,
   };
@@ -734,20 +759,27 @@ export async function getCardMonthlyEvolution(
   const paidByMonth = new Map<string, number>();
   const unpaidByMonth = new Map<string, number>();
   if (!categoryIds?.length) {
-    const [{ data: allInst, error: allInstError }, { data: allPay, error: allPayError }] = await Promise.all([
+    const [{ data: allInst, error: allInstError }, { data: allPay, error: allPayError }, { data: allRefunds, error: allRefundsError }] = await Promise.all([
       supabase
         .from("card_installments")
         .select("amount, competence, paid_before_system, credit_card_id")
         .in("credit_card_id", cardIds)
         .lte("competence", periodEnd),
       supabase.from("card_payments").select("amount, credit_card_id").in("credit_card_id", cardIds),
+      supabase.from("card_refunds").select("amount, credit_card_id, refund_date").in("credit_card_id", cardIds).lte("refund_date", periodEnd),
     ]);
     if (allInstError) throw new Error(allInstError.message);
     if (allPayError) throw new Error(allPayError.message);
+    if (allRefundsError) throw new Error(allRefundsError.message);
 
     for (const cardId of cardIds) {
       const cardInst = (allInst ?? []).filter((i) => i.credit_card_id === cardId);
-      const totalPayments = sumMoney((allPay ?? []).filter((p) => p.credit_card_id === cardId).map((p) => p.amount));
+      // A refund credits the card like a payment (AI_CONTEXT.md "Estorno") — folded into the same
+      // oldest-first pool so an estornado invoice shows as covered (green), not still owed.
+      const totalPayments = sumMoney([
+        ...(allPay ?? []).filter((p) => p.credit_card_id === cardId).map((p) => p.amount),
+        ...(allRefunds ?? []).filter((r) => r.credit_card_id === cardId).map((r) => r.amount),
+      ]);
       for (const month of months) {
         const monthStart = startOfMonth(`${month}-01`);
         const inMonth = cardInst.filter((i) => monthKey(i.competence) === month);

@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { addMoney, subtractMoney, sumMoney } from "@/lib/utils/money";
+import { todayIso } from "@/lib/utils/date";
+import { createCardPurchase } from "./cards.service";
 import type { AccountDTO, FinancialInstitutionDTO } from "@/types/dto";
 import type { AccountInput } from "@/lib/validations/accounts";
 
@@ -188,7 +190,7 @@ export async function deleteAccount(id: string): Promise<void> {
 
 async function findOrCreateSystemCategory(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  name: "Rendimentos" | "Ajuste",
+  name: "Rendimentos" | "Ajuste" | "Juros",
   type: "INCOME" | "EXPENSE"
 ): Promise<string> {
   const { data, error } = await supabase
@@ -252,4 +254,50 @@ export async function reconcileAccountBalance(accountId: string, realBalance: nu
     description: `Ajustar Saldo — ${account?.name ?? ""}`.trim(),
   });
   if (error) throw new Error(error.message);
+}
+
+/**
+ * "Lançar Juros" — a dedicated action for logging interest, tagged with the `is_system` `Juros`
+ * (EXPENSE) category (AI_CONTEXT.md "Juros"). Unlike `registerYield`/`reconcileAccountBalance` it
+ * takes an explicit amount, not a delta against a stated balance. The account's own `type` — read
+ * from the DB, never the client — decides how it's recorded, mirroring `payFixedExpense`:
+ * - CASH/BANK → a plain EXPENSE `transactions` row against the account (e.g. overdraft interest);
+ * - CREDIT_CARD → a 1x `card_purchases` row (the invoice's interest line), so it flows through the
+ *   normal card_purchases → card_installments pipeline with competence derived from closing/due day.
+ * `Juros` is never pickable from a category dropdown — this is the only way to apply it.
+ */
+export async function registerInterest(input: { accountId: string; amount: number; date?: string }): Promise<void> {
+  const supabase = await createClient();
+  const user = await getUser();
+  if (input.amount <= 0) return;
+
+  const { data: account, error } = await supabase.from("accounts").select("name, type").eq("id", input.accountId).single();
+  if (error) throw new Error(error.message);
+
+  const date = input.date ?? todayIso();
+  const description = `Lançamento de juros — ${account.name ?? ""}`.trim();
+  const categoryId = await findOrCreateSystemCategory(supabase, "Juros", "EXPENSE");
+
+  if (account.type === "CREDIT_CARD") {
+    await createCardPurchase({
+      creditCardId: input.accountId,
+      amount: input.amount,
+      purchaseDate: date,
+      description,
+      categoryId,
+      installments: 1,
+    });
+    return;
+  }
+
+  const { error: txError } = await supabase.from("transactions").insert({
+    user_id: user.id,
+    type: "EXPENSE",
+    origin_account_id: input.accountId,
+    amount: input.amount,
+    date,
+    category_id: categoryId,
+    description,
+  });
+  if (txError) throw new Error(txError.message);
 }

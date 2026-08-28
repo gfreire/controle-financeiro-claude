@@ -349,19 +349,23 @@ export async function linkExistingTransaction(fixedExpenseId: string, id: string
  * Rolls back this month's payment for a fixed expense — the counterpart to payFixedExpense,
  * for when a payment was registered by mistake (wrong test data, wrong account, etc.) and the
  * fixed expense needs to go back to "not paid" rather than staying wrongly marked as settled.
- * Deletes whatever real record(s) made getFixedExpenses() compute isPaidThisMonth = true for
- * that month: linked `transactions` rows (CASH/BANK payments) and linked `card_purchases` rows
- * whose installment competence falls in the month (CREDIT_CARD payments) — card_installments
- * cascade-delete with their purchase (schema.sql), so no separate cleanup is needed there.
+ * Deletes whatever real record(s) `payFixedExpense` created for that month: linked `transactions`
+ * rows (CASH/BANK payments) dated in the month, and linked `card_purchases` rows (CREDIT_CARD
+ * payments) whose `purchase_date` — the payment date, NOT the installment competence — falls in
+ * the month. Matching by competence was a bug: when the card's invoice had already closed, the 1x
+ * installment bills to the *next* month, so `cancelFixedExpensePayment(id, currentMonth)` found
+ * nothing and left the purchase alive. `card_installments` cascade-delete with their purchase.
  */
 export async function cancelFixedExpensePayment(fixedExpenseId: string, month: string): Promise<void> {
   const supabase = await createClient();
+  const user = await getUser();
   const monthStart = startOfMonth(month);
   const monthEnd = endOfMonth(month);
 
   const { data: linkedTx, error: txError } = await supabase
     .from("transactions")
     .select("id")
+    .eq("user_id", user.id)
     .eq("fixed_expense_id", fixedExpenseId)
     .gte("date", monthStart)
     .lte("date", monthEnd);
@@ -374,22 +378,15 @@ export async function cancelFixedExpensePayment(fixedExpenseId: string, month: s
   const { data: cardPurchases, error: cpError } = await supabase
     .from("card_purchases")
     .select("id")
-    .eq("fixed_expense_id", fixedExpenseId);
+    .eq("user_id", user.id)
+    .eq("fixed_expense_id", fixedExpenseId)
+    .gte("purchase_date", monthStart)
+    .lte("purchase_date", monthEnd);
   if (cpError) throw new Error(cpError.message);
   const purchaseIds = (cardPurchases ?? []).map((p) => p.id);
   if (purchaseIds.length) {
-    const { data: installments, error: instError } = await supabase
-      .from("card_installments")
-      .select("purchase_id")
-      .in("purchase_id", purchaseIds)
-      .gte("competence", monthStart)
-      .lte("competence", monthEnd);
-    if (instError) throw new Error(instError.message);
-    const matchedPurchaseIds = [...new Set((installments ?? []).map((i) => i.purchase_id))];
-    if (matchedPurchaseIds.length) {
-      const { error } = await supabase.from("card_purchases").delete().in("id", matchedPurchaseIds);
-      if (error) throw new Error(error.message);
-    }
+    const { error } = await supabase.from("card_purchases").delete().in("id", purchaseIds);
+    if (error) throw new Error(error.message);
   }
 }
 
