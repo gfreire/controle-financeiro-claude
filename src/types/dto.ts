@@ -31,9 +31,9 @@ export type FinancialSummaryDTO = {
   income: number;
   expense: number;
   result: number;
-  adjustmentShare: number; // % of period total sitting under "Ajuste" — bookkeeping-looseness signal
-  retroactiveIncomeShare: number; // % of period total from paid-before-system installments — distinct signal from adjustmentShare, see AI_CONTEXT.md "Compras retroativas"
-  refundShare: number; // % of period total (either direction) sitting under "Estorno" — distinct signal, see AI_CONTEXT.md "Estorno"
+  adjustmentAmount: number; // R$ under "Ajuste" in the period — bookkeeping-looseness signal, shown as a badge next to Balanço Mensal (was a % share until 2026-08-28; percentages read poorly on the card)
+  retroactiveIncomeAmount: number; // R$ from paid-before-system installments in the period — computed, no UI consumer since 2026-08-28 (badge removed), see AI_CONTEXT.md "Compras retroativas"
+  refundAmount: number; // R$ flowing through "Estorno" in the period (both directions, so ~2× a single refund) — computed, no UI consumer since 2026-08-28 (badge removed), see AI_CONTEXT.md "Estorno"
 };
 
 export type MonthlyEvolutionDTO = { month: string; income: number; expense: number };

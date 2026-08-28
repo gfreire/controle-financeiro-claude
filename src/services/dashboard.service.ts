@@ -268,19 +268,16 @@ export async function getFinancialSummary(filters: DashboardFilters): Promise<Fi
   const retroactiveIncomeTotal = sumMoney(
     entries.filter((e) => e.categoryName === "Compras retroativas").map((e) => e.amount)
   );
-  const periodTotal = sumMoney([income, expense]);
-  const adjustmentShare = periodTotal === 0 ? 0 : Math.round((adjustmentTotal / periodTotal) * 1000) / 10;
-  const retroactiveIncomeShare = periodTotal === 0 ? 0 : Math.round((retroactiveIncomeTotal / periodTotal) * 1000) / 10;
-  const refundShare = periodTotal === 0 ? 0 : Math.round((refundTotal / periodTotal) * 1000) / 10;
-
   return {
     balance,
     income,
     expense,
     result: subtractMoney(income, expense),
-    adjustmentShare,
-    retroactiveIncomeShare,
-    refundShare,
+    // Absolute R$ values, not % shares — the dashboard badges show currency now (2026-08-28),
+    // percentages were hard to parse at a glance.
+    adjustmentAmount: adjustmentTotal,
+    retroactiveIncomeAmount: retroactiveIncomeTotal,
+    refundAmount: refundTotal,
   };
 }
 
