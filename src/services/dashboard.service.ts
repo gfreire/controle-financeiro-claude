@@ -9,7 +9,6 @@ import type {
   FinancialSummaryDTO,
   MonthlyEvolutionDTO,
   CategoryDistributionDTO,
-  CategoryComparisonDTO,
   TransactionViewDTO,
 } from "@/types/dto";
 import type { AccountType } from "@/types/database";
@@ -326,11 +325,6 @@ export async function getCategoryDistribution(filters: DashboardFilters): Promis
   return [...byCategory.values()]
     .map((bucket) => ({ categoryId: bucket.categoryId, categoryName: bucket.categoryName, total: sumMoney(bucket.amounts), color: bucket.color, icon: bucket.icon }))
     .sort((a, b) => b.total - a.total);
-}
-
-export async function getCategoryComparison(filters: DashboardFilters): Promise<CategoryComparisonDTO[]> {
-  const distribution = await getCategoryDistribution(filters);
-  return distribution.map((d) => ({ categoryId: d.categoryId, categoryName: d.categoryName, total: d.total, color: d.color }));
 }
 
 export async function getTransactionsFiltered(filters: DashboardFilters): Promise<TransactionViewDTO[]> {

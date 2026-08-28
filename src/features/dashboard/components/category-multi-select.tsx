@@ -7,8 +7,8 @@ import { useCategoryFilter } from "@/features/dashboard/use-category-filter";
 /**
  * Additive/multi-select category filter: check one to isolate it, check a second to add it to
  * the selection (every chart/table on the dashboard sums both), uncheck to drop it. Shares
- * useCategoryFilter with the click-to-toggle affordance on CategoryPie/CategoryBars so all three
- * entry points stay in sync on the same `categories` search param.
+ * useCategoryFilter with the click-to-toggle affordance on CategoryPie so both entry points stay
+ * in sync on the same `categories` search param.
  */
 export function CategoryMultiSelect({ categories }: { categories: CategoryDTO[] }) {
   const { activeIds, toggle, clear } = useCategoryFilter();

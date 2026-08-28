@@ -46,8 +46,6 @@ export type CategoryDistributionDTO = {
   icon: string | null;
 };
 
-export type CategoryComparisonDTO = { categoryId: string; categoryName: string; total: number; color: string };
-
 export type TransactionViewDTO = {
   id: string;
   date: string;

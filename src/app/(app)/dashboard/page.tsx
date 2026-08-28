@@ -4,7 +4,6 @@ import {
   getFinancialSummary,
   getMonthlyEvolution,
   getCategoryDistribution,
-  getCategoryComparison,
   getTransactionsFiltered,
 } from "@/services/dashboard.service";
 import { getAccounts } from "@/services/accounts.service";
@@ -19,7 +18,6 @@ import { DashboardFilters } from "@/features/dashboard/components/dashboard-filt
 import { SummaryCards } from "@/features/dashboard/components/summary-cards";
 import { MonthlyChart } from "@/features/dashboard/components/monthly-chart";
 import { CategoryPie } from "@/features/dashboard/components/category-pie";
-import { CategoryBars } from "@/features/dashboard/components/category-bars";
 import { ExpenseSourceToggle } from "@/features/dashboard/components/expense-source-toggle";
 import { BudgetsPanel } from "@/features/dashboard/components/budgets-panel";
 import { UpcomingDueAlert } from "@/features/dashboard/components/upcoming-due-alert";
@@ -61,9 +59,7 @@ export default async function DashboardPage({
     summary,
     monthlyEvolution,
     expenseDistribution,
-    expenseComparison,
     incomeDistribution,
-    incomeComparison,
     transactions,
     accounts,
     categories,
@@ -73,9 +69,7 @@ export default async function DashboardPage({
     getFinancialSummary(filters),
     getMonthlyEvolution(monthlyEvolutionFilters),
     getCategoryDistribution(expenseFilters),
-    getCategoryComparison(expenseFilters),
     getCategoryDistribution(incomeFilters),
-    getCategoryComparison(incomeFilters),
     getTransactionsFiltered(filters),
     getAccounts(),
     getCategories(),
@@ -120,22 +114,18 @@ export default async function DashboardPage({
 
       <MonthlyChart data={monthlyEvolution} />
 
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-heading text-lg font-semibold">Despesas por categoria</h2>
-          <ExpenseSourceToggle />
-        </div>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-heading text-lg font-semibold">Despesas por categoria</h2>
+            <ExpenseSourceToggle />
+          </div>
           <CategoryPie data={expenseDistribution} title="Distribuição de despesas" />
-          <CategoryBars data={expenseComparison} title="Comparativo de despesas" />
         </div>
-      </div>
 
-      <div className="flex flex-col gap-2">
-        <h2 className="font-heading text-lg font-semibold">Receitas por categoria</h2>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <h2 className="font-heading text-lg font-semibold">Receitas por categoria</h2>
           <CategoryPie data={incomeDistribution} title="Distribuição de receitas" />
-          <CategoryBars data={incomeComparison} title="Comparativo de receitas" />
         </div>
       </div>
 

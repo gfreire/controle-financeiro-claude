@@ -9,8 +9,8 @@ import { useNavigationProgress } from "@/components/providers/navigation-progres
  * removes it. Backed by the same comma-joined `categories` search param `parseDashboardFilters`
  * (features/dashboard/filters.ts) already parses into a string[] — including the "uncategorized"
  * sentinel token, which this hook treats like any other id. Shared by the category filter in
- * dashboard-filters.tsx and the click-to-toggle affordance on category-pie/category-bars, so the
- * two stay in sync instead of each keeping its own idea of "selected".
+ * dashboard-filters.tsx and the click-to-toggle affordance on category-pie, so the two stay in
+ * sync instead of each keeping its own idea of "selected".
  */
 export function useCategoryFilter() {
   const { navigate } = useNavigationProgress();
