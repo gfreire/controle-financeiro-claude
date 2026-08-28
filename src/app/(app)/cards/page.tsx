@@ -1,11 +1,11 @@
 import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
-import { getCardInstallments, getCardMonthlyEvolution, getCardPurchases, getCardSummary, getCardTotalCommitted } from "@/services/cards.service";
+import { getCardInstallments, getCardMonthlyEvolution, getCardPurchases, getCardSummary, getCardTotalCommitted, getDefaultCardsMonth } from "@/services/cards.service";
 import { Card, CardKicker, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { InvoicePaidBadge } from "@/components/ui/invoice-paid-badge";
 import { formatCurrency } from "@/lib/utils/currency";
-import { startOfMonth, endOfMonth, monthKey, todayIso, formatMonthLabel, formatDate } from "@/lib/utils/date";
+import { startOfMonth, endOfMonth, formatMonthLabel, formatDate } from "@/lib/utils/date";
 import { toPercentage } from "@/lib/utils/number";
 import { PurchaseFormDialog } from "@/features/cards/components/purchase-form-dialog";
 import { PaymentFormDialog } from "@/features/cards/components/payment-form-dialog";
@@ -29,10 +29,13 @@ export default async function CardsPage({
   searchParams: Promise<{ month?: string; cardId?: string; categoryId?: string; subcategoryId?: string; q?: string; evoCategories?: string }>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const month = resolvedSearchParams.month ?? monthKey(todayIso());
   const { cardId, categoryId, subcategoryId, q, evoCategories } = resolvedSearchParams;
 
-  const [accounts, categories] = await Promise.all([getAccounts(), getCategories()]);
+  const [month, accounts, categories] = await Promise.all([
+    resolvedSearchParams.month ? Promise.resolve(resolvedSearchParams.month) : getDefaultCardsMonth(),
+    getAccounts(),
+    getCategories(),
+  ]);
   const allCards = accounts.filter((a) => a.type === "CREDIT_CARD");
   const cards = cardId ? allCards.filter((c) => c.id === cardId) : allCards;
   const payerAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
@@ -71,7 +74,7 @@ export default async function CardsPage({
           </HelpButton>
         </div>
         <div className="flex items-center gap-2">
-          <MonthNav />
+          <MonthNav month={month} />
           <PurchaseFormDialog cards={allCards} cardTotals={cardTotals} categories={categories} />
         </div>
       </div>

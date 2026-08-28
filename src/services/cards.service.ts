@@ -621,6 +621,49 @@ export async function advancePurchaseInstallments(purchaseId: string, count: num
 }
 
 /**
+ * Default month the Cards page lands on when the user hasn't picked one via MonthNav (no `?month=`
+ * in the URL). Practicality tweak (2026-08-28, at the user's request): if there's nothing left to
+ * pay on any card right now, jump straight to next month so the user doesn't have to click forward
+ * every time everything's settled — but only when next month actually has installments to look at;
+ * with nothing billed next month, stay on the current month.
+ *
+ * "Nothing left to pay" is `getCardBalanceThroughMonth(card, todayMonth) === 0` for every card —
+ * the same "how much do I owe right now" figure "Pagar fatura" suggests. It already nets out
+ * payments AND refunds and rolls in any overdue balance from earlier months, so a fully-refunded
+ * or fully-paid invoice counts as settled while a partial payment or an old unpaid invoice keeps
+ * the page on the current month.
+ */
+export async function getDefaultCardsMonth(): Promise<string> {
+  const supabase = await createClient();
+  const todayMonth = monthKey(todayIso());
+  const nextMonth = monthKey(addMonthsToIsoDate(`${todayMonth}-01`, 1));
+
+  const { data: cardRows, error } = await supabase.from("credit_cards").select("account_id");
+  if (error) throw new Error(error.message);
+  const cardIds = (cardRows ?? []).map((c) => c.account_id);
+  if (cardIds.length === 0) return todayMonth;
+
+  const nextStart = startOfMonth(`${nextMonth}-01`);
+  const nextEnd = endOfMonth(`${nextMonth}-01`);
+
+  const [balances, { data: nextInstallments, error: nextError }] = await Promise.all([
+    Promise.all(cardIds.map((id) => getCardBalanceThroughMonth(id, todayMonth))),
+    supabase
+      .from("card_installments")
+      .select("amount")
+      .in("credit_card_id", cardIds)
+      .gte("competence", nextStart)
+      .lte("competence", nextEnd),
+  ]);
+  if (nextError) throw new Error(nextError.message);
+
+  const allSettled = balances.every((b) => b === 0);
+  const nextMonthTotal = sumMoney((nextInstallments ?? []).map((i) => i.amount));
+
+  return allSettled && nextMonthTotal > 0 ? nextMonth : todayMonth;
+}
+
+/**
  * Card spend evolution: 6 months before through 6 months after `referenceMonth` (the Cards page's
  * viewed month), by installment competence (never purchase_date — same rule as every other credit
  * card analytic). `cardIds` scopes which cards are summed together (the Cards page passes either
@@ -631,6 +674,12 @@ export async function advancePurchaseInstallments(purchaseId: string, count: num
  * `total` is the historical billed total per month — deliberately does NOT exclude
  * paid_before_system installments, mirroring CardSummaryDTO.currentMonthInvoice's reasoning: a
  * later retroactive log doesn't change what was actually billed that month.
+ *
+ * `paid`/`unpaid` split that same `total` into "already covered" vs "still owed", using the exact
+ * oldest-competence-first payment allocation as CardSummaryDTO.currentMonthPaidAmount, run
+ * per-card (card_payments are per-card, never per-category) then summed. Only computed when no
+ * category filter is active — a payment can't be attributed to a category — so with `categoryIds`
+ * passed both come back 0 and the chart stacks `byCategory` instead of the green/red split.
  */
 export async function getCardMonthlyEvolution(
   cardIds: string[],
@@ -648,7 +697,7 @@ export async function getCardMonthlyEvolution(
     months.push(cursor);
     cursor = monthKey(addMonthsToIsoDate(`${cursor}-01`, 1));
   }
-  const emptyResult = () => months.map((month) => ({ month: formatMonthLabel(month, true), total: 0, byCategory: [] }));
+  const emptyResult = () => months.map((month) => ({ month: formatMonthLabel(month, true), total: 0, paid: 0, unpaid: 0, byCategory: [] }));
 
   if (cardIds.length === 0) return emptyResult();
 
@@ -680,6 +729,48 @@ export async function getCardMonthlyEvolution(
   if (installmentError) throw new Error(installmentError.message);
   const installments = installmentsData ?? [];
 
+  // paid/unpaid split — only when no category filter (payments aren't per-category). Runs the
+  // same oldest-competence-first allocation as getCardSummary.currentMonthPaidAmount, per card.
+  const paidByMonth = new Map<string, number>();
+  const unpaidByMonth = new Map<string, number>();
+  if (!categoryIds?.length) {
+    const [{ data: allInst, error: allInstError }, { data: allPay, error: allPayError }] = await Promise.all([
+      supabase
+        .from("card_installments")
+        .select("amount, competence, paid_before_system, credit_card_id")
+        .in("credit_card_id", cardIds)
+        .lte("competence", periodEnd),
+      supabase.from("card_payments").select("amount, credit_card_id").in("credit_card_id", cardIds),
+    ]);
+    if (allInstError) throw new Error(allInstError.message);
+    if (allPayError) throw new Error(allPayError.message);
+
+    for (const cardId of cardIds) {
+      const cardInst = (allInst ?? []).filter((i) => i.credit_card_id === cardId);
+      const totalPayments = sumMoney((allPay ?? []).filter((p) => p.credit_card_id === cardId).map((p) => p.amount));
+      for (const month of months) {
+        const monthStart = startOfMonth(`${month}-01`);
+        const inMonth = cardInst.filter((i) => monthKey(i.competence) === month);
+        const totalInMonth = sumMoney(inMonth.map((i) => i.amount));
+        if (totalInMonth === 0) continue;
+        const pbsInMonth = sumMoney(inMonth.filter((i) => i.paid_before_system).map((i) => i.amount));
+        const notBeforeThrough = sumMoney(
+          cardInst.filter((i) => !i.paid_before_system && monthKey(i.competence) <= month).map((i) => i.amount)
+        );
+        const notBeforeBefore = sumMoney(
+          cardInst.filter((i) => !i.paid_before_system && i.competence < monthStart).map((i) => i.amount)
+        );
+        const paidViaPayments = subtractMoney(
+          Math.min(notBeforeThrough, totalPayments),
+          Math.min(notBeforeBefore, totalPayments)
+        );
+        const paidInMonth = Math.min(totalInMonth, addMoney(pbsInMonth, paidViaPayments));
+        paidByMonth.set(month, addMoney(paidByMonth.get(month) ?? 0, paidInMonth));
+        unpaidByMonth.set(month, addMoney(unpaidByMonth.get(month) ?? 0, subtractMoney(totalInMonth, paidInMonth)));
+      }
+    }
+  }
+
   return months.map((month) => {
     const rows = installments.filter((row) => monthKey(row.competence) === month);
 
@@ -700,6 +791,8 @@ export async function getCardMonthlyEvolution(
     return {
       month: formatMonthLabel(month, true),
       total: sumMoney(rows.map((row) => row.amount)),
+      paid: paidByMonth.get(month) ?? 0,
+      unpaid: unpaidByMonth.get(month) ?? 0,
       byCategory: [...byCategoryMap.values()].map((b) => ({
         categoryId: b.categoryId,
         categoryName: b.categoryName,

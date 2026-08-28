@@ -2,7 +2,6 @@
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatCurrency } from "@/lib/utils/currency";
-import { toPercentage } from "@/lib/utils/number";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 
 export type DonutEntry = { id: string; name: string; value: number; color: string };
@@ -48,7 +47,7 @@ export function DonutWithTotal({
           <li key={entry.id} className="flex items-center gap-1.5">
             <span className="size-2.5 shrink-0" style={{ background: entry.color }} />
             <span className="flex-1 truncate">{entry.name}</span>
-            <span className="opacity-60">{toPercentage(entry.value, total)}%</span>
+            <span className="opacity-60 tabular-nums">{formatCurrency(entry.value)}</span>
           </li>
         ))}
       </ul>

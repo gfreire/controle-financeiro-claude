@@ -24,7 +24,7 @@ export function CardEvolutionChart({ data, categories }: { data: CardMonthlyEvol
   const { chartData, categoryMeta } = useMemo(() => {
     const meta = new Map<string, { name: string; color: string }>();
     const rows = data.map((row) => {
-      const entry: Record<string, string | number> = { month: row.month, total: row.total };
+      const entry: Record<string, string | number> = { month: row.month, total: row.total, paid: row.paid, unpaid: row.unpaid };
       for (const c of row.byCategory) {
         entry[c.categoryId] = c.amount;
         if (!meta.has(c.categoryId)) meta.set(c.categoryId, { name: c.categoryName, color: c.color });
@@ -46,6 +46,16 @@ export function CardEvolutionChart({ data, categories }: { data: CardMonthlyEvol
           onClear={clear}
         />
       </div>
+      {!stacked && (
+        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-text/60">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-2.5" style={{ background: "var(--color-success-500)" }} /> Pago
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-2.5" style={{ background: "var(--color-danger-500)" }} /> Falta pagar
+          </span>
+        </div>
+      )}
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -63,7 +73,10 @@ export function CardEvolutionChart({ data, categories }: { data: CardMonthlyEvol
               ? categoryIds.map((id) => (
                   <Bar key={id} dataKey={id} name={categoryMeta.get(id)!.name} stackId="cat" fill={categoryMeta.get(id)!.color} radius={[1, 1, 0, 0]} />
                 ))
-              : <Bar dataKey="total" name="Fatura" fill="var(--color-accent-500)" radius={[1, 1, 0, 0]} />}
+              : [
+                  <Bar key="paid" dataKey="paid" name="Pago" stackId="pay" fill="var(--color-success-500)" radius={[0, 0, 0, 0]} />,
+                  <Bar key="unpaid" dataKey="unpaid" name="Falta pagar" stackId="pay" fill="var(--color-danger-500)" radius={[1, 1, 0, 0]} />,
+                ]}
           </BarChart>
         </ResponsiveContainer>
       </div>

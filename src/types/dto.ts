@@ -142,13 +142,19 @@ export type CardSummaryDTO = {
 /** getCardMonthlyEvolution — 6 months before through 6 months after the viewed reference month
  * (13 months total), by card_installments.competence (never purchase_date). `total` is the
  * historical billed total for that month (like CardSummaryDTO.currentMonthInvoice — doesn't
- * exclude paid_before_system installments). `byCategory` breaks the same total down per category
- * present in that month's (possibly category-filtered) purchases — the chart stacks these when
- * the user has an active category selection, and falls back to a single `total` bar otherwise.
+ * exclude paid_before_system installments). `paid`/`unpaid` split that same `total` into the
+ * portion already covered and the portion still owed, using the same oldest-competence-first
+ * payment allocation as CardSummaryDTO.currentMonthPaidAmount (paid_before_system installments
+ * count as paid outright) — the chart stacks them green/red when no category filter is active.
+ * Only meaningful with no category filter (payments aren't attributable to a category); when
+ * `categoryIds` is passed both are 0 and the chart stacks `byCategory` instead. `byCategory`
+ * breaks the same total down per category present in that month's category-filtered purchases.
  * See AI_CONTEXT.md "Credit Card Purchases". */
 export type CardMonthlyEvolutionDTO = {
   month: string;
   total: number;
+  paid: number;
+  unpaid: number;
   byCategory: { categoryId: string; categoryName: string; color: string; amount: number }[];
 };
 

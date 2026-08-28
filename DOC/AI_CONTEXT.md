@@ -120,7 +120,16 @@ Isso é uma heurística, não uma alocação real — se o usuário pagar hoje a
 
 `cards.service.ts#getCardSummary` ganhou `openInvoiceMonth`/`openInvoiceAmount` — a competência que uma compra feita **hoje** cairia, calculada com a mesma `calculateInstallmentCompetences(todayIso(), closingDay, dueDay, 1)` que uma compra real usa. Segue a mesma convenção de `usedThroughCurrentMonth`/`overdueAmount`: sempre ancorada em hoje, nunca no mês visualizado — navegar pelo histórico em `/cards` não muda qual fatura está "aberta" agora.
 
-A UI (`/cards` e `AccountCard`) renderiza essa segunda linha ("Fatura aberta ({mês}): {valor}") **somente quando `openInvoiceMonth` difere do mês já mostrado na primeira linha** — se o `closing_day` ainda não passou, a fatura aberta é a mesma que já está sendo exibida, e mostrar as duas seria redundante. Esse é exatamente o caso comum (ex.: `closing_day` no fim do mês, hoje ainda dentro do ciclo) — a segunda linha só aparece quando genuinamente há duas faturas distintas em jogo (ex.: fatura de agosto já fechada e vencida, fatura de setembro já acumulando compras novas).
+A UI (`/cards` e `AccountCard`) renderiza essa segunda linha ("Fatura aberta ({mês}): {valor}") **somente quando `openInvoiceMonth` difere do mês já mostrado na primeira linha** — se o `closing_day` ainda não passou, a fatura aberta é a mesma que está sendo exibida, e mostrar as duas seria redundante. Esse é exatamente o caso comum (ex.: `closing_day` no fim do mês, hoje ainda dentro do ciclo) — a segunda linha só aparece quando genuinamente há duas faturas distintas em jogo (ex.: fatura de agosto já fechada e vencida, fatura de setembro já acumulando compras novas).
+
+## Mês inicial de /cards
+
+**Decidido e implementado 2026-08-28, a pedido do usuário** ("ao entrar na tela de cartões se eu tiver com todos os meus cartões com faturas do mês corrente pagas exiba o próximo mês... se eu não tiver faturas pro próximo mês pode exibir o mês corrente mesmo"). `/cards` sempre abria no mês real de hoje quando não havia `?month=` na URL. Agora `cards.service.ts#getDefaultCardsMonth()` decide:
+
+- **próximo mês** quando (a) `getCardBalanceThroughMonth(cartão, mês de hoje) === 0` pra **todos** os cartões — ou seja, não há nada a pagar agora; essa é a mesma figura que o "Pagar fatura" sugere, já líquida de pagamentos **e** estornos, e já incluindo atraso de meses anteriores (uma fatura totalmente estornada ou totalmente paga conta como quitada; um pagamento parcial ou uma fatura antiga em aberto mantém a tela no mês corrente) — **e** (b) o próximo mês tem `card_installments` com competência nele.
+- **mês de hoje** em qualquer outro caso (algo ainda a pagar, ou próximo mês vazio).
+
+Isso é só o **default** — qualquer navegação explícita (setas do `MonthNav`, botão "Hoje", month picker) grava `?month=` e passa a mandar dali em diante. `MonthNav` recebe o mês resolvido pelo servidor como prop (`month`) e cai nele quando `searchParams` não tem `month`, então rótulo, setas prev/next e o atalho "Hoje" ficam coerentes com o conteúdo que a página está mostrando de fato. Deliberadamente baseado em `getCardBalanceThroughMonth` (o que se deve agora), não no par `currentMonthInvoice`/`currentMonthPaidAmount` da `InvoicePaidBadge` — esse par não desconta estornos, então uma fatura estornada apareceria como "faltam R$X" e bloquearia o avanço sem necessidade.
 
 ---
 

@@ -3,7 +3,6 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils/currency";
-import { toPercentage } from "@/lib/utils/number";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -12,7 +11,6 @@ import { useCategoryFilter } from "@/features/dashboard/use-category-filter";
 
 export function CategoryPie({ data, title = "Distribuição por categoria" }: { data: CategoryDistributionDTO[]; title?: string }) {
   const { activeIds, toggle, clear } = useCategoryFilter();
-  const total = data.reduce((sum, d) => sum + d.total, 0);
 
   return (
     <Card elevation="sm" className={cn(data.length > 0 && "min-h-[320px]")}>
@@ -71,7 +69,7 @@ export function CategoryPie({ data, title = "Distribuição por categoria" }: { 
                 >
                   <span className="size-2.5 shrink-0" style={{ background: entry.color }} />
                   <span className="flex-1 truncate">{entry.icon} {entry.categoryName}</span>
-                  <span className="opacity-60">{toPercentage(entry.total, total)}%</span>
+                  <span className="opacity-60 tabular-nums">{formatCurrency(entry.total)}</span>
                 </li>
               );
             })}
