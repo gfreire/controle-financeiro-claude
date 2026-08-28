@@ -189,9 +189,10 @@ CREATE TABLE public.subcategories (
 -- categorias do tipo INCOME não podem ter subcategoria.
 
 -- Seed das categorias globais permanentes (is_system = true) — Juros,
--- Rendimentos e as duas linhas de Ajuste (INCOME/EXPENSE) — vive só em
--- seed.sql, não aqui. Manter num único lugar evita duplicidade quando
--- schema e seed rodam juntos (ver ARCHITECTURE.md nota de implementação).
+-- Rendimentos, as duas linhas de Ajuste (INCOME/EXPENSE), as duas de Estorno
+-- (0019) e "Compras retroativas" (0030, só INCOME) — vive só em seed.sql, não
+-- aqui. Manter num único lugar evita duplicidade quando schema e seed rodam
+-- juntos (ver ARCHITECTURE.md nota de implementação).
 
 -- ============================================================
 -- FIXED EXPENSES (despesas fixas recorrentes — aluguel, streaming, etc.)

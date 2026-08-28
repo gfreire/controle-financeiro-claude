@@ -9,13 +9,17 @@ values
 (gen_random_uuid(), 'Ajuste', 'INCOME', '⚖️', '#a855f7', true, false),
 (gen_random_uuid(), 'Ajuste', 'EXPENSE', '⚖️', '#a855f7', true, false),
 (gen_random_uuid(), 'Estorno', 'EXPENSE', '↩️', '#0ea5e9', true, false),
-(gen_random_uuid(), 'Estorno', 'INCOME', '↩️', '#0ea5e9', true, false);
+(gen_random_uuid(), 'Estorno', 'INCOME', '↩️', '#0ea5e9', true, false),
+(gen_random_uuid(), 'Compras retroativas', 'INCOME', '🕓', '#0d9488', true, false);
 -- ADICIONADO: faltavam as 2 linhas de "Ajuste" (INCOME e EXPENSE) definidas
 -- na sessão de replanejamento — saída do reconcileAccountBalance ("Ajustar
 -- Saldo"), separado de Rendimentos (que é o registerYield/"Informar Rendimento").
 -- ADICIONADO (0019): "Estorno" (EXPENSE + INCOME) — mesma razão de "Ajuste" ter duas linhas
 -- (type é obrigatório). Reclassifica uma compra/despesa estornada (EXPENSE) e credita a receita
 -- de volta (INCOME) sem inflar uma categoria sem relação. Ver AI_CONTEXT.md "Estorno".
+-- ADICIONADO (0030): "Compras retroativas" (só INCOME — uma linha) — categoria pra agrupar a
+-- RECEITA sintética de parcelas card_installments.paid_before_system no dashboard, que antes
+-- ficava fora do donut/barras de categoria de receita. Ver AI_CONTEXT.md "Compras retroativas".
 
 -- ============================================
 -- DEFAULT EXPENSE CATEGORIES
