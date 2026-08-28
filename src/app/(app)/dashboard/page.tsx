@@ -5,6 +5,7 @@ import {
   getMonthlyEvolution,
   getCategoryDistribution,
   getTransactionsFiltered,
+  getCurrentMonthObligations,
 } from "@/services/dashboard.service";
 import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
@@ -20,7 +21,7 @@ import { MonthlyChart } from "@/features/dashboard/components/monthly-chart";
 import { CategoryPie } from "@/features/dashboard/components/category-pie";
 import { ExpenseSourceToggle } from "@/features/dashboard/components/expense-source-toggle";
 import { BudgetsPanel } from "@/features/dashboard/components/budgets-panel";
-import { UpcomingDueAlert } from "@/features/dashboard/components/upcoming-due-alert";
+import { MonthObligationsCard } from "@/features/dashboard/components/month-obligations-card";
 import { OpenDebtsAlert } from "@/features/dashboard/components/open-debts-alert";
 import { HelpButton } from "@/components/ui/help-button";
 import { TransactionExplorer } from "@/features/dashboard/components/transaction-explorer";
@@ -65,6 +66,7 @@ export default async function DashboardPage({
     categories,
     fixedExpenses,
     debts,
+    monthObligations,
   ] = await Promise.all([
     getFinancialSummary(filters),
     getMonthlyEvolution(monthlyEvolutionFilters),
@@ -77,6 +79,7 @@ export default async function DashboardPage({
     // month via the filters expects the budgets/fixed-expenses panel to follow along.
     getFixedExpenses(filters.periodEnd),
     getDebts(),
+    getCurrentMonthObligations(),
   ]);
   const budgetTree = await getBudgetTree(filters.periodEnd, fixedExpenses);
   const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
@@ -87,9 +90,9 @@ export default async function DashboardPage({
   const openDebts = debts.filter((d) => d.side === "PAYABLE" && d.kind !== "PERSONAL");
   const totalOpenDebts = sumMoney(openDebts.map((d) => d.remainingBalance));
 
-  // "Vence essa semana" is always anchored to today's real month, never the viewed-period filter
-  // (see UpcomingDueAlert) — reuse the already-fetched list when the viewed month IS today's month
-  // instead of firing a redundant second query.
+  // "A pagar em {mês}" is always anchored to today's real month, never the viewed-period filter
+  // (see MonthObligationsCard) — reuse the already-fetched list when the viewed month IS today's
+  // month instead of firing a redundant second query. Feeds the card's per-item PayFixedExpenseDialog.
   const todaysFixedExpenses =
     monthKey(filters.periodEnd) === monthKey(todayIso()) ? fixedExpenses : await getFixedExpenses(todayIso());
 
@@ -107,10 +110,17 @@ export default async function DashboardPage({
         <DashboardFilters preset={filters.preset} accounts={accounts} categories={categories} />
       </div>
 
-      <UpcomingDueAlert fixedExpenses={todaysFixedExpenses} accounts={accounts} />
       <OpenDebtsAlert debts={openDebts} totalOpenDebts={totalOpenDebts} accounts={liquidAccounts} categories={categories} />
 
       <SummaryCards summary={summary} />
+
+      <MonthObligationsCard
+        data={monthObligations}
+        accounts={accounts}
+        categories={categories}
+        fixedExpenses={todaysFixedExpenses}
+        debts={debts}
+      />
 
       <MonthlyChart data={monthlyEvolution} />
 

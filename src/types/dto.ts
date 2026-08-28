@@ -38,6 +38,36 @@ export type FinancialSummaryDTO = {
 
 export type MonthlyEvolutionDTO = { month: string; income: number; expense: number };
 
+/**
+ * "Despesas de {mês}" dashboard card (getCurrentMonthObligations) — the current REAL calendar
+ * month's spending, split into what's already settled and what still has to be paid. Always
+ * today-anchored, never the dashboard's period filter (same as OpenDebtsAlert).
+ *
+ * `total` = `paidTotal + remainingTotal` = "despesas realizadas do mês + o que falta pagar":
+ * reconciles with the DESPESAS summary card (competence-basis) plus the month's still-unpaid
+ * despesas programadas / dívidas programadas on top (DESPESAS doesn't count those until they're
+ * a real transaction). Card spend is by COMPETENCE like every other analytic — each card's
+ * unpaid slice of this month's invoice (`currentMonthInvoice - currentMonthPaidAmount`) is one
+ * "Fatura {cartão}" item; the paid slice is folded into `paidTotal`. See AI_CONTEXT.md
+ * "Despesas do mês (dashboard)". All sums computed in the service (Chart Rules — no reduce()
+ * in components).
+ */
+export type MonthObligationItemDTO = {
+  id: string; // source row id (card account id / fixed expense id / debt id) — keys the donut slice and matches the source object for its payment dialog
+  kind: "CARD" | "FIXED_EXPENSE" | "DEBT";
+  description: string; // "Fatura Banco do Brasil" / fixed expense name / debt agent
+  amount: number;
+  dueDay?: number; // day-of-month due (card.dueDay / fixedExpense.dueDay / debt.dueDay); absent for OVERDUE_BILL → the UI shows a fixed "Atrasada" badge
+};
+
+export type MonthObligationsDTO = {
+  month: string; // "YYYY-MM" — the real current month this reflects
+  items: MonthObligationItemDTO[]; // unpaid only, sorted by amount desc — each is one donut slice and one actionable list row
+  paidTotal: number; // Σ EXPENSE transactions dated this month + Σ each card's currentMonthPaidAmount — the "Pago" slice (donut only, not the list)
+  remainingTotal: number; // sum of items[].amount
+  total: number; // paidTotal + remainingTotal — shown big in the donut centre
+};
+
 export type CategoryDistributionDTO = {
   categoryId: string;
   categoryName: string;

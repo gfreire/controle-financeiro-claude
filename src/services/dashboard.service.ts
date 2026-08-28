@@ -1,15 +1,20 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
-import { sumMoney, subtractMoney } from "@/lib/utils/money";
-import { monthKey, formatMonthLabel, addMonthsToIsoDate } from "@/lib/utils/date";
+import { sumMoney, subtractMoney, addMoney } from "@/lib/utils/money";
+import { monthKey, formatMonthLabel, addMonthsToIsoDate, startOfMonth, endOfMonth, todayIso } from "@/lib/utils/date";
 import { getAccounts } from "./accounts.service";
+import { getCardSummary } from "./cards.service";
+import { getFixedExpenses } from "./fixed-expenses.service";
+import { getDebts } from "./debts.service";
 import type {
   DashboardFilters,
   FinancialSummaryDTO,
   MonthlyEvolutionDTO,
   CategoryDistributionDTO,
   TransactionViewDTO,
+  MonthObligationItemDTO,
+  MonthObligationsDTO,
 } from "@/types/dto";
 import type { AccountType } from "@/types/database";
 
@@ -443,4 +448,99 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
   }
 
   return results.sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+/**
+ * "Despesas de {mês}" dashboard card — the current REAL calendar month's spending, split into
+ * what's already settled (`paidTotal`) and what still has to be paid (`items`, one per open
+ * commitment). Always today-anchored, never `filters` — same convention as OpenDebtsAlert.
+ *
+ * `total` = `paidTotal + remainingTotal` = "despesas realizadas do mês + o que ainda falta
+ * pagar": it reconciles with the dashboard's DESPESAS summary card (competence-basis) plus,
+ * on top, the still-unpaid despesas programadas and dívidas programadas of the month (which
+ * DESPESAS doesn't count until they become a real transaction). When nothing is pending the two
+ * match; otherwise `total` sits above DESPESAS by exactly `remainingTotal`'s projection part.
+ *
+ * Card spend is counted BY COMPETENCE, same as every other analytic (getCardSummary's
+ * `currentMonthInvoice`/`currentMonthPaidAmount`), NOT by outstanding balance — an earlier
+ * version used `getCardBalanceThroughMonth` and undercounted the month whenever a card's
+ * installments hadn't been billed/paid yet. Each card's still-unpaid slice of this month's
+ * invoice (`currentMonthInvoice - currentMonthPaidAmount`) is one "Fatura {cartão}" item; the
+ * paid slice goes into `paidTotal`.
+ *
+ * `paidTotal` = every EXPENSE transaction dated this month (regular spend, plus bank/cash-paid
+ * despesas programadas and debt payments via linked transaction) + Σ `currentMonthPaidAmount`
+ * (the paid portion of each card's current-month invoice). CREDIT_CARD_PAYMENT transactions are
+ * deliberately NOT summed here — that would double-count against the by-competence card figure
+ * (a payment made this month usually settles a *prior* month's invoice anyway).
+ *
+ * Self-contained (does its own fetches) so all aggregation stays in the service — the redundancy
+ * with the page's own getFixedExpenses/getDebts/getAccounts calls is small (month-scoped, and
+ * getOptionalUser is request-cached).
+ */
+export async function getCurrentMonthObligations(): Promise<MonthObligationsDTO> {
+  const supabase = await createClient();
+  const user = await getUser();
+  const month = monthKey(todayIso());
+  const monthStart = startOfMonth(`${month}-01`);
+  const monthEnd = endOfMonth(`${month}-01`);
+
+  const accounts = await getAccounts();
+  const cards = accounts.filter((a) => a.type === "CREDIT_CARD");
+
+  const [cardSummaries, fixedExpenses, debts, paidResult] = await Promise.all([
+    Promise.all(cards.map(async (card) => ({ card, summary: await getCardSummary(card.id, month, card.creditLimit ?? null) }))),
+    getFixedExpenses(todayIso()),
+    getDebts(),
+    supabase
+      .from("transactions")
+      .select("amount")
+      .eq("user_id", user.id)
+      .eq("type", "EXPENSE")
+      .gte("date", monthStart)
+      .lte("date", monthEnd),
+  ]);
+  if (paidResult.error) throw new Error(paidResult.error.message);
+
+  const items: MonthObligationItemDTO[] = [];
+
+  for (const { card, summary } of cardSummaries) {
+    const unpaid = subtractMoney(summary.currentMonthInvoice, summary.currentMonthPaidAmount);
+    if (unpaid > 0) {
+      items.push({ id: card.id, kind: "CARD", description: `Fatura ${card.name}`, amount: unpaid, dueDay: card.dueDay });
+    }
+  }
+  for (const fe of fixedExpenses) {
+    if (!fe.isPaidThisMonth) {
+      items.push({ id: fe.id, kind: "FIXED_EXPENSE", description: fe.name, amount: fe.plannedAmount, dueDay: fe.dueDay });
+    }
+  }
+  for (const debt of debts) {
+    if (debt.side !== "PAYABLE" || debt.kind === "PERSONAL") continue;
+    if (debt.kind === "INSTALLMENT_PLAN") {
+      if (!debt.paidThisMonth) {
+        items.push({
+          id: debt.id,
+          kind: "DEBT",
+          description: debt.agent,
+          amount: debt.monthlyAmount ?? debt.remainingBalance,
+          dueDay: debt.dueDay,
+        });
+      }
+    } else {
+      // OVERDUE_BILL — always outstanding, no paidThisMonth / dueDay concept
+      items.push({ id: debt.id, kind: "DEBT", description: debt.agent, amount: debt.remainingBalance });
+    }
+  }
+
+  items.sort((a, b) => b.amount - a.amount);
+
+  const paidTotal = sumMoney([
+    ...(paidResult.data ?? []).map((r) => r.amount),
+    ...cardSummaries.map(({ summary }) => summary.currentMonthPaidAmount),
+  ]);
+  const remainingTotal = sumMoney(items.map((i) => i.amount));
+  const total = addMoney(paidTotal, remainingTotal);
+
+  return { month, items, paidTotal, remainingTotal, total };
 }
