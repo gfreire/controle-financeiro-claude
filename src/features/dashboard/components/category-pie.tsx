@@ -11,6 +11,7 @@ import { useCategoryFilter } from "@/features/dashboard/use-category-filter";
 
 export function CategoryPie({ data, title = "Distribuição por categoria" }: { data: CategoryDistributionDTO[]; title?: string }) {
   const { activeIds, toggle, clear } = useCategoryFilter();
+  const total = data.reduce((sum, d) => sum + d.total, 0);
 
   return (
     <Card elevation="sm" className={cn(data.length > 0 && "min-h-[320px]")}>
@@ -31,7 +32,7 @@ export function CategoryPie({ data, title = "Distribuição por categoria" }: { 
         <p className="flex-1 text-sm opacity-60">Sem lançamentos no período.</p>
       ) : (
         <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_auto]">
-          <div className="h-56 w-full">
+          <div className="relative h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -57,6 +58,10 @@ export function CategoryPie({ data, title = "Distribuição por categoria" }: { 
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} {...chartTooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-lg font-semibold tabular-nums">{formatCurrency(total)}</span>
+              <span className="text-[11px] opacity-60">total</span>
+            </div>
           </div>
           <ul className="flex flex-col gap-1.5 text-xs">
             {data.slice(0, 8).map((entry) => {
