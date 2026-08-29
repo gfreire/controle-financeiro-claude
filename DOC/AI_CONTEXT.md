@@ -394,6 +394,22 @@ Debts never affect dashboard totals directly — only the linked transactions th
 - **`OVERDUE_BILL`** ("conta em atraso") — uma conta do dia a dia (água, luz, telefone, aluguel) que ficou sem pagar. Sempre `PAYABLE` na prática — a UI (`DebtFormDialog`) trava a direção e esconde o seletor quando o tipo é este. **Sempre aparece com alerta claro e sempre negativa o dashboard** (diferente de `PERSONAL`) — hoje via o card "Despesas do mês" (ver abaixo; o card dedicado "Dívidas em aberto" foi removido 2026-08-28).
 - **`INSTALLMENT_PLAN`** ("parcelamento programado", renomeado 2026-08-25 — era "parcelamento combinado") — uma compra parcelada fora do cartão (boleto, financiamento de loja) ou um acordo informal "no boca a boca" com valor mensal combinado. Também sempre `PAYABLE`, também sempre aparece no card "Despesas do mês" do dashboard. Ganha dois campos extras, obrigatórios só nesse caso (validados em `src/lib/validations/debts.ts`, não em `CHECK` de banco — mesma convenção já usada pros campos CREDIT_CARD-only de `accounts`): `monthlyAmount` (valor combinado por mês) e `dueDay` (dia de vencimento, 1-28).
 
+### Telas separadas por `kind` (2026-08-29)
+
+**Decidido e implementado 2026-08-29, a pedido do usuário** ("Separar Parcelamento Programado e Contas em Atraso da area de Dividas, Renomear Dividas para Dividas Pessoais. Todas as Regras permanecem iguais, so separar forms e menus para ser mais intuitivo para o usuario"). Até então os três `debts.kind` moravam numa tela só (`/debts`, "Dívidas") e o `DebtFormDialog` tinha um seletor "Tipo de dívida". Agora cada `kind` tem sua própria rota, item de sidebar e form dedicado:
+
+- **`/debts`** — renomeada "Dívidas Pessoais", filtra `kind = PERSONAL`. Mantém o `DebtSideFilter` (Todas/A pagar/A receber) e as duas pizzas (a pagar / a receber), já que só `PERSONAL` pode ir nas duas direções.
+- **`/overdue-bills`** — "Contas em Atraso", `kind = OVERDUE_BILL`. Sem side filter (sempre PAYABLE), uma pizza só ("Contas em atraso").
+- **`/installment-plans`** — "Parcelamento Programado", `kind = INSTALLMENT_PLAN`. Sem side filter; o form mostra os campos `monthlyAmount`/`dueDay`.
+
+**Nenhuma regra de domínio mudou** — service, DTOs, validações (`debts.*`), o pipeline de `debt_transactions`/linked transactions, e a projeção no dashboard (`getCurrentMonthObligations`, `fetchUnpaidObligationEntries`, `MonthObligationsCard`) são exatamente os mesmos. É só apresentação:
+
+- `DebtFormDialog` ganhou um prop `kind` (fixado pela tela em modo criação; em modo edição vem de `debt.kind`) e **perdeu o seletor de tipo** — trocar o `kind` de uma dívida já criada não é mais possível pela UI (aceito: cada `kind` tem sua tela). O seletor de "Direção" só aparece pra `PERSONAL`; os campos `monthlyAmount`/`dueDay` só pra `INSTALLMENT_PLAN` — mesma lógica condicional de antes, agora dirigida pelo prop em vez do `<Select>`.
+- Componentes compartilhados novos em `src/features/debts/components/`: `debts-view.tsx` (async — filtra `getDebts()` por `kind` + side opcional, renderiza charts + lista) e `debt-card.tsx` (async — um card de dívida, com fetch próprio de `getDebtTransactions`). As três `page.tsx` são finas: header + `HelpButton` + `DebtFormDialog kind=...` + `DebtsView kind=...`.
+- `DebtsCharts` ganhou props opcionais `payableTitle`/`receivableTitle` pros títulos por tela.
+- `revalidatePath` das actions de dívida agora cobre as três rotas (`revalidateDebtPaths()` em `src/features/debts/actions.ts`).
+- O badge de nome do `kind` no card ("Conta em atraso"/"Parcelamento programado") foi removido — redundante numa tela dedicada. O badge de lado ("A pagar"/"A receber") e o de vencimento/pago do `INSTALLMENT_PLAN` continuam.
+
 ### Dívidas em aberto (dashboard) — REMOVIDO 2026-08-28
 
 `src/features/dashboard/components/open-debts-alert.tsx` (`OpenDebtsAlert`) foi **removido do dashboard e deletado**, a pedido do usuário ("ficou redundante com o novo card de despesas do mês"). O card "Despesas de {mês}" (`MonthObligationsCard`, abaixo) já lista toda dívida `PAYABLE` `OVERDUE_BILL`/`INSTALLMENT_PLAN` não paga como uma linha acionável, com badge de vencimento e botão "Pagar" — ter os dois cards mostrando os mesmos compromissos era ruído. `dashboard/page.tsx` não filtra mais `openDebts`/`totalOpenDebts`; `getDebts()` continua sendo chamado lá só pra alimentar `MonthObligationsCard` (prop `debts`).

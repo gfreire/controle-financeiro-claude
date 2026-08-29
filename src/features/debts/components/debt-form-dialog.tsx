@@ -15,30 +15,57 @@ import type { DebtKind } from "@/types/database";
 
 const NONE = "NONE";
 
-const KIND_LABELS: Record<DebtKind, string> = {
-  PERSONAL: "Pessoal (amigo/família)",
-  OVERDUE_BILL: "Conta em atraso",
-  INSTALLMENT_PLAN: "Parcelamento programado",
+// Since 2026-08-29 each `debts.kind` has its own screen (see nav-items.ts), so the form no
+// longer offers a kind picker — the kind is fixed by whichever screen opened the dialog (create)
+// or by the debt itself (edit). The copy below is what differs per kind.
+const KIND_COPY: Record<DebtKind, { newTitle: string; editTitle: string; newButton: string; agentLabelPayable: string; agentLabelReceivable: string; agentPlaceholder?: string }> = {
+  PERSONAL: {
+    newTitle: "Nova dívida pessoal",
+    editTitle: "Editar dívida pessoal",
+    newButton: "Nova dívida",
+    agentLabelPayable: "Para quem devo",
+    agentLabelReceivable: "Quem me deve",
+  },
+  OVERDUE_BILL: {
+    newTitle: "Nova conta em atraso",
+    editTitle: "Editar conta em atraso",
+    newButton: "Nova conta em atraso",
+    agentLabelPayable: "Conta",
+    agentLabelReceivable: "Conta",
+    agentPlaceholder: "Ex: Conta de luz, Aluguel...",
+  },
+  INSTALLMENT_PLAN: {
+    newTitle: "Novo parcelamento programado",
+    editTitle: "Editar parcelamento programado",
+    newButton: "Novo parcelamento",
+    agentLabelPayable: "Para quem devo",
+    agentLabelReceivable: "Para quem devo",
+    agentPlaceholder: "Ex: Loja X, Financiamento...",
+  },
 };
 
 export function DebtFormDialog({
   categories: initialCategories,
+  kind: fixedKind = "PERSONAL",
   debt,
   trigger,
 }: {
   categories: CategoryDTO[];
+  /** Fixed kind for create mode — set by the screen this dialog lives on. Ignored in edit mode. */
+  kind?: DebtKind;
   /** Present → edit mode: prefills from this debt and saves via updateDebtAction. */
   debt?: DebtDTO;
   trigger?: React.ReactNode;
 }) {
   const isEdit = !!debt;
+  const kind: DebtKind = debt?.kind ?? fixedKind;
+  const copy = KIND_COPY[kind];
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState(initialCategories);
   const [agent, setAgent] = useState(debt?.agent ?? "");
-  const [kind, setKind] = useState<DebtKind>(debt?.kind ?? "PERSONAL");
   const [side, setSide] = useState<"PAYABLE" | "RECEIVABLE">(debt?.side ?? "PAYABLE");
   const [initialBalance, setInitialBalance] = useState(debt?.originalAmount !== undefined ? String(debt.originalAmount) : "");
   const [defaultCategoryId, setDefaultCategoryId] = useState(debt?.defaultCategoryId ?? NONE);
@@ -54,7 +81,6 @@ export function DebtFormDialog({
     if (open) {
       setCategories(initialCategories);
       setAgent(debt?.agent ?? "");
-      setKind(debt?.kind ?? "PERSONAL");
       setSide(debt?.side ?? "PAYABLE");
       setInitialBalance(debt?.originalAmount !== undefined ? String(debt.originalAmount) : "");
       setDefaultCategoryId(debt?.defaultCategoryId ?? NONE);
@@ -63,7 +89,7 @@ export function DebtFormDialog({
     }
   }
 
-  // Conta em atraso e parcelamento combinado só existem como algo que se deve — só uma dívida
+  // Conta em atraso e parcelamento programado só existem como algo que se deve — só uma dívida
   // pessoal pode ir em qualquer direção (emprestar ou pegar emprestado).
   const isLockedToPayable = kind !== "PERSONAL";
   const effectiveSide = isLockedToPayable ? "PAYABLE" : side;
@@ -123,24 +149,10 @@ export function DebtFormDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        {trigger ?? <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova dívida</Button>}
+        {trigger ?? <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> {copy.newButton}</Button>}
       </DialogTrigger>
       <DialogContent>
-        <DialogTitle>{isEdit ? "Editar dívida" : "Nova dívida"}</DialogTitle>
-        <Field>
-          <Label>Tipo de dívida</Label>
-          <Select value={kind} onValueChange={(v) => setKind(v as DebtKind)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {(Object.keys(KIND_LABELS) as DebtKind[]).map((k) => (
-                <SelectItem key={k} value={k}>{KIND_LABELS[k]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {isLockedToPayable && (
-            <p className="mt-1 text-[11px] opacity-50">Sempre &quot;a pagar&quot; — não existe conta em atraso ou parcelamento a receber.</p>
-          )}
-        </Field>
+        <DialogTitle>{isEdit ? copy.editTitle : copy.newTitle}</DialogTitle>
         {!isLockedToPayable && (
           <Field>
             <Label>Direção</Label>
@@ -154,8 +166,8 @@ export function DebtFormDialog({
           </Field>
         )}
         <Field>
-          <Label>{effectiveSide === "PAYABLE" ? "Para quem devo" : "Quem me deve"}</Label>
-          <Input value={agent} onChange={(e) => setAgent(e.target.value)} placeholder={kind === "OVERDUE_BILL" ? "Ex: Conta de luz, Aluguel..." : undefined} />
+          <Label>{effectiveSide === "PAYABLE" ? copy.agentLabelPayable : copy.agentLabelReceivable}</Label>
+          <Input value={agent} onChange={(e) => setAgent(e.target.value)} placeholder={copy.agentPlaceholder} />
         </Field>
         <Field>
           <Label>Valor inicial</Label>

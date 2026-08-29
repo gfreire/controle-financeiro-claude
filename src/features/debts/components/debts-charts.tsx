@@ -133,7 +133,15 @@ function DebtPie({
  * Clicking a debt (slice or legend row) toggles it out of the chart/total — purely a local
  * view-state affordance for isolating a subset visually, not a data mutation.
  */
-export function DebtsCharts({ debts }: { debts: DebtDTO[] }) {
+export function DebtsCharts({
+  debts,
+  payableTitle = "Dívidas a pagar",
+  receivableTitle = "Dívidas a receber",
+}: {
+  debts: DebtDTO[];
+  payableTitle?: string;
+  receivableTitle?: string;
+}) {
   const [disabledIds, setDisabledIds] = useState<Set<string>>(new Set());
 
   const toggle = (id: string) => {
@@ -164,7 +172,7 @@ export function DebtsCharts({ debts }: { debts: DebtDTO[] }) {
     <div className={`grid grid-cols-1 gap-4 ${bothSides ? "sm:grid-cols-2" : ""}`}>
       {payable.length > 0 && (
         <DebtPie
-          title="Dívidas a pagar"
+          title={payableTitle}
           debts={payable}
           shades={PAYABLE_SHADES}
           disabledIds={disabledIds}
@@ -174,7 +182,7 @@ export function DebtsCharts({ debts }: { debts: DebtDTO[] }) {
       )}
       {receivable.length > 0 && (
         <DebtPie
-          title="Dívidas a receber"
+          title={receivableTitle}
           debts={receivable}
           shades={RECEIVABLE_SHADES}
           disabledIds={disabledIds}
