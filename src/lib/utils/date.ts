@@ -50,6 +50,17 @@ export function monthKey(isoDate: string): string {
   return isoDate.slice(0, 7); // "YYYY-MM"
 }
 
+/**
+ * Whole calendar months from `fromMonthKey` to `toMonthKey` (either "YYYY-MM" or a longer ISO
+ * date — only the month part is read). Positive when `to` is later, negative when earlier, 0 for
+ * the same month. Pure — used for INSTALLMENT_PLAN schedule math (adiantado/atrasado).
+ */
+export function monthsBetween(fromMonthKey: string, toMonthKey: string): number {
+  const [fy, fm] = fromMonthKey.slice(0, 7).split("-").map(Number);
+  const [ty, tm] = toMonthKey.slice(0, 7).split("-").map(Number);
+  return (ty - fy) * 12 + (tm - fm);
+}
+
 export function formatDate(isoDate: string): string {
   const date = toUtcDate(isoDate);
   return `${String(date.getUTCDate()).padStart(2, "0")}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${date.getUTCFullYear()}`;

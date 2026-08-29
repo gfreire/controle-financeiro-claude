@@ -153,6 +153,7 @@ export interface DebtRow {
   default_category_id: string | null;
   monthly_amount: number | null;
   due_day: number | null;
+  start_competence: string | null; // INSTALLMENT_PLAN only — "YYYY-MM-DD" (first of month), migration 0032
   active: boolean;
   created_at: string;
 }

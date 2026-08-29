@@ -132,7 +132,10 @@ export type DebtDTO = {
   defaultCategoryId?: string; // pré-preenche (sobrescrevível) a categoria de um pagamento registrado contra a dívida
   monthlyAmount?: number; // só INSTALLMENT_PLAN — valor combinado a pagar por mês
   dueDay?: number; // só INSTALLMENT_PLAN — dia de vencimento mensal, 1-28
-  paidThisMonth?: boolean; // só INSTALLMENT_PLAN — se já existe um pagamento (debt_transactions.amount < 0) datado no mês corrente
+  startCompetence?: string; // só INSTALLMENT_PLAN — "YYYY-MM", mês a partir do qual o parcelamento conta
+  paidThroughCompetence?: string; // só INSTALLMENT_PLAN — "YYYY-MM", última competência coberta pelos pagamentos (alocação mais-antigo-primeiro, mesma heurística de fatura de cartão); ausente quando nada foi pago
+  scheduleOffset?: number; // só INSTALLMENT_PLAN — meses com sinal: > 0 adiantado, < 0 atrasado, 0 em dia
+  paidThisMonth?: boolean; // só INSTALLMENT_PLAN — pagamento datado no mês corrente. Sinal secundário: startCompetence/paidThroughCompetence/scheduleOffset é o que a UI usa agora
 };
 
 export type DebtTransactionDTO = {

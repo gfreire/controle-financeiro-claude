@@ -10,6 +10,7 @@ import { CategorySelect } from "@/features/categories/components/category-select
 import { Plus } from "lucide-react";
 import { createDebtAction, updateDebtAction } from "../actions";
 import { debtSchema, updateDebtSchema } from "@/lib/validations/debts";
+import { monthKey, todayIso } from "@/lib/utils/date";
 import type { CategoryDTO, DebtDTO } from "@/types/dto";
 import type { DebtKind } from "@/types/database";
 
@@ -71,6 +72,7 @@ export function DebtFormDialog({
   const [defaultCategoryId, setDefaultCategoryId] = useState(debt?.defaultCategoryId ?? NONE);
   const [monthlyAmount, setMonthlyAmount] = useState(debt?.monthlyAmount !== undefined ? String(debt.monthlyAmount) : "");
   const [dueDay, setDueDay] = useState(debt?.dueDay !== undefined ? String(debt.dueDay) : "10");
+  const [startCompetence, setStartCompetence] = useState(debt?.startCompetence ?? monthKey(todayIso()));
 
   // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
   // not an Effect: the dialog stays mounted across parent re-renders, so the useState
@@ -86,6 +88,7 @@ export function DebtFormDialog({
       setDefaultCategoryId(debt?.defaultCategoryId ?? NONE);
       setMonthlyAmount(debt?.monthlyAmount !== undefined ? String(debt.monthlyAmount) : "");
       setDueDay(debt?.dueDay !== undefined ? String(debt.dueDay) : "10");
+      setStartCompetence(debt?.startCompetence ?? monthKey(todayIso()));
     }
   }
 
@@ -110,6 +113,7 @@ export function DebtFormDialog({
       defaultCategoryId: defaultCategoryId === NONE ? null : defaultCategoryId,
       monthlyAmount: isInstallmentPlan ? Number(monthlyAmount) : null,
       dueDay: isInstallmentPlan ? Number(dueDay) : null,
+      startCompetence: isInstallmentPlan ? startCompetence : null,
     };
     if (isEdit) {
       const parsed = updateDebtSchema.safeParse({ id: debt!.id, ...payload });
@@ -139,7 +143,7 @@ export function DebtFormDialog({
         await createDebtAction(parsed.data);
         router.refresh();
         setOpen(false);
-        setAgent(""); setInitialBalance(""); setDefaultCategoryId(NONE); setMonthlyAmount(""); setDueDay("10");
+        setAgent(""); setInitialBalance(""); setDefaultCategoryId(NONE); setMonthlyAmount(""); setDueDay("10"); setStartCompetence(monthKey(todayIso()));
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao criar dívida");
       }
@@ -174,16 +178,23 @@ export function DebtFormDialog({
           <Input type="number" step="0.01" value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} />
         </Field>
         {isInstallmentPlan && (
-          <div className="grid grid-cols-2 gap-2">
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <Field>
+                <Label>Valor mensal combinado</Label>
+                <Input type="number" step="0.01" min="0.01" value={monthlyAmount} onChange={(e) => setMonthlyAmount(e.target.value)} />
+              </Field>
+              <Field>
+                <Label>Dia de vencimento</Label>
+                <Input type="number" min={1} max={28} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
+              </Field>
+            </div>
             <Field>
-              <Label>Valor mensal combinado</Label>
-              <Input type="number" step="0.01" min="0.01" value={monthlyAmount} onChange={(e) => setMonthlyAmount(e.target.value)} />
+              <Label>Mês de competência inicial</Label>
+              <Input type="month" value={startCompetence} onChange={(e) => setStartCompetence(e.target.value)} />
+              <p className="mt-1 text-[11px] opacity-50">A partir de quando este parcelamento passa a contar — usado pra saber se está adiantado ou atrasado.</p>
             </Field>
-            <Field>
-              <Label>Dia de vencimento</Label>
-              <Input type="number" min={1} max={28} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
-            </Field>
-          </div>
+          </>
         )}
         <Field>
           <Label>Categoria padrão (ao pagar)</Label>

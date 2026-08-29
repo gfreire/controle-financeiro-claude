@@ -389,6 +389,7 @@ CREATE TABLE public.debts (
   default_category_id uuid, -- NOVO (0015): pré-preenche (e é sempre sobrescrevível) a categoria de um pagamento registrado contra a dívida
   monthly_amount numeric(14,2), -- NOVO (0021): só INSTALLMENT_PLAN — valor combinado a pagar por mês, obrigatório nesse caso (validado em src/lib/validations/debts.ts, não em CHECK)
   due_day integer CHECK (due_day IS NULL OR (due_day >= 1 AND due_day <= 28)), -- NOVO (0021): só INSTALLMENT_PLAN — dia de vencimento mensal
+  start_competence date, -- NOVO (0032): só INSTALLMENT_PLAN — mês de competência inicial (primeiro dia do mês), obrigatório nesse caso (validado em src/lib/validations/debts.ts, não em CHECK). Pagamento aloca por competência do mais antigo pro mais novo (heurística de fatura de cartão); alimenta paidThroughCompetence/scheduleOffset (adiantado/atrasado). Ver AI_CONTEXT.md "Parcelamento Programado — competência e adiantado/atrasado"
   active boolean DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT debts_pkey PRIMARY KEY (id),

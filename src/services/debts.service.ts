@@ -1,14 +1,30 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
 import { addMoney, sumMoney } from "@/lib/utils/money";
-import { monthKey, todayIso } from "@/lib/utils/date";
+import { addMonthsToIsoDate, monthKey, monthsBetween, todayIso } from "@/lib/utils/date";
 import type { DebtInput, DebtTransactionInput, UpdateDebtTransactionInput } from "@/lib/validations/debts";
 import type { DebtDTO, DebtTransactionDTO } from "@/types/dto";
 
+/** Whole-cent floor division — how many full `monthly` chunks fit in `total`, no float drift. */
+function centsFloorDiv(total: number, unit: number): number {
+  return Math.floor(Math.round(total * 100) / Math.round(unit * 100));
+}
+
 /**
- * `paidThisMonth` (INSTALLMENT_PLAN only) — whether a payment (debt_transactions.amount < 0)
- * dated in the current calendar month already exists, same "isPaidThisMonth" convention Fixed
- * Expenses already uses. See AI_CONTEXT.md "Dívidas — subtipos".
+ * INSTALLMENT_PLAN schedule figures, all derived (no stored column) from the ledger + the debt's
+ * `monthly_amount` / `start_competence`:
+ *
+ * - Payments allocate to competence months oldest-first, automatically — the same heuristic
+ *   `cards.service.ts#getCardSummary.currentMonthPaidAmount` uses for an invoice. `totalPaid ÷
+ *   monthlyAmount` (whole cents) = how many competence months are covered, counting from
+ *   `startCompetence`; `paidThroughCompetence` is the last of them. Paying two boletos today just
+ *   carries credit forward and covers the next two competences — nothing is removed (unlike the
+ *   card "antecipar" flow). "Se eu pago hoje uma fatura de setembro fica como pago em setembro."
+ * - `scheduleOffset` = covered − expected, where `expected` is how many installments *should* be
+ *   paid by today's real month (capped at the plan's total scheduled count). > 0 adiantado, < 0
+ *   atrasado, 0 em dia. Today-anchored, same as the old `paidThisMonth`.
+ *
+ * See AI_CONTEXT.md "Parcelamento Programado — competência e adiantado/atrasado".
  */
 export async function getDebts(): Promise<DebtDTO[]> {
   const supabase = await createClient();
@@ -27,21 +43,44 @@ export async function getDebts(): Promise<DebtDTO[]> {
   const results = await Promise.all(
     (debts ?? []).map(async (row) => {
       const { data: entries } = await supabase.from("debt_transactions").select("amount, date").eq("debt_id", row.id);
+      const list = entries ?? [];
+
+      const isInstallmentPlan = row.kind === "INSTALLMENT_PLAN";
+      const monthly = row.monthly_amount ?? 0;
+      const startKey: string | undefined =
+        isInstallmentPlan && row.start_competence ? monthKey(row.start_competence) : undefined;
+
+      let paidThroughCompetence: string | undefined;
+      let scheduleOffset: number | undefined;
+      if (isInstallmentPlan && monthly > 0 && startKey) {
+        const totalPaid = sumMoney(list.filter((e) => e.amount < 0).map((e) => -e.amount));
+        const totalIncreased = sumMoney(list.filter((e) => e.amount > 0).map((e) => e.amount));
+        const competencesCovered = centsFloorDiv(totalPaid, monthly);
+        if (competencesCovered > 0) {
+          paidThroughCompetence = monthKey(addMonthsToIsoDate(`${startKey}-01`, competencesCovered - 1));
+        }
+        const scheduledCount = Math.ceil(addMoney(row.initial_balance, totalIncreased) / monthly);
+        const expected = Math.min(scheduledCount, Math.max(0, monthsBetween(startKey, currentMonth) + 1));
+        scheduleOffset = competencesCovered - expected;
+      }
+
       return {
         id: row.id,
         side: row.side,
         agent: row.agent,
         kind: row.kind,
         originalAmount: row.initial_balance,
-        remainingBalance: addMoney(row.initial_balance, sumMoney((entries ?? []).map((e) => e.amount))),
+        remainingBalance: addMoney(row.initial_balance, sumMoney(list.map((e) => e.amount))),
         active: row.active,
         defaultCategoryId: row.default_category_id ?? undefined,
         monthlyAmount: row.monthly_amount ?? undefined,
         dueDay: row.due_day ?? undefined,
-        paidThisMonth:
-          row.kind === "INSTALLMENT_PLAN"
-            ? (entries ?? []).some((e) => e.amount < 0 && monthKey(e.date) === currentMonth)
-            : undefined,
+        startCompetence: startKey,
+        paidThroughCompetence,
+        scheduleOffset,
+        paidThisMonth: isInstallmentPlan
+          ? list.some((e) => e.amount < 0 && monthKey(e.date) === currentMonth)
+          : undefined,
       };
     })
   );
@@ -62,6 +101,7 @@ export async function createDebt(input: DebtInput): Promise<string> {
       default_category_id: input.defaultCategoryId ?? null,
       monthly_amount: input.monthlyAmount ?? null,
       due_day: input.dueDay ?? null,
+      start_competence: input.startCompetence ? `${input.startCompetence.slice(0, 7)}-01` : null,
     })
     .select("id")
     .single();
@@ -69,9 +109,10 @@ export async function createDebt(input: DebtInput): Promise<string> {
   return data.id;
 }
 
-/** Agent/side/kind/initialBalance/defaultCategoryId/monthlyAmount/dueDay are all freely editable
- * after creation — only the computed remainingBalance formula (initial_balance +
- * SUM(debt_transactions.amount)) is fixed. */
+/** Agent/side/kind/initialBalance/defaultCategoryId/monthlyAmount/dueDay/startCompetence are all
+ * freely editable after creation — only the computed remainingBalance formula (initial_balance +
+ * SUM(debt_transactions.amount)) is fixed. `startCompetence` is "since when this counts", not a
+ * protected monetary value, so no history is kept (same stance as fixed_expenses.start_competence). */
 export async function updateDebt(id: string, input: Partial<DebtInput>): Promise<void> {
   const supabase = await createClient();
   const updates: Record<string, unknown> = {};
@@ -82,6 +123,8 @@ export async function updateDebt(id: string, input: Partial<DebtInput>): Promise
   if (input.defaultCategoryId !== undefined) updates.default_category_id = input.defaultCategoryId;
   if (input.monthlyAmount !== undefined) updates.monthly_amount = input.monthlyAmount;
   if (input.dueDay !== undefined) updates.due_day = input.dueDay;
+  if (input.startCompetence !== undefined)
+    updates.start_competence = input.startCompetence ? `${input.startCompetence.slice(0, 7)}-01` : null;
   const { error } = await supabase.from("debts").update(updates).eq("id", id);
   if (error) throw new Error(error.message);
 }

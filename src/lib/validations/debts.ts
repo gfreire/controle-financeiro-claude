@@ -23,6 +23,10 @@ const debtBaseSchema = z.object({
   // INSTALLMENT_PLAN-only — obrigatórios nesse caso, ver superRefine abaixo.
   monthlyAmount: z.number().positive().optional().nullable(),
   dueDay: z.number().int().min(1).max(28).optional().nullable(),
+  // INSTALLMENT_PLAN-only — mês de competência a partir do qual o parcelamento passa a contar,
+  // usado pra calcular adiantado/atrasado. "YYYY-MM" (o service normaliza pra primeiro dia do
+  // mês). Ver AI_CONTEXT.md "Parcelamento Programado — competência e adiantado/atrasado".
+  startCompetence: z.string().optional().nullable(),
 });
 
 export const debtSchema = debtBaseSchema.superRefine((data, ctx) => {
@@ -32,6 +36,9 @@ export const debtSchema = debtBaseSchema.superRefine((data, ctx) => {
     }
     if (!data.dueDay) {
       ctx.addIssue({ code: "custom", path: ["dueDay"], message: "Dia de vencimento é obrigatório para parcelamento" });
+    }
+    if (!data.startCompetence) {
+      ctx.addIssue({ code: "custom", path: ["startCompetence"], message: "Mês de competência inicial é obrigatório para parcelamento" });
     }
   }
 });

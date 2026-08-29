@@ -248,8 +248,9 @@ async function fetchPeriodEntries(
  * donut, and the viewed-month bar of Evolução mensal) exactly like a real transaction would.
  *
  * Mirrors the "Despesas do mês" card's rule (`getCurrentMonthObligations`): every despesa
- * programada not yet paid this month (`plannedAmount`), every INSTALLMENT_PLAN debt not yet paid
- * this month (`monthlyAmount`), every OVERDUE_BILL debt (`remainingBalance`). This is a
+ * programada not yet paid this month (`plannedAmount`), every INSTALLMENT_PLAN debt whose
+ * competence for `month` isn't covered by payments (`monthlyAmount`), every OVERDUE_BILL debt
+ * (`remainingBalance`). This is a
  * deliberate, documented break from "Money Reality Rules" for the dashboard's expense side —
  * decided 2026-08-28, see AI_CONTEXT.md "Despesas do mês (dashboard)".
  *
@@ -283,7 +284,11 @@ async function fetchUnpaidObligationEntries(
   for (const debt of debts) {
     if (debt.side !== "PAYABLE" || debt.kind === "PERSONAL") continue;
     if (debt.kind === "INSTALLMENT_PLAN") {
-      if (debt.paidThisMonth) continue;
+      // Competence-anchored, not calendar-month: an installment counts as owed for `month` only
+      // once the plan has started and that competence isn't already covered by payments
+      // (oldest-first). See AI_CONTEXT.md "Parcelamento Programado — competência e adiantado/atrasado".
+      if (debt.startCompetence && month < debt.startCompetence) continue;
+      if (debt.paidThroughCompetence && month <= debt.paidThroughCompetence) continue;
       raws.push({ amount: debt.monthlyAmount ?? debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null });
     } else {
       // OVERDUE_BILL — always outstanding
@@ -558,9 +563,9 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
  * settled (`paidTotal`) and what still has to be paid (`items`, one per open commitment).
  * Follows the dashboard's viewed month (`month`, defaulting to today's real month when omitted)
  * so it moves along with the rest of the page's period filter instead of staying pinned to today.
- * `getDebts()`'s `paidThisMonth` (INSTALLMENT_PLAN) is the one figure still anchored to today's
- * real month — `getDebts()` takes no month parameter — a small, accepted inaccuracy when browsing
- * a non-current month.
+ * INSTALLMENT_PLAN debts are judged by competence (`startCompetence`/`paidThroughCompetence` from
+ * `getDebts()`, both month-independent), so they're correct for any browsed month. OVERDUE_BILL,
+ * which has no competence concept, still just shows as always-outstanding regardless of month.
  *
  * `total` = `paidTotal + remainingTotal` = "despesas realizadas do mês + o que ainda falta
  * pagar". Since 2026-08-28 the DESPESAS summary card folds in the same unpaid despesas
@@ -626,7 +631,11 @@ export async function getCurrentMonthObligations(
   for (const debt of debts) {
     if (debt.side !== "PAYABLE" || debt.kind === "PERSONAL") continue;
     if (debt.kind === "INSTALLMENT_PLAN") {
-      if (!debt.paidThisMonth) {
+      // Competence-anchored (see fetchUnpaidObligationEntries above): shown for `month` only once
+      // the plan has started and that competence isn't covered by payments (oldest-first).
+      const started = !debt.startCompetence || month >= debt.startCompetence;
+      const covered = debt.paidThroughCompetence !== undefined && month <= debt.paidThroughCompetence;
+      if (started && !covered) {
         items.push({
           id: debt.id,
           kind: "DEBT",

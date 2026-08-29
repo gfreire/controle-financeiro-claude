@@ -3,13 +3,34 @@ import { Card, CardKicker, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils/currency";
-import { formatDate } from "@/lib/utils/date";
+import { formatDate, formatMonthLabel } from "@/lib/utils/date";
 import { HandCoins, Plus, Minus, Pencil } from "lucide-react";
 import { DebtFormDialog } from "./debt-form-dialog";
 import { DebtTransactionDialog } from "./debt-transaction-dialog";
 import { DeleteDebtButton } from "./delete-debt-button";
 import { DeleteDebtTransactionButton } from "./delete-debt-transaction-button";
 import type { AccountDTO, CategoryDTO, DebtDTO } from "@/types/dto";
+
+/**
+ * INSTALLMENT_PLAN schedule badges: adiantado/atrasado/em dia (from `scheduleOffset`, oldest-first
+ * competence allocation — see AI_CONTEXT.md "Parcelamento Programado — competência e adiantado/
+ * atrasado") plus the monthly due-day reminder.
+ */
+function InstallmentScheduleBadges({ debt }: { debt: DebtDTO }) {
+  const offset = debt.scheduleOffset;
+  return (
+    <>
+      {offset !== undefined && offset > 0 && (
+        <Badge variant="success">Adiantado {offset} {offset === 1 ? "mês" : "meses"}</Badge>
+      )}
+      {offset !== undefined && offset < 0 && (
+        <Badge variant="danger">Atrasado {-offset} {-offset === 1 ? "mês" : "meses"}</Badge>
+      )}
+      {offset === 0 && <Badge variant="success">Em dia</Badge>}
+      {debt.dueDay !== undefined && <Badge variant="warning">Vence dia {debt.dueDay}</Badge>}
+    </>
+  );
+}
 
 /**
  * One debt card — kicker badges, agent + edit/delete, remaining balance, "Novo valor" /
@@ -36,8 +57,7 @@ export async function DebtCard({
         <div>
           <CardKicker className="flex items-center gap-1.5">
             <Badge variant={debt.side === "PAYABLE" ? "danger" : "success"}>{debt.side === "PAYABLE" ? "A pagar" : "A receber"}</Badge>
-            {debt.kind === "INSTALLMENT_PLAN" &&
-              (debt.paidThisMonth ? <Badge variant="success">Pago este mês</Badge> : <Badge variant="warning">Vence dia {debt.dueDay}</Badge>)}
+            {debt.kind === "INSTALLMENT_PLAN" && <InstallmentScheduleBadges debt={debt} />}
           </CardKicker>
           <div className="flex items-center gap-1.5">
             <CardTitle className="flex items-center gap-1">
@@ -58,6 +78,13 @@ export async function DebtCard({
           <div className="text-xl font-semibold tabular-nums">{formatCurrency(debt.remainingBalance)}</div>
           {debt.kind === "INSTALLMENT_PLAN" && debt.monthlyAmount !== undefined && (
             <p className="text-xs opacity-60">{formatCurrency(debt.monthlyAmount)}/mês combinado</p>
+          )}
+          {debt.kind === "INSTALLMENT_PLAN" && (
+            <p className="text-xs opacity-60">
+              {debt.paidThroughCompetence
+                ? `Pago até ${formatMonthLabel(debt.paidThroughCompetence)}`
+                : "Nenhuma parcela paga ainda"}
+            </p>
           )}
         </div>
         <div className="flex gap-2">
