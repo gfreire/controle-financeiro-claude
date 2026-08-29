@@ -11,7 +11,6 @@ export type DashboardSearchParams = {
   accounts?: string;
   categories?: string;
   subcategories?: string;
-  type?: string;
   /** Local to the expense donut only — see DashboardFilters.source. Not read by parseDashboardFilters. */
   expenseSource?: string;
 };
@@ -34,6 +33,9 @@ export function parseDashboardFilters(searchParams: DashboardSearchParams): Dash
     categories: realCategoryIds.length ? realCategoryIds : undefined,
     uncategorizedOnly: uncategorizedOnly || undefined,
     subcategories: searchParams.subcategories ? searchParams.subcategories.split(",").filter(Boolean) : undefined,
-    transactionType: searchParams.type === "INCOME" || searchParams.type === "EXPENSE" ? searchParams.type : undefined,
+    // `transactionType` is no longer a URL control — the category filter's group checkboxes
+    // ("Receitas"/"Despesas") cover "só receitas" / "só despesas" now. The two category donuts
+    // still set it per-call in dashboard/page.tsx.
+    transactionType: undefined,
   };
 }

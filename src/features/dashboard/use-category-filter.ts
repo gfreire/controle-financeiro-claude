@@ -35,5 +35,22 @@ export function useCategoryFilter() {
     navigate(`${pathname}?${params.toString()}`);
   }
 
-  return { activeIds, toggle, clear };
+  /**
+   * Bulk-select/deselect a whole group of ids in one navigation (the "Receitas"/"Despesas"
+   * group checkboxes). Deselecting one member afterwards just drops that id — the rest stay
+   * selected — so the group checkbox naturally reads as indeterminate until re-toggled.
+   */
+  function setGroup(ids: string[], nextChecked: boolean) {
+    const params = new URLSearchParams(searchParams.toString());
+    const next = new Set(activeIds);
+    for (const id of ids) {
+      if (nextChecked) next.add(id);
+      else next.delete(id);
+    }
+    if (next.size) params.set("categories", [...next].join(","));
+    else params.delete("categories");
+    navigate(`${pathname}?${params.toString()}`);
+  }
+
+  return { activeIds, toggle, clear, setGroup };
 }

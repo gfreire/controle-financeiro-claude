@@ -137,9 +137,11 @@ CREATE TABLE public.credit_cards (
 --             o user_id dele. Nunca é consultado direto depois disso.
 -- is_system: catálogo global PERMANENTE, nunca copiado, disponível direto
 --            pra todo usuário pra sempre (query: user_id = auth.uid() OR is_system).
---            Hoje são 4 linhas: Juros (EXPENSE), Rendimentos (INCOME),
---            Ajuste-INCOME e Ajuste-EXPENSE — ver AI_CONTEXT.md pra
---            distinção entre "Informar Rendimento" e "Ajustar Saldo".
+--            Hoje são 8 linhas: Juros (EXPENSE), Rendimentos (INCOME),
+--            Ajuste (INCOME + EXPENSE), Estorno (INCOME + EXPENSE, 0019),
+--            "Compras retroativas" (INCOME, 0030) e "Pagamento de Cartão"
+--            (EXPENSE, 0031). Nenhuma é escolhível em formulário — cada uma
+--            é aplicada só pelo seu próprio fluxo. Ver AI_CONTEXT.md.
 -- is_default e is_system nunca são true ao mesmo tempo na mesma linha.
 -- Não existe FK entre a categoria copiada do usuário e a categoria default
 -- que a originou — a cópia no onboarding é um INSERT único, sem vínculo.
@@ -190,9 +192,10 @@ CREATE TABLE public.subcategories (
 
 -- Seed das categorias globais permanentes (is_system = true) — Juros,
 -- Rendimentos, as duas linhas de Ajuste (INCOME/EXPENSE), as duas de Estorno
--- (0019) e "Compras retroativas" (0030, só INCOME) — vive só em seed.sql, não
--- aqui. Manter num único lugar evita duplicidade quando schema e seed rodam
--- juntos (ver ARCHITECTURE.md nota de implementação).
+-- (0019), "Compras retroativas" (0030, só INCOME) e "Pagamento de Cartão"
+-- (0031, só EXPENSE) — vive só em seed.sql, não aqui. Manter num único lugar
+-- evita duplicidade quando schema e seed rodam juntos (ver ARCHITECTURE.md
+-- nota de implementação).
 
 -- ============================================================
 -- FIXED EXPENSES (despesas fixas recorrentes — aluguel, streaming, etc.)

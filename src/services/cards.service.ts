@@ -528,6 +528,28 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
 }
 
 /**
+ * The `is_system` EXPENSE category every CREDIT_CARD_PAYMENT transaction is tagged with
+ * (migration 0031). The user can never pick it from a form (is_system => filtered out of
+ * CategorySelect) — only this flow applies it. It's EXPENSE-typed even though a card payment
+ * isn't an EXPENSE transaction (there's no CategoryType for CREDIT_CARD_PAYMENT); it never
+ * reaches analytics, which restrict `type in ('INCOME','EXPENSE')` at the query level. See
+ * AI_CONTEXT.md "Pagamento de Cartão — categoria is_system".
+ */
+async function getCardPaymentCategoryId(
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("categories")
+    .select("id")
+    .eq("is_system", true)
+    .eq("name", "Pagamento de Cartão")
+    .eq("type", "EXPENSE")
+    .single();
+  if (error) throw new Error('Categoria de sistema "Pagamento de Cartão" (EXPENSE) não encontrada — verifique o seed');
+  return data.id;
+}
+
+/**
  * Shared by `registerCardPayment` ("Pagar fatura") and `advancePurchaseInstallments`
  * ("Antecipar parcelas") — both are, mechanically, the exact same thing: a CREDIT_CARD_PAYMENT
  * transaction plus its linked card_payments row, reducing the card's outstanding balance via the
@@ -539,6 +561,7 @@ async function insertCardPayment(
   userId: string,
   input: { creditCardId: string; accountId: string; amount: number; paymentDate: string; description: string }
 ): Promise<void> {
+  const categoryId = await getCardPaymentCategoryId(supabase);
   const { data: transaction, error: txError } = await supabase
     .from("transactions")
     .insert({
@@ -549,6 +572,7 @@ async function insertCardPayment(
       amount: input.amount,
       date: input.paymentDate,
       description: input.description,
+      category_id: categoryId,
     })
     .select("id")
     .single();

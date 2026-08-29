@@ -48,7 +48,6 @@ export function DashboardFilters({
 
   const activeAccount = searchParams.get("accounts") ?? "";
   const activeCategoryIds = (searchParams.get("categories") ?? "").split(",").filter(Boolean);
-  const activeType = searchParams.get("type") ?? "";
   const currentMonth = searchParams.get("month") ?? month ?? monthKey(todayIso());
 
   return (
@@ -56,14 +55,9 @@ export function DashboardFilters({
       {/* Month-by-month browser — the only period control on the dashboard now. */}
       <MonthPicker month={currentMonth} onChange={(value) => setParam("month", value)} />
 
-      <Select value={activeType || "ALL"} onValueChange={(v) => setParam("type", v === "ALL" ? null : v)}>
-        <SelectTrigger className="w-36"><SelectValue placeholder="Tipo" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="ALL">Receita e despesa</SelectItem>
-          <SelectItem value="INCOME">Receitas</SelectItem>
-          <SelectItem value="EXPENSE">Despesas</SelectItem>
-        </SelectContent>
-      </Select>
+      {/* "Tipo" (Receitas/Despesas) was folded into the category filter's group checkboxes
+          on 2026-08-28 — selecting a whole "Receitas"/"Despesas" group is the new "só receitas"
+          / "só despesas". */}
 
       <Select value={activeAccount || "ALL"} onValueChange={(v) => setParam("accounts", v === "ALL" ? null : v)}>
         <SelectTrigger className="w-40"><SelectValue placeholder="Conta" /></SelectTrigger>
@@ -82,7 +76,7 @@ export function DashboardFilters({
 
       <CategoryMultiSelect categories={categories} />
 
-      {(activeAccount || activeCategoryIds.length > 0 || activeType) && (
+      {(activeAccount || activeCategoryIds.length > 0) && (
         <button
           onClick={() => {
             const params = new URLSearchParams(searchParams.toString());

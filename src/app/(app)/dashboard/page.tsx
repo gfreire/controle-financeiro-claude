@@ -91,6 +91,16 @@ export default async function DashboardPage({
   ]);
   const budgetTree = await getBudgetTree(filters.periodEnd, fixedExpenses);
 
+  // Quando o usuário filtra por uma categoria que é claramente só de despesa (ou só de receita),
+  // o donut do outro lado fica vazio — não faz sentido mostrar um gráfico "Sem lançamentos".
+  // Só escondemos o lado vazio quando o outro tem dados, pra sempre sobrar ao menos um donut
+  // (com seu botão de limpar filtro) na tela.
+  const hasCategoryFilter = Boolean(
+    filters.categories?.length || filters.subcategories?.length || filters.uncategorizedOnly
+  );
+  const showExpensePie = !hasCategoryFilter || expenseDistribution.length > 0 || incomeDistribution.length === 0;
+  const showIncomePie = !hasCategoryFilter || incomeDistribution.length > 0 || expenseDistribution.length === 0;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -98,7 +108,7 @@ export default async function DashboardPage({
           <h1 className="font-heading text-2xl font-semibold">Dashboard</h1>
           <HelpButton title="Dashboard">
             <p>Visão geral do período: quanto entrou, quanto saiu, e como isso se distribui por categoria.</p>
-            <p>Use a navegação de mês, a conta ou o tipo — e clique numa fatia do gráfico ou numa categoria pra filtrar por ela.</p>
+            <p>Use a navegação de mês, a conta ou o filtro de categoria — marque o grupo Receitas ou Despesas pra ver só um lado — e clique numa fatia do gráfico pra filtrar por ela.</p>
           <p>As despesas incluem também as despesas programadas e os parcelamentos ainda não pagos do mês, além do que já foi lançado.</p>
             <p>Cada linha do Explorador de Lançamentos pode ser editada direto ali, sem abrir outra tela.</p>
           </HelpButton>
@@ -108,30 +118,41 @@ export default async function DashboardPage({
 
       <SummaryCards summary={summary} />
 
-      <MonthObligationsCard
-        data={monthObligations}
-        accounts={accounts}
-        categories={categories}
-        fixedExpenses={fixedExpenses}
-        debts={debts}
-      />
+      {/* "Despesas de {mês}" lista compromissos do mês inteiro (faturas, despesas programadas,
+          dívidas) — não é filtrável por categoria, então esconde quando há filtro de categoria
+          ativo pra não conflitar com o resto da tela já filtrada. */}
+      {!hasCategoryFilter && (
+        <MonthObligationsCard
+          data={monthObligations}
+          accounts={accounts}
+          categories={categories}
+          fixedExpenses={fixedExpenses}
+          debts={debts}
+        />
+      )}
 
       <MonthlyChart data={monthlyEvolution} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-heading text-lg font-semibold">Despesas por categoria</h2>
-            <ExpenseSourceToggle />
-          </div>
-          <CategoryPie data={expenseDistribution} title="Distribuição de despesas" />
-        </div>
+      {(showExpensePie || showIncomePie) && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {showExpensePie && (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-heading text-lg font-semibold">Despesas por categoria</h2>
+                <ExpenseSourceToggle />
+              </div>
+              <CategoryPie data={expenseDistribution} title="Distribuição de despesas" />
+            </div>
+          )}
 
-        <div className="flex flex-col gap-2">
-          <h2 className="font-heading text-lg font-semibold">Receitas por categoria</h2>
-          <CategoryPie data={incomeDistribution} title="Distribuição de receitas" />
+          {showIncomePie && (
+            <div className="flex flex-col gap-2">
+              <h2 className="font-heading text-lg font-semibold">Receitas por categoria</h2>
+              <CategoryPie data={incomeDistribution} title="Distribuição de receitas" />
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       <BudgetsPanel categories={budgetTree} />
 

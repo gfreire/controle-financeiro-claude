@@ -10,7 +10,8 @@ values
 (gen_random_uuid(), 'Ajuste', 'EXPENSE', '⚖️', '#a855f7', true, false),
 (gen_random_uuid(), 'Estorno', 'EXPENSE', '↩️', '#0ea5e9', true, false),
 (gen_random_uuid(), 'Estorno', 'INCOME', '↩️', '#0ea5e9', true, false),
-(gen_random_uuid(), 'Compras retroativas', 'INCOME', '🕓', '#0d9488', true, false);
+(gen_random_uuid(), 'Compras retroativas', 'INCOME', '🕓', '#0d9488', true, false),
+(gen_random_uuid(), 'Pagamento de Cartão', 'EXPENSE', '🧾', '#64748b', true, false);
 -- ADICIONADO: faltavam as 2 linhas de "Ajuste" (INCOME e EXPENSE) definidas
 -- na sessão de replanejamento — saída do reconcileAccountBalance ("Ajustar
 -- Saldo"), separado de Rendimentos (que é o registerYield/"Informar Rendimento").
@@ -20,6 +21,10 @@ values
 -- ADICIONADO (0030): "Compras retroativas" (só INCOME — uma linha) — categoria pra agrupar a
 -- RECEITA sintética de parcelas card_installments.paid_before_system no dashboard, que antes
 -- ficava fora do donut/barras de categoria de receita. Ver AI_CONTEXT.md "Compras retroativas".
+-- ADICIONADO (0031): "Pagamento de Cartão" (só EXPENSE — uma linha) — rótulo aplicado
+-- automaticamente por cards.service#registerCardPayment a toda transação CREDIT_CARD_PAYMENT.
+-- Nunca escolhível pelo usuário (is_system) e nunca entra em analytics (as queries restringem
+-- type in ('INCOME','EXPENSE')). Ver AI_CONTEXT.md "Pagamento de Cartão — categoria is_system".
 
 -- ============================================
 -- DEFAULT EXPENSE CATEGORIES
