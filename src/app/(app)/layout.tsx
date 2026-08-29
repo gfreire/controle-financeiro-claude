@@ -23,7 +23,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="flex min-h-svh">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
-          <Header userEmail={user.email ?? null} />
+          <Header userName={profile.name} userEmail={user.email ?? null} />
           <main className="flex-1 overflow-x-hidden p-4 pb-20 md:p-6 md:pb-6">{children}</main>
         </div>
         <BottomNavigation />
