@@ -27,7 +27,8 @@ import type {
  * "Vence essa semana" alert. See AI_CONTEXT.md "Despesas do mês (dashboard)".
  *
  * The donut carries the "Pago" slice and `total` in the centre (like every other donut in the
- * app); the list below is only the unpaid items (each = one slice). Aggregation is all in
+ * app); the list below is only the unpaid items (each = one slice). The donut keeps the
+ * service's order (by amount); the list is re-ordered here by due date. Aggregation is all in
  * `getCurrentMonthObligations` (Chart Rules — no reduce() here).
  */
 
@@ -78,15 +79,28 @@ export function MonthObligationsCard({
   const fixedById = new Map(fixedExpenses.map((f) => [f.id, f]));
   const debtById = new Map(debts.map((d) => [d.id, d]));
 
+  // The donut keeps the service's order (by amount, desc); each item's colour is fixed by that
+  // order so the list swatch below matches its slice.
+  const colorByItemId = new Map(data.items.map((item, i) => [item.id, SLICE_COLORS[i % SLICE_COLORS.length]]));
+
   const slices = [
-    ...data.items.map((item, i) => ({
+    ...data.items.map((item) => ({
       key: item.id,
       name: item.description,
       value: item.amount,
-      color: SLICE_COLORS[i % SLICE_COLORS.length],
+      color: colorByItemId.get(item.id)!,
     })),
     ...(data.paidTotal > 0 ? [{ key: "__paid__", name: "Pago", value: data.paidTotal, color: PAID_COLOR }] : []),
   ];
+
+  // The list is ordered by due date instead: overdue bills (no dueDay) first, then ascending
+  // dueDay. Same items as the donut, just a different reading order.
+  const listItems = [...data.items].sort((a, b) => {
+    if (a.dueDay === undefined && b.dueDay === undefined) return 0;
+    if (a.dueDay === undefined) return -1;
+    if (b.dueDay === undefined) return 1;
+    return a.dueDay - b.dueDay;
+  });
 
   function renderAction(item: MonthObligationItemDTO) {
     const trigger = (
@@ -149,10 +163,10 @@ export function MonthObligationsCard({
         <p className="text-sm opacity-60">Tudo pago neste mês.</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {data.items.map((item, i) => (
+          {listItems.map((item) => (
             <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-1.5">
-                <span className="size-2.5 shrink-0" style={{ background: SLICE_COLORS[i % SLICE_COLORS.length] }} />
+                <span className="size-2.5 shrink-0" style={{ background: colorByItemId.get(item.id) }} />
                 {item.description}
               </span>
               <span className="flex items-center gap-2">
