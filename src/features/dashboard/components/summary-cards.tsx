@@ -12,7 +12,12 @@ export function SummaryCards({ summary }: { summary: FinancialSummaryDTO }) {
       <Card elevation="sm">
         <CardKicker className="flex items-center gap-1"><Wallet className="size-3" strokeWidth={1.5} /> Saldo</CardKicker>
         <CardTitle className="text-2xl">{formatCurrency(summary.balance)}</CardTitle>
-        <CardMeta>Saldo total nas contas</CardMeta>
+        <CardMeta className="flex-col items-start gap-0.5">
+          <span>Saldo total nas contas</span>
+          {summary.reservedTotal > 0 && (
+            <span className="text-accent">{formatCurrency(summary.reservedTotal)} guardado em metas</span>
+          )}
+        </CardMeta>
       </Card>
 
       <Card elevation="sm">

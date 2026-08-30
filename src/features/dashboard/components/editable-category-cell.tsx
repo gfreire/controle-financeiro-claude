@@ -52,6 +52,15 @@ export function EditableCategoryCell({
   if (row.type === "TRANSFER") {
     return <span className="text-xs opacity-40">—</span>;
   }
+  // Aporte/resgate de Meta — geridos pela tela de Metas, sem categoria editável aqui. Um REDEEM
+  // carrega a categoria system "Resgate de Meta ..." (o bloco is_system abaixo também cobriria),
+  // um RESERVE não carrega nenhuma.
+  if (row.type === "RESERVE") {
+    return <span className="text-xs opacity-70">Aporte para meta</span>;
+  }
+  if (row.type === "REDEEM") {
+    return <span className="text-xs opacity-70">Resgate de meta</span>;
+  }
 
   // A row already tagged with an is_system category (e.g. an installment of a refunded purchase,
   // now "Estorno") is never hand-editable — those categories are applied only by their own system

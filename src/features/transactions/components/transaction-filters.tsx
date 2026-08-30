@@ -54,6 +54,8 @@ export function TransactionFilters({ accounts, categories }: { accounts: Account
           <SelectItem value="EXPENSE">Despesas</SelectItem>
           <SelectItem value="TRANSFER">Transferências</SelectItem>
           <SelectItem value="CREDIT_CARD_PAYMENT">Pagamento de Cartão</SelectItem>
+          <SelectItem value="RESERVE">Aportes para metas</SelectItem>
+          <SelectItem value="REDEEM">Resgates de metas</SelectItem>
         </SelectContent>
       </Select>
 

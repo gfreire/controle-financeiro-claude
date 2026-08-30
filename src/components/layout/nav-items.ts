@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, ArrowLeftRight, Wallet, CreditCard, Vault, HandCoins, FileWarning, CalendarClock, PiggyBank, Settings } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, Wallet, CreditCard, Vault, HandCoins, FileWarning, CalendarClock, PiggyBank, Target, Settings } from "lucide-react";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -23,6 +23,7 @@ export const PRIMARY_NAV: NavItem[] = [
 // only (see AI_CONTEXT.md "Dívidas — subtipos" → "Telas separadas").
 export const SECONDARY_NAV: NavItem[] = [
   { href: "/reservoirs", label: "Receita Programada", icon: Vault },
+  { href: "/goals", label: "Metas", icon: Target },
   { href: "/debts", label: "Dívidas Pessoais", icon: HandCoins },
   { href: "/overdue-bills", label: "Contas em Atraso", icon: FileWarning },
   { href: "/installment-plans", label: "Parcelamento Programado", icon: CalendarClock },

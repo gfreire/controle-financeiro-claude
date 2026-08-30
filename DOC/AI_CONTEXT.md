@@ -351,6 +351,84 @@ Reservoir must **never** affect account balances, income/expense totals, or dash
 
 ---
 
+# Metas ("Goals")
+
+**Decidido e implementado 2026-08-30, a pedido do usuário**, depois de várias rodadas de design (registradas na conversa). Migrations `0034`-`0037`. Feature interna `goals` (rota `/goals`, `goals.service.ts`, `GoalDTO`), rótulo "Metas" na UI — mesma convenção de nomes-internos-em-inglês do resto do projeto.
+
+Uma Meta é o **espelho invertido da "Receita Programada" (Reservoir)**: dinheiro que o usuário **já tem** e está separando ativamente de uma conta rumo a um objetivo, com um valor-alvo e — opcionalmente — um aporte mensal e/ou um prazo.
+
+| | Receita Programada | Meta |
+|---|---|---|
+| Representa | dinheiro que ainda vou receber | dinheiro que já tenho e estou separando |
+| Lançamento positivo | acúmulo esperado | aporte (`RESERVE`) |
+| Rende? | não (não é dinheiro real ainda) | sim (é dinheiro real parado) |
+| Saque | dinheiro "chega" → vira RECEITA | dinheiro **volta** pro bolso → **não** é receita nova (`REDEEM`) |
+| Cronograma | — | adiantado/atrasado, padrão `INSTALLMENT_PLAN` (`0032`) |
+
+## Tabelas e o modelo de dinheiro
+
+- **`goals`** (migration `0035`): `name`, `goal_target` (obrigatório, > 0 — o "valor total" do donut, a coisa que se alcança), `start_competence` (mês de início do cronograma, 1º dia do mês), `end_date` (opcional — mês-alvo de conclusão), `monthly_contribution` (opcional — dá pra guardar "o que der", sem aporte fixo), `anchor_date` (início da "perna" atual do cronograma).
+- **`goal_yields`** (migration `0035`): rendimento. `origin_redeem_transaction_id` distingue **rendimento informado** (`NULL`) de **rendimento reconhecido dentro de um resgate** (FK `ON DELETE CASCADE` pro `REDEEM` — apagar o resgate apaga esse rendimento junto, sem matching frágil por data).
+- **`transactions.goal_id`** (migration `0035`, `ON DELETE SET NULL`): liga um `RESERVE`/`REDEEM` à meta. Apagar a meta deixa o histórico de dinheiro real intacto em Movimentações, só solta o vínculo — mesma ideia de `reservoir_transactions.linked_transaction_id`.
+- **`currentBalance` nunca é coluna**: `Σ RESERVE − Σ REDEEM + Σ goal_yields`, sempre calculado (`goals.service.ts#computeGoalBalance` / `getGoals`).
+
+**Tipos de transação novos: `RESERVE` / `REDEEM` (migration `0034`).** Aportar/resgatar é movimento de dinheiro real (sai/entra de uma conta **CASH/BANK** — nunca cartão, checado server-side lendo o `type` da conta, igual `payFixedExpense`/`addDebtTransaction`), mas **não é receita nem despesa** — é dinheiro seu mudando de bolso, exatamente como `TRANSFER`. Toda query de analytics restringe `type in ('INCOME','EXPENSE')`, então `RESERVE`/`REDEEM` ficam de fora automaticamente (donut de categoria, DESPESAS/RECEITAS, Balanço, Evolução mensal, Explorador de Lançamentos do dashboard). `getAccountBalance` (CASH/BANK) soma **toda** transação por origin/destination sem olhar o `type`, então `RESERVE` (origin) reduz o saldo da conta e `REDEEM` (destination) aumenta, sem código novo. Consequência: o "Saldo total nas contas" do dashboard **já exclui** o dinheiro guardado sozinho — "dinheiro de giro" fica correto de graça, e o "guardado" aparece como sub-linha (`FinancialSummaryDTO.reservedTotal`).
+
+## Rendimento — sempre RECEITA, reconhecido em um de dois momentos
+
+Rendimento de meta é **dinheiro novo** e conta como receita, na categoria system **"Rendimentos"** já existente (o usuário decidiu reusar: "cofrinho rende igual conta, só separado" — nenhuma categoria nova). Ele **não** vira uma `transactions` real — vive em `goal_yields` e entra no dashboard como **RECEITA sintética** sob "Rendimentos", exatamente o padrão de "Compras retroativas" (migration `0030`): `dashboard.service.ts#fetchPeriodEntries` emite as `goal_yields` do período como entradas `INCOME` (via o helper cacheado `getRendimentosCategory`). Aparece no donut de receita, no total de RECEITAS, na Evolução mensal. **Não aparece no Explorador de Lançamentos** — mas o rendimento informado nunca apareceria mesmo, então é consistente. Guards: só lado receita, pula `uncategorizedOnly`/subcategoria, e é excluído quando há filtro de conta (rendimento de meta não tem conta).
+
+- **"Informar rendimento"** (`registerGoalYield`): o usuário digita o saldo real atual da meta; o delta sobre o saldo calculado vira uma `goal_yields` (`origin_redeem_transaction_id = NULL`). Mesma UX de `accounts.service#registerYield`. Só delta positivo na v1 — uma correção pra baixo se faz editando a meta, não aqui.
+- **No resgate** (`redeemGoal`): o `REDEEM` é sempre o **valor cheio sacado**. Se `amount > saldo de livro` (rendimento que nunca foi informado), o excedente vira uma `goal_yields` datada no dia do resgate, `origin_redeem_transaction_id` = o `REDEEM`. Exemplo do usuário: 80k reservados, nunca informou rendimento, saca 85k → `REDEEM` de 85k (categoria de resgate) + `goal_yields` de 5k. Se o rendimento tivesse sido informado ao longo do tempo, o saldo de livro já seria 85k e não haveria excedente — sem dupla contagem.
+
+## Resgate — categoria e motivo
+
+`REDEEM` carrega uma de duas categorias `is_system` **INCOME** (migration `0036`), escolhida automaticamente e sobrescrevível por um **toggle dedicado de 2 opções** no dialog (nunca pelo `CategorySelect`, que filtra `is_system`):
+
+- **"Resgate de Meta Concluída"** — o saldo já tinha atingido o `goal_target`.
+- **"Resgate de Meta Antecipado"** — o saldo estava abaixo do alvo (o sinal de "tive que mexer no dinheiro guardado" — emergência / descuido, no espírito do sinal de "Ajuste").
+
+Tipo INCOME (o dinheiro volta pro bolso), mas isso é irrelevante pra analytics — `REDEEM` já é excluído por `type`. A categoria é rótulo puro + alça de filtro em `/transactions` (`getTransactions` não restringe `type`, então filtrar por ela agrupa os resgates). Mesma mecânica de "Pagamento de Cartão" (`0031`). Decisão do usuário de usar categoria em vez de uma coluna-enum: "categoria já existe em transactions, dá o filtro de graça; uma coluna-enum só pra um fluxo é que seria poluição."
+
+**Só resgate parcial ou total livre** — o usuário pode sacar a qualquer momento, mesmo sem bater a meta, e mesmo mais do que o guardado (o excedente vira rendimento reconhecido, acima).
+
+## Cronograma (adiantado / atrasado) e "Recalcular"
+
+Segue o padrão de `INSTALLMENT_PLAN.scheduleOffset` (migration `0032`), sempre ancorado em hoje. `goals.service.ts#scheduleFor`:
+
+- `anchorBalance` = saldo da meta considerando lançamentos com `date <= anchor_date` — calculado **ao vivo do ledger imutável**, então um rebase nunca precisa gravar um snapshot de valor.
+- `monthsElapsed = max(0, monthsBetween(anchorMonth, currentMonth))`.
+- `expectedByNow = min(anchorBalance + monthly_contribution × monthsElapsed, goal_target)`.
+- `scheduleOffsetMonths = round((currentBalance − expectedByNow) / monthly_contribution)` — `> 0` adiantado, `< 0` atrasado, `0` em dia. Só quando `monthly_contribution` existe e a meta não foi atingida.
+- `status`: `REACHED` (saldo ≥ alvo) / `AHEAD` / `ON_TRACK` / `BEHIND` / `NO_SCHEDULE` (sem `monthly_contribution` — a meta vira só um tracker de progresso, sem badge de adiantado/atrasado).
+- `projectedCompletionMonth` = `ceil((goal_target − currentBalance) / monthly_contribution)` meses à frente.
+
+**"Recalcular" (`updateGoal` com `rebase: true`, ou qualquer edição de `end_date`)**: `anchor_date = hoje` e, se não veio um `monthly_contribution` explícito, ele é regravado = `(goal_target − saldo atual) / meses restantes até end_date`. O **ledger nunca é tocado** — "quanto já foi feito" é sempre o saldo calculado em `anchor_date`. Não há track separado de "X era aporte, Y era rendimento": o ledger *é* esse track (`Σ RESERVE` = principal aportado, `Σ goal_yields` = rendimento reconhecido, ambos imutáveis). É por isso também que **excluir um lançamento errado é hard delete** e seguro — nenhum valor derivado é guardado, tudo recalcula.
+
+## Alvo, aporte e prazo — dois definem o terceiro
+
+`goal_target` sempre obrigatório ("meta sempre tem objetivo; só guardar dinheiro é deixar na conta"). `monthly_contribution` e `end_date` opcionais. Se `end_date` for preenchido e `monthly_contribution` não, o service calcula o aporte = `(goal_target − reserva inicial) / meses`. O `GoalFormDialog` também mostra essa sugestão ao vivo (client-side) com um botão "usar". Reserva inicial opcional no form de criação = um primeiro `RESERVE` real de uma conta, datado em `start_competence` (pra cair dentro do `anchorBalance`, não contar como aporte posterior).
+
+## Exclusão
+
+- **`deleteGoal`** — hard delete (uma meta não precisa de fluxo de reatribuição). `goal_yields` cascateia (`ON DELETE CASCADE`); os `RESERVE`/`REDEEM` sobrevivem com `goal_id = NULL` (dinheiro real se moveu — o histórico não some). Mesma filosofia de `deleteReservoir`.
+- **`deleteGoalEntry`** (um `RESERVE`/`REDEEM`) — hard delete; o saldo da conta recalcula; um `goal_yields` reconhecido num `REDEEM` apagado cascateia junto. Pra corrigir um **erro de digitação**, o caminho preferido é **editar** o lançamento (`updateGoalEntry` — valor/data/conta/descrição, propaga pra `transactions`), não apagar; delete é pra um lançamento genuinamente espúrio. Editar o *valor* de um `REDEEM` que gerou rendimento reconhecido não recalcula esse rendimento — nesse caso, exclua e refaça.
+- **`deleteGoalYield`** — só um rendimento **informado** (`origin_redeem_transaction_id IS NULL`); um reconhecido num resgate se apaga apagando o resgate.
+- `RESERVE`/`REDEEM` no Explorador de Lançamentos / `/transactions` são **read-only** ("Edite pela tela de Metas"), igual parcelas de cartão — `EditableCategoryCell` mostra rótulo fixo ("Aporte para meta" / "Resgate de meta").
+
+## Dashboard
+
+- **Bloco "Metas"** (`GoalsOverview` / `getGoalsOverview`): um donut compacto + badge de status por meta. Escondido sob filtro de categoria (igual o card "Despesas de {mês}" — lista compromissos não filtráveis por categoria).
+- **Evolução mensal** ganha uma 3ª barra "Guardado (metas)" = **fluxo do mês** (`Σ RESERVE − Σ REDEEM` datado no mês, `MonthlyEvolutionDTO.reserved`) — mesma unidade das outras barras. Não é cumulativo; o acumulado vive no gráfico próprio de `/goals`. Só renderiza se houver algum mês com fluxo > 0.
+- **Card de Saldo** ganha a sub-linha "R$ X guardado em metas" (`FinancialSummaryDTO.reservedTotal` = Σ saldo de todas as metas ativas; figura global, não escopada pelo filtro de conta).
+- **`/goals`**: gráfico "Acumulado guardado" (`getGoalAccumulation` — total guardado no fim de cada um dos últimos 13 meses + linha de referência na soma dos alvos) + um card por meta (donut, badges, ações Aportar/Rendimento/Resgatar/Recalcular, lista de lançamentos).
+
+## Visão futura (não implementada)
+
+O objetivo de longo prazo do usuário com Metas é **previsibilidade com juros compostos** (projetar a curva, comparar projetado vs. real, e a calculadora de aporte resolver o PMT dado alvo + taxa). O schema v1 não bloqueia isso: a fase 2 só adiciona um `expected_annual_rate` opcional em `goals` e uma linha de projeção no gráfico de acumulado — `goal_yields` já registra o rendimento real ao longo do tempo. Continua tudo manual no rendimento real; a taxa serviria só pra projeção.
+
+---
+
 # Debts
 
 Types: `PAYABLE` (owed by the user) and `RECEIVABLE` (owed to the user). `debts.initial_balance` seeds the starting amount; the current `remainingBalance` is **never a stored column** — always `initial_balance + SUM(debt_transactions.amount)`, computed in the service layer (may be backed by a SQL view for performance).
@@ -613,9 +691,11 @@ Toda linha que já estava com `active = false` no banco no momento da migração
 
 Only these affect financial totals: `transactions`, `card_installments`, `card_payments` (via their linked transaction), `card_refunds` (counts as INCOME for the month of `refund_date`, and reduces the card's outstanding balance like a payment — see "Estorno").
 
-Never affect totals directly: `reservoirs`/`reservoir_transactions`, `debts`/`debt_transactions`, `budgets`, `fixed_expenses`. They may appear in informational panels, but only the real transactions they eventually link to move the needle on analytics.
+Never affect totals directly: `reservoirs`/`reservoir_transactions`, `debts`/`debt_transactions`, `budgets`, `fixed_expenses`, `goals`. They may appear in informational panels, but only the real transactions they eventually link to move the needle on analytics.
 
-`TRANSFER` and `CREDIT_CARD_PAYMENT` transactions still never count as INCOME/EXPENSE — the analytics queries filter `type in ('INCOME','EXPENSE')`. A `CREDIT_CARD_PAYMENT` now carrying the `is_system` `EXPENSE` category `Pagamento de Cartão` (migration `0031`, see "Pagamento de Cartão — categoria `is_system`") does **not** change this — the category is a label, the `type` filter is what excludes the row.
+`TRANSFER`, `CREDIT_CARD_PAYMENT`, `RESERVE` and `REDEEM` transactions still never count as INCOME/EXPENSE — the analytics queries filter `type in ('INCOME','EXPENSE')`. A `CREDIT_CARD_PAYMENT` carrying the `is_system` `EXPENSE` category `Pagamento de Cartão` (migration `0031`), and a `REDEEM` carrying `Resgate de Meta Concluída`/`Antecipado` (migration `0036`), do **not** change this — the category is a label, the `type` filter is what excludes the row. `RESERVE`/`REDEEM` (aporte/resgate de Meta, see "Metas") do move CASH/BANK account balances (like TRANSFER), just not income/expense totals.
+
+**Goal yields count as INCOME.** `goal_yields` (rendimento de uma Meta) is real earned money — it's emitted by `fetchPeriodEntries` as synthetic INCOME under the `is_system` "Rendimentos" category (no `transactions` row — same shape as "Compras retroativas"), so it shows in the income donut, the RECEITAS total and the monthly-evolution income. See "Metas".
 
 **One deliberate, documented exception (2026-08-28):** the **dashboard's expense side** — the "Despesas por categoria" donut, the DESPESAS summary card (and therefore the Balanço Mensal), and the viewed-month bar of Evolução mensal — projects the viewed month's **unpaid** `fixed_expenses` and `PAYABLE` `OVERDUE_BILL`/`INSTALLMENT_PLAN` `debts` as synthetic EXPENSE entries, matching the "Despesas do mês" card. This is dashboard-presentation only (via `dashboard.service.ts#fetchUnpaidObligationEntries` — no `transactions` rows are created) and does not extend to the Explorador de Lançamentos, account balances, budgets' `actualAmount`, or anything else. See "Despesas projetadas no resto do dashboard".
 

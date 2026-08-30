@@ -22,7 +22,7 @@ export default async function TransactionsPage({
     getTransactions({
       periodStart,
       periodEnd,
-      type: resolvedSearchParams.type as "INCOME" | "EXPENSE" | "TRANSFER" | "CREDIT_CARD_PAYMENT" | undefined,
+      type: resolvedSearchParams.type as "INCOME" | "EXPENSE" | "TRANSFER" | "CREDIT_CARD_PAYMENT" | "RESERVE" | "REDEEM" | undefined,
       accountId: resolvedSearchParams.accountId,
       categoryId: resolvedSearchParams.categoryId,
       subcategoryId: resolvedSearchParams.subcategoryId,

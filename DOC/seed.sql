@@ -11,7 +11,9 @@ values
 (gen_random_uuid(), 'Estorno', 'EXPENSE', '↩️', '#0ea5e9', true, false),
 (gen_random_uuid(), 'Estorno', 'INCOME', '↩️', '#0ea5e9', true, false),
 (gen_random_uuid(), 'Compras retroativas', 'INCOME', '🕓', '#0d9488', true, false),
-(gen_random_uuid(), 'Pagamento de Cartão', 'EXPENSE', '🧾', '#64748b', true, false);
+(gen_random_uuid(), 'Pagamento de Cartão', 'EXPENSE', '🧾', '#64748b', true, false),
+(gen_random_uuid(), 'Resgate de Meta Concluída', 'INCOME', '🎯', '#16a34a', true, false),
+(gen_random_uuid(), 'Resgate de Meta Antecipado', 'INCOME', '⚠️', '#f59e0b', true, false);
 -- ADICIONADO: faltavam as 2 linhas de "Ajuste" (INCOME e EXPENSE) definidas
 -- na sessão de replanejamento — saída do reconcileAccountBalance ("Ajustar
 -- Saldo"), separado de Rendimentos (que é o registerYield/"Informar Rendimento").
@@ -25,6 +27,11 @@ values
 -- automaticamente por cards.service#registerCardPayment a toda transação CREDIT_CARD_PAYMENT.
 -- Nunca escolhível pelo usuário (is_system) e nunca entra em analytics (as queries restringem
 -- type in ('INCOME','EXPENSE')). Ver AI_CONTEXT.md "Pagamento de Cartão — categoria is_system".
+-- ADICIONADO (0036): "Resgate de Meta Concluída" / "Resgate de Meta Antecipado" (2 linhas, ambas
+-- INCOME) — rótulo de um REDEEM (saque de uma Meta pra uma conta), escolhido automaticamente pelo
+-- saldo vs. alvo no momento do saque. Como "Pagamento de Cartão": is_system (fora do CategorySelect),
+-- e REDEEM já é excluído de analytics por type — a categoria é só alça de filtro em /transactions.
+-- Ver AI_CONTEXT.md "Metas".
 
 -- ============================================
 -- DEFAULT EXPENSE CATEGORIES

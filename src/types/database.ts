@@ -5,7 +5,9 @@
 
 export type AccountType = "CASH" | "BANK" | "CREDIT_CARD";
 export type CategoryType = "INCOME" | "EXPENSE";
-export type TransactionType = "INCOME" | "EXPENSE" | "TRANSFER" | "CREDIT_CARD_PAYMENT";
+// RESERVE/REDEEM (migration 0034) — aporte/resgate de uma Meta. Só mexem em saldo de conta,
+// nunca contam como INCOME/EXPENSE (as queries de analytics restringem type). Ver AI_CONTEXT.md "Metas".
+export type TransactionType = "INCOME" | "EXPENSE" | "TRANSFER" | "CREDIT_CARD_PAYMENT" | "RESERVE" | "REDEEM";
 export type DebtSide = "PAYABLE" | "RECEIVABLE";
 export type DebtKind = "PERSONAL" | "OVERDUE_BILL" | "INSTALLMENT_PLAN";
 
@@ -103,6 +105,30 @@ export interface TransactionRow {
   subcategory_id: string | null;
   is_reservoir: boolean;
   fixed_expense_id: string | null;
+  goal_id: string | null; // migration 0035 — set only on RESERVE/REDEEM
+  created_at: string;
+}
+
+export interface GoalRow {
+  id: string;
+  user_id: string;
+  name: string;
+  goal_target: number;
+  start_competence: string; // "YYYY-MM-DD" (first of month)
+  end_date: string | null; // "YYYY-MM-DD" (first of month) or null
+  monthly_contribution: number | null;
+  anchor_date: string; // "YYYY-MM-DD" — schedule leg start; = start_competence, or rebase date
+  created_at: string;
+}
+
+export interface GoalYieldRow {
+  id: string;
+  user_id: string;
+  goal_id: string;
+  amount: number;
+  date: string;
+  description: string | null;
+  origin_redeem_transaction_id: string | null; // null = informed yield; set = recognized inside a redeem (cascades with it)
   created_at: string;
 }
 

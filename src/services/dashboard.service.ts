@@ -7,6 +7,7 @@ import { getAccounts } from "./accounts.service";
 import { getCardSummary } from "./cards.service";
 import { getFixedExpenses } from "./fixed-expenses.service";
 import { getDebts } from "./debts.service";
+import { getReservedTotal } from "./goals.service";
 import type {
   DashboardFilters,
   FinancialSummaryDTO,
@@ -235,6 +236,43 @@ async function fetchPeriodEntries(
     }
   }
 
+  // Goal yields (AI_CONTEXT.md "Metas") — rendimento de uma Meta. Real earned money, but it lives
+  // in `goal_yields`, not a real `transactions` row (the money is "in the goal", not a tracked
+  // account) — so it's emitted here as synthetic INCOME under the existing `is_system`
+  // "Rendimentos" category, exactly like "Compras retroativas" above. No account of its own, so
+  // an account filter excludes it; the category filter matches the "Rendimentos" id.
+  const wantsGoalYieldIncome =
+    includeLiquid &&
+    filters.transactionType !== "EXPENSE" &&
+    !filters.uncategorizedOnly &&
+    !filters.subcategories?.length &&
+    !filters.accounts?.length;
+
+  if (wantsGoalYieldIncome) {
+    const rendimentos = await getRendimentosCategory();
+    if (!filters.categories?.length || filters.categories.includes(rendimentos.id)) {
+      const { data: goalYields, error: goalYieldError } = await supabase
+        .from("goal_yields")
+        .select("amount, date")
+        .eq("user_id", userId)
+        .gte("date", filters.periodStart)
+        .lte("date", filters.periodEnd);
+      if (goalYieldError) throw new Error(goalYieldError.message);
+
+      for (const row of goalYields ?? []) {
+        entries.push({
+          amount: row.amount,
+          date: row.date,
+          type: "INCOME",
+          categoryId: rendimentos.id,
+          categoryName: rendimentos.name,
+          categoryColor: rendimentos.color,
+          categoryIcon: rendimentos.icon,
+        });
+      }
+    }
+  }
+
   if (obligationsMonth) {
     entries.push(...(await fetchUnpaidObligationEntries(supabase, filters, obligationsMonth)));
   }
@@ -351,6 +389,26 @@ const getRetroactiveIncomeCategory = cache(async (): Promise<{
   return data as { id: string; name: string; color: string; icon: string | null };
 });
 
+/** The `is_system` "Rendimentos" INCOME category — goal yields (AI_CONTEXT.md "Metas") are
+ * bucketed under it as synthetic income, same shape as `getRetroactiveIncomeCategory`. */
+const getRendimentosCategory = cache(async (): Promise<{
+  id: string;
+  name: string;
+  color: string;
+  icon: string | null;
+}> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("categories")
+    .select("id, name, color, icon")
+    .eq("is_system", true)
+    .eq("name", "Rendimentos")
+    .eq("type", "INCOME")
+    .single();
+  if (error) throw new Error(error.message);
+  return data as { id: string; name: string; color: string; icon: string | null };
+});
+
 export async function getFinancialSummary(
   filters: DashboardFilters,
   obligationsMonth?: string
@@ -372,6 +430,7 @@ export async function getFinancialSummary(
   const retroactiveIncomeTotal = sumMoney(
     entries.filter((e) => e.categoryName === "Compras retroativas").map((e) => e.amount)
   );
+  const reservedTotal = await getReservedTotal();
   return {
     balance,
     income,
@@ -382,6 +441,7 @@ export async function getFinancialSummary(
     adjustmentAmount: adjustmentTotal,
     retroactiveIncomeAmount: retroactiveIncomeTotal,
     refundAmount: refundTotal,
+    reservedTotal,
   };
 }
 
@@ -396,6 +456,25 @@ export async function getMonthlyEvolution(
   // actuals-only, which keeps the viewed month's bar reconciled with the category donut.
   const entries = await fetchPeriodEntries(supabase, user.id, filters, obligationsMonth);
 
+  // Reserved flow (Meta aporte/resgate) per month — a third bar, same unit as income/expense.
+  // Net Σ RESERVE − Σ REDEEM dated in each month; goal-linked rows only (an orphaned RESERVE from
+  // a deleted goal is excluded). Respects the account filter for consistency, ignores the
+  // category filter (RESERVE/REDEEM carry no analytics category).
+  let reservedQuery = supabase
+    .from("transactions")
+    .select("amount, type, date")
+    .eq("user_id", user.id)
+    .in("type", ["RESERVE", "REDEEM"])
+    .not("goal_id", "is", null)
+    .gte("date", filters.periodStart)
+    .lte("date", filters.periodEnd);
+  if (filters.accounts?.length) {
+    const list = filters.accounts.join(",");
+    reservedQuery = reservedQuery.or(`origin_account_id.in.(${list}),destination_account_id.in.(${list})`);
+  }
+  const { data: reservedRows, error: reservedError } = await reservedQuery;
+  if (reservedError) throw new Error(reservedError.message);
+
   const months: string[] = [];
   let cursor = filters.periodStart.slice(0, 7);
   const endMonth = filters.periodEnd.slice(0, 7);
@@ -406,10 +485,15 @@ export async function getMonthlyEvolution(
 
   return months.map((month) => {
     const monthEntries = entries.filter((e) => monthKey(e.date) === month);
+    const monthReserved = (reservedRows ?? []).filter((r) => monthKey(r.date) === month);
     return {
       month: formatMonthLabel(month, true),
       income: sumMoney(monthEntries.filter((e) => e.type === "INCOME").map((e) => e.amount)),
       expense: sumMoney(monthEntries.filter((e) => e.type === "EXPENSE").map((e) => e.amount)),
+      reserved: subtractMoney(
+        sumMoney(monthReserved.filter((r) => r.type === "RESERVE").map((r) => r.amount)),
+        sumMoney(monthReserved.filter((r) => r.type === "REDEEM").map((r) => r.amount))
+      ),
     };
   });
 }

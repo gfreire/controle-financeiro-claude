@@ -10,7 +10,7 @@ export type TransactionFilters = {
   accountId?: string;
   categoryId?: string;
   subcategoryId?: string;
-  type?: "INCOME" | "EXPENSE" | "TRANSFER" | "CREDIT_CARD_PAYMENT";
+  type?: "INCOME" | "EXPENSE" | "TRANSFER" | "CREDIT_CARD_PAYMENT" | "RESERVE" | "REDEEM";
 };
 
 export async function createTransaction(input: TransactionInput): Promise<string> {

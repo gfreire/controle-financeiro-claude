@@ -12,7 +12,10 @@
 -- ============================================================
 CREATE TYPE account_type AS ENUM ('CASH', 'BANK', 'CREDIT_CARD');
 CREATE TYPE category_type AS ENUM ('INCOME', 'EXPENSE');
-CREATE TYPE transaction_type AS ENUM ('INCOME', 'EXPENSE', 'TRANSFER', 'CREDIT_CARD_PAYMENT');
+-- RESERVE/REDEEM (0034): aporte/resgate de uma Meta (feature "Goals"). Movem só saldo de conta,
+-- NUNCA contam como INCOME/EXPENSE — toda query de analytics restringe `type in ('INCOME','EXPENSE')`.
+-- Ver AI_CONTEXT.md "Metas".
+CREATE TYPE transaction_type AS ENUM ('INCOME', 'EXPENSE', 'TRANSFER', 'CREDIT_CARD_PAYMENT', 'RESERVE', 'REDEEM');
 CREATE TYPE debt_side AS ENUM ('PAYABLE', 'RECEIVABLE');
 
 -- ============================================================
@@ -274,6 +277,9 @@ CREATE TABLE public.transactions (
   refund_of_transaction_id uuid, -- NOVO (0019): rastreabilidade apenas — a transação de RECEITA
                                   -- "Estorno" que devolveu o dinheiro dessa despesa aponta de volta
                                   -- pra ela. Quem de fato reclassifica a despesa é category_id.
+  goal_id uuid, -- NOVO (0035): setado só em RESERVE/REDEEM — liga o aporte/resgate à Meta. ON
+                -- DELETE SET NULL: apagar a meta deixa o histórico de dinheiro real intacto em
+                -- Movimentações, só solta o vínculo. Ver AI_CONTEXT.md "Metas".
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT transactions_pkey PRIMARY KEY (id),
   CONSTRAINT transactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
@@ -282,7 +288,8 @@ CREATE TABLE public.transactions (
   CONSTRAINT transactions_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
   CONSTRAINT transactions_subcategory_id_fkey FOREIGN KEY (subcategory_id) REFERENCES public.subcategories(id),
   CONSTRAINT transactions_fixed_expense_id_fkey FOREIGN KEY (fixed_expense_id) REFERENCES public.fixed_expenses(id) ON DELETE SET NULL,
-  CONSTRAINT transactions_refund_of_transaction_id_fkey FOREIGN KEY (refund_of_transaction_id) REFERENCES public.transactions(id) ON DELETE SET NULL
+  CONSTRAINT transactions_refund_of_transaction_id_fkey FOREIGN KEY (refund_of_transaction_id) REFERENCES public.transactions(id) ON DELETE SET NULL,
+  CONSTRAINT transactions_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id) ON DELETE SET NULL
 );
 
 -- ============================================================
@@ -456,6 +463,44 @@ CREATE TABLE public.reservoir_transactions (
 );
 
 -- ============================================================
+-- GOALS + GOAL_YIELDS (feature "Metas", migrations 0034-0037)
+-- Espelho invertido da Receita Programada: dinheiro que o usuário JÁ TEM e separa ativamente
+-- rumo a um objetivo. Aporte/resgate = transactions RESERVE/REDEEM (só mexem saldo de conta).
+-- Rendimento = goal_yields (RECEITA sintética no dashboard sob "Rendimentos", nunca uma
+-- transação real). currentBalance = Σ RESERVE − Σ REDEEM + Σ goal_yields, sempre calculado.
+-- Ver AI_CONTEXT.md "Metas".
+-- ============================================================
+CREATE TABLE public.goals (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  name text NOT NULL,
+  goal_target numeric(14,2) NOT NULL CHECK (goal_target > 0), -- o "valor total" do donut, a coisa que se alcança — obrigatório
+  start_competence date NOT NULL, -- primeiro dia do mês a partir do qual o cronograma conta
+  end_date date, -- OPCIONAL — se preenchido, monthly_contribution é (re)calculado pra concluir a tempo
+  monthly_contribution numeric(14,2) CHECK (monthly_contribution IS NULL OR monthly_contribution > 0), -- OPCIONAL — dá pra guardar sem aporte fixo
+  anchor_date date NOT NULL, -- início da "perna" atual do cronograma; = start_competence, ou hoje após um "Recalcular"/edição de end_date (snapshot; o ledger nunca é tocado)
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT goals_pkey PRIMARY KEY (id),
+  CONSTRAINT goals_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT goals_end_after_start CHECK (end_date IS NULL OR end_date >= start_competence)
+);
+
+CREATE TABLE public.goal_yields (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  goal_id uuid NOT NULL,
+  amount numeric(14,2) NOT NULL CHECK (amount > 0), -- rendimento informado (delta contra o saldo) ou reconhecido no resgate; só positivo na v1
+  date date NOT NULL,
+  description text,
+  origin_redeem_transaction_id uuid, -- NULL = rendimento informado; setado = reconhecido num resgate (cascateia ao apagar aquele REDEEM)
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT goal_yields_pkey PRIMARY KEY (id),
+  CONSTRAINT goal_yields_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT goal_yields_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id) ON DELETE CASCADE,
+  CONSTRAINT goal_yields_origin_redeem_transaction_id_fkey FOREIGN KEY (origin_redeem_transaction_id) REFERENCES public.transactions(id) ON DELETE CASCADE
+);
+
+-- ============================================================
 -- BUDGETS
 -- ALTERADO (0009, 2026-08-08): agora tem coluna `month` — cada linha pertence a exatamente um
 -- mês, então subir um valor (ex: aluguel) nunca mais sobrescreve o histórico do mês anterior.
@@ -505,6 +550,7 @@ CREATE INDEX IF NOT EXISTS transactions_subcategory_id_idx ON public.transaction
 CREATE INDEX IF NOT EXISTS transactions_origin_account_id_idx ON public.transactions (origin_account_id) WHERE origin_account_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS transactions_destination_account_id_idx ON public.transactions (destination_account_id) WHERE destination_account_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS transactions_fixed_expense_id_idx ON public.transactions (fixed_expense_id) WHERE fixed_expense_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS transactions_goal_id_idx ON public.transactions (goal_id) WHERE goal_id IS NOT NULL; -- NOVO (0035)
 
 CREATE INDEX IF NOT EXISTS card_purchases_credit_card_id_idx ON public.card_purchases (credit_card_id);
 CREATE INDEX IF NOT EXISTS card_purchases_category_id_idx ON public.card_purchases (category_id) WHERE category_id IS NOT NULL;
@@ -516,6 +562,10 @@ CREATE INDEX IF NOT EXISTS card_installments_credit_card_competence_idx ON publi
 
 CREATE INDEX IF NOT EXISTS reservoir_transactions_reservoir_id_idx ON public.reservoir_transactions (reservoir_id);
 CREATE INDEX IF NOT EXISTS debt_transactions_debt_id_idx ON public.debt_transactions (debt_id);
+
+CREATE INDEX IF NOT EXISTS goals_user_id_idx ON public.goals (user_id); -- NOVO (0035)
+CREATE INDEX IF NOT EXISTS goal_yields_goal_id_idx ON public.goal_yields (goal_id); -- NOVO (0035)
+CREATE INDEX IF NOT EXISTS goal_yields_user_id_idx ON public.goal_yields (user_id); -- NOVO (0035)
 
 CREATE INDEX IF NOT EXISTS fixed_expenses_user_id_idx ON public.fixed_expenses (user_id);
 CREATE INDEX IF NOT EXISTS fixed_expenses_category_id_idx ON public.fixed_expenses (category_id) WHERE category_id IS NOT NULL;
@@ -656,6 +706,14 @@ CREATE POLICY "own reservoirs" ON public.reservoirs
 ALTER TABLE public.reservoir_transactions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "own reservoir transactions" ON public.reservoir_transactions
   FOR ALL USING (EXISTS (SELECT 1 FROM public.reservoirs r WHERE r.id = reservoir_transactions.reservoir_id AND r.user_id = auth.uid()));
+
+ALTER TABLE public.goals ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "own goals" ON public.goals
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+ALTER TABLE public.goal_yields ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "own goal yields" ON public.goal_yields
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 ALTER TABLE public.budgets ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "own budgets" ON public.budgets

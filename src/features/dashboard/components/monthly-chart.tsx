@@ -25,6 +25,11 @@ export function MonthlyChart({ data }: { data: MonthlyEvolutionDTO[] }) {
             <Tooltip formatter={(value) => formatCurrency(Number(value))} {...chartTooltipStyle} />
             <Bar dataKey="income" name="Receitas" fill="var(--color-success-500)" radius={[1, 1, 0, 0]} />
             <Bar dataKey="expense" name="Despesas" fill="var(--color-danger-500)" radius={[1, 1, 0, 0]} />
+            {/* Fluxo do mês para/de Metas (Σ RESERVE − Σ REDEEM). Mesma unidade das outras barras;
+                o acumulado vive no gráfico próprio de /goals. Não renderiza se sempre 0. */}
+            {data.some((d) => d.reserved > 0) && (
+              <Bar dataKey="reserved" name="Guardado (metas)" fill="var(--color-accent)" radius={[1, 1, 0, 0]} />
+            )}
           </BarChart>
         </ResponsiveContainer>
       </div>

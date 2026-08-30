@@ -42,8 +42,11 @@ export function TransactionExplorer({
           page's installment list (line 1: data/descrição, valor, ações · line 2: categoria). */}
       <div className="flex flex-col divide-y divide-text/[0.08] sm:hidden">
         {filtered.map((t) => {
+          // RESERVE/REDEEM (aporte/resgate de Meta) são geridos só pela tela de Metas — read-only aqui.
+          const isGoalMovement = t.type === "RESERVE" || t.type === "REDEEM";
+          const inflow = t.type === "INCOME" || t.type === "REDEEM";
           const actions =
-            t.source === "transaction" ? (
+            t.source === "transaction" && !isGoalMovement ? (
               <div className="flex shrink-0 items-center gap-1">
                 {accounts && t.type !== "CREDIT_CARD_PAYMENT" && (
                   <TransactionFormDialog accounts={accounts} categories={categories} transaction={t} />
@@ -54,7 +57,7 @@ export function TransactionExplorer({
                 <DeleteTransactionButton transactionId={t.id} description={t.description} />
               </div>
             ) : (
-              <span className="shrink-0 self-center text-[10px] opacity-40" title="Edite ou exclua pela tela de Cartões">—</span>
+              <span className="shrink-0 self-center text-[10px] opacity-40" title={isGoalMovement ? "Edite ou exclua pela tela de Metas" : "Edite ou exclua pela tela de Cartões"}>—</span>
             );
           return (
             <div key={`${t.source}-${t.id}`} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
@@ -76,8 +79,8 @@ export function TransactionExplorer({
                     {t.type === "EXPENSE" && t.category === "Estorno" && <Badge variant="accent">estornado</Badge>}
                   </p>
                 </div>
-                <span className={`shrink-0 text-sm font-medium tabular-nums ${t.type === "INCOME" ? "text-success-600" : "text-danger-600"}`}>
-                  {t.type === "INCOME" ? "+" : "-"}
+                <span className={`shrink-0 text-sm font-medium tabular-nums ${inflow ? "text-success-600" : "text-danger-600"}`}>
+                  {inflow ? "+" : "-"}
                   {formatCurrency(t.amount)}
                 </span>
                 {actions}
@@ -127,12 +130,12 @@ export function TransactionExplorer({
                     </span>
                   )}
                 </TableCell>
-                <TableCell className={`text-right tabular-nums font-medium ${t.type === "INCOME" ? "text-success-600" : "text-danger-600"}`}>
-                  {t.type === "INCOME" ? "+" : "-"}
+                <TableCell className={`text-right tabular-nums font-medium ${t.type === "INCOME" || t.type === "REDEEM" ? "text-success-600" : "text-danger-600"}`}>
+                  {t.type === "INCOME" || t.type === "REDEEM" ? "+" : "-"}
                   {formatCurrency(t.amount)}
                 </TableCell>
                 <TableCell>
-                  {t.source === "transaction" ? (
+                  {t.source === "transaction" && t.type !== "RESERVE" && t.type !== "REDEEM" ? (
                     <div className="flex items-center gap-1">
                       {accounts && t.type !== "CREDIT_CARD_PAYMENT" && (
                         <TransactionFormDialog accounts={accounts} categories={categories} transaction={t} />
@@ -143,7 +146,7 @@ export function TransactionExplorer({
                       <DeleteTransactionButton transactionId={t.id} description={t.description} />
                     </div>
                   ) : (
-                    <span className="text-[10px] opacity-40" title="Edite ou exclua pela tela de Cartões">—</span>
+                    <span className="text-[10px] opacity-40" title={t.type === "RESERVE" || t.type === "REDEEM" ? "Edite ou exclua pela tela de Metas" : "Edite ou exclua pela tela de Cartões"}>—</span>
                   )}
                 </TableCell>
               </TableRow>

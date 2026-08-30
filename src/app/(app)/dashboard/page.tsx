@@ -13,6 +13,7 @@ import { getCategories } from "@/services/categories.service";
 import { getBudgetTree } from "@/services/budgets.service";
 import { getFixedExpenses } from "@/services/fixed-expenses.service";
 import { getDebts } from "@/services/debts.service";
+import { getGoalsOverview } from "@/services/goals.service";
 import type { DashboardFilters as DashboardFiltersType } from "@/types/dto";
 
 import { DashboardFilters } from "@/features/dashboard/components/dashboard-filters";
@@ -22,6 +23,7 @@ import { CategoryPie } from "@/features/dashboard/components/category-pie";
 import { ExpenseSourceToggle } from "@/features/dashboard/components/expense-source-toggle";
 import { BudgetsPanel } from "@/features/dashboard/components/budgets-panel";
 import { MonthObligationsCard } from "@/features/dashboard/components/month-obligations-card";
+import { GoalsOverview } from "@/features/dashboard/components/goals-overview";
 import { HelpButton } from "@/components/ui/help-button";
 import { TransactionExplorer } from "@/features/dashboard/components/transaction-explorer";
 
@@ -75,6 +77,7 @@ export default async function DashboardPage({
     fixedExpenses,
     debts,
     monthObligations,
+    goalsOverview,
   ] = await Promise.all([
     getFinancialSummary(filters, viewedMonth),
     getMonthlyEvolution(monthlyEvolutionFilters, viewedMonth),
@@ -88,6 +91,7 @@ export default async function DashboardPage({
     getFixedExpenses(filters.periodEnd),
     getDebts(),
     getCurrentMonthObligations(viewedMonth),
+    getGoalsOverview(),
   ]);
   const budgetTree = await getBudgetTree(filters.periodEnd, fixedExpenses);
 
@@ -130,6 +134,10 @@ export default async function DashboardPage({
           debts={debts}
         />
       )}
+
+      {/* Bloco de Metas — donuts compactos + status. Some sob filtro de categoria, igual o card
+          de despesas do mês (não é filtrável por categoria). */}
+      {!hasCategoryFilter && <GoalsOverview data={goalsOverview} />}
 
       <MonthlyChart data={monthlyEvolution} />
 

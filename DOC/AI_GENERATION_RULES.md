@@ -77,7 +77,7 @@ Every user-scoped table has RLS enabled with a policy on `auth.uid() = user_id` 
 
 Services must encapsulate all Supabase queries, return DTOs (defined in `ARCHITECTURE.md`), and contain the financial aggregation logic. Services must not contain UI logic or depend on React components.
 
-Required services: `dashboard.service.ts`, `transactions.service.ts`, `accounts.service.ts`, `categories.service.ts`, `cards.service.ts`, `reservoirs.service.ts`, `debts.service.ts`, `budgets.service.ts`, `fixed-expenses.service.ts`, `profile.service.ts`.
+Required services: `dashboard.service.ts`, `transactions.service.ts`, `accounts.service.ts`, `categories.service.ts`, `cards.service.ts`, `reservoirs.service.ts`, `goals.service.ts`, `debts.service.ts`, `budgets.service.ts`, `fixed-expenses.service.ts`, `profile.service.ts`.
 
 **Never store a value in the database that can be computed from other rows** — reservoir/debt balances, installment numbers, budget/fixed-expense projected amounts are always calculated in the service (or a SQL view), never persisted as a mutable column. This is not optional — it is the pattern already established across the whole schema.
 

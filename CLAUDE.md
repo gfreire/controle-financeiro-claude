@@ -34,7 +34,7 @@ The full architecture — service contracts, DTO shapes, RLS policy set, domain 
 Quick orientation to the folders (see `ARCHITECTURE.md` → "Project Structure" for the full tree):
 
 - `src/lib` — pure helpers (`utils`, `validations`), Supabase clients (`supabase`), auth (`auth`). No database queries, no UI logic.
-- `src/services` — the *only* layer allowed to query Supabase. One service per domain (`dashboard`, `transactions`, `accounts`, `categories`, `cards`, `reservoirs`, `debts`, `budgets`, `fixed-expenses`, `profile`), returns DTOs, `_shared.ts` holds budget/fixed-expense aggregation shared by both.
+- `src/services` — the *only* layer allowed to query Supabase. One service per domain (`dashboard`, `transactions`, `accounts`, `categories`, `cards`, `reservoirs`, `goals`, `debts`, `budgets`, `fixed-expenses`, `profile`), returns DTOs, `_shared.ts` holds budget/fixed-expense aggregation shared by both.
 - `src/features/<domain>/components` — domain components and the Server Actions that call the services.
 - `src/components/ui` and `src/components/layout` — shared primitives (shadcn-style) and page shell (sidebar/header/bottom-nav).
 - `src/types` — `database.ts` (raw row shapes) and `dto.ts` (source of truth for every DTO).

@@ -38,12 +38,16 @@ export type FinancialSummaryDTO = {
   adjustmentAmount: number; // R$ under "Ajuste" in the period — bookkeeping-looseness signal, shown as a badge next to Balanço Mensal (was a % share until 2026-08-28; percentages read poorly on the card)
   retroactiveIncomeAmount: number; // R$ from paid-before-system installments in the period — computed, no UI consumer since 2026-08-28 (badge removed), see AI_CONTEXT.md "Compras retroativas"
   refundAmount: number; // R$ flowing through "Estorno" in the period (both directions, so ~2× a single refund) — computed, no UI consumer since 2026-08-28 (badge removed), see AI_CONTEXT.md "Estorno"
+  reservedTotal: number; // Σ current balance of every active Meta (Σ RESERVE − Σ REDEEM + Σ goal_yields). "dinheiro guardado" — shown as a sub-line on the Saldo card. Global figure, not scoped by the account filter (a goal isn't tied to one account). See AI_CONTEXT.md "Metas".
 };
 
 // `expense` on the viewed month's bar also includes that month's unpaid projected obligations
 // (see FinancialSummaryDTO.expense), so it stays reconciled with the "Despesas por categoria"
 // donut. Every other month in the 15-month window is actuals-only.
-export type MonthlyEvolutionDTO = { month: string; income: number; expense: number };
+// `reserved` = net Σ RESERVE − Σ REDEEM (Meta aporte/resgate) dated in that month — a monthly
+// FLOW, same unit as income/expense, so it renders as a third bar. Not cumulative (the running
+// total lives in /goals' own accumulation chart). See AI_CONTEXT.md "Metas".
+export type MonthlyEvolutionDTO = { month: string; income: number; expense: number; reserved: number };
 
 /**
  * "Despesas de {mês}" dashboard card (getCurrentMonthObligations) — the viewed month's spending,
@@ -119,6 +123,64 @@ export type ReservoirTransactionDTO = {
   percentage?: number;
   linkedTransactionId?: string;
   linkedCardPurchaseId?: string;
+};
+
+/**
+ * Metas — "Goals" (route/table/service names `goal*`, UI label "Metas"). Mirror-image of the
+ * Reservoir feature: money the user already has and is actively setting aside toward an
+ * objective. currentBalance = Σ RESERVE − Σ REDEEM + Σ goal_yields (never a stored column).
+ * Schedule figures follow the INSTALLMENT_PLAN pattern (migration 0032), always today-anchored.
+ * See AI_CONTEXT.md "Metas".
+ */
+export type GoalStatus = "REACHED" | "AHEAD" | "ON_TRACK" | "BEHIND" | "NO_SCHEDULE";
+
+export type GoalDTO = {
+  id: string;
+  name: string;
+  goalTarget: number;
+  currentBalance: number; // Σ RESERVE − Σ REDEEM + Σ goal_yields
+  contributedTotal: number; // Σ RESERVE
+  withdrawnTotal: number; // Σ REDEEM
+  yieldTotal: number; // Σ goal_yields
+  progressPercent: number; // min(100, currentBalance / goalTarget * 100)
+  startCompetence: string; // "YYYY-MM"
+  anchorDate: string; // "YYYY-MM-DD" — current schedule leg start (= startCompetence, or a rebase date)
+  endDate?: string; // "YYYY-MM"
+  monthlyContribution?: number; // planned monthly aporte; absent ⇒ NO_SCHEDULE (just a progress tracker)
+  status: GoalStatus;
+  scheduleOffsetMonths?: number; // signed months ahead(+)/behind(−); only when monthlyContribution is set and status !== REACHED
+  expectedByNow?: number; // anchorBalance + monthlyContribution × months elapsed since anchor, capped at goalTarget; only when monthlyContribution is set
+  projectedCompletionMonth?: string; // "YYYY-MM" — ceil((goalTarget − currentBalance) / monthlyContribution) months out; only when monthlyContribution is set and not reached
+};
+
+export type GoalEntryDTO = {
+  id: string;
+  kind: "RESERVE" | "REDEEM" | "YIELD";
+  date: string;
+  description: string | null;
+  amount: number; // always positive — `kind` carries the direction
+  accountId?: string; // RESERVE/REDEEM only
+  accountName?: string; // RESERVE/REDEEM only
+  withdrawalReason?: "COMPLETED" | "EARLY"; // REDEEM only — derived from the linked system category
+};
+
+export type GoalsOverviewDTO = {
+  goals: {
+    id: string;
+    name: string;
+    goalTarget: number;
+    currentBalance: number;
+    progressPercent: number;
+    status: GoalStatus;
+    scheduleOffsetMonths?: number;
+  }[];
+};
+
+/** Total held across all goals at each of the last 13 month-ends (cumulative — a stock) + the
+ * sum of every goal's target. Feeds the accumulation chart on /goals. */
+export type GoalAccumulationDTO = {
+  points: { month: string; total: number }[];
+  targetTotal: number;
 };
 
 export type DebtDTO = {
