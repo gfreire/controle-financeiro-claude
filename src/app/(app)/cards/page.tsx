@@ -8,7 +8,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { startOfMonth, endOfMonth, formatMonthLabel, formatDate } from "@/lib/utils/date";
 import { toPercentage } from "@/lib/utils/number";
 import { PurchaseFormDialog } from "@/features/cards/components/purchase-form-dialog";
-import { PaymentFormDialog } from "@/features/cards/components/payment-form-dialog";
+import { InvoiceMenu } from "@/features/cards/components/invoice-menu";
 import { DeletePurchaseButton } from "@/features/cards/components/delete-purchase-button";
 import { RefundPurchaseDialog } from "@/features/cards/components/refund-purchase-dialog";
 import { AdvanceInstallmentsDialog } from "@/features/cards/components/advance-installments-dialog";
@@ -17,11 +17,9 @@ import { CardFilters } from "@/features/cards/components/card-filters";
 import { CardEvolutionChart } from "@/features/cards/components/card-evolution-chart";
 import { CardExpenseDonut } from "@/features/cards/components/card-expense-donut";
 import { EditableCategoryCell } from "@/features/dashboard/components/editable-category-cell";
-import { InterestDialog } from "@/features/accounts/components/interest-dialog";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import Link from "next/link";
-import { CreditCard, Receipt, Pencil, ChevronDown } from "lucide-react";
+import { CreditCard, Pencil } from "lucide-react";
 import { textIncludes } from "@/lib/utils/normalize";
 import { HelpButton } from "@/components/ui/help-button";
 
@@ -164,20 +162,11 @@ export default async function CardsPage({
                         )}
                       </div>
                     </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="secondary"><Receipt className="size-3.5" strokeWidth={1.5} /> Fatura <ChevronDown className="size-3.5" strokeWidth={1.5} /></Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <PaymentFormDialog
-                          card={card}
-                          payerAccounts={payerAccounts}
-                          statementBalance={summary.usedThroughCurrentMonth}
-                          trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Pagar fatura</DropdownMenuItem>}
-                        />
-                        <InterestDialog account={card} trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Lançar juros</DropdownMenuItem>} />
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <InvoiceMenu
+                      card={card}
+                      payerAccounts={payerAccounts}
+                      statementBalance={summary.usedThroughCurrentMonth}
+                    />
                   </div>
 
                   {installments.length === 0 ? (
