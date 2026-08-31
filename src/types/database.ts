@@ -81,7 +81,7 @@ export interface FixedExpenseRow {
   id: string;
   user_id: string;
   name: string;
-  amount: number;
+  amount: number; // migration 0023 — cache of the LATEST value only; per-month value lives in fixed_expense_amount_history
   category_id: string | null;
   subcategory_id: string | null;
   default_account_id: string | null;
@@ -89,6 +89,17 @@ export interface FixedExpenseRow {
   start_competence: string;
   end_competence: string | null;
   active: boolean;
+  created_at: string;
+}
+
+// migration 0023 — the real per-month value of a fixed expense. `fixed_expenses.amount` is
+// only a cache of the newest row here. getFixedExpenses(month) resolves the row with the
+// most recent effective_from <= month. See AI_CONTEXT.md "Despesas Programadas — histórico de valor".
+export interface FixedExpenseAmountHistoryRow {
+  id: string;
+  fixed_expense_id: string;
+  amount: number;
+  effective_from: string; // first day of the month this value takes effect (inclusive)
   created_at: string;
 }
 
@@ -106,6 +117,7 @@ export interface TransactionRow {
   is_reservoir: boolean;
   fixed_expense_id: string | null;
   goal_id: string | null; // migration 0035 — set only on RESERVE/REDEEM
+  refund_of_transaction_id: string | null; // migration 0019 — traceability only, ON DELETE SET NULL; set on the INCOME row created by refundTransaction
   created_at: string;
 }
 
@@ -169,6 +181,21 @@ export interface CardPaymentRow {
   created_at: string;
 }
 
+// migration 0019 — a credit against the card that reduces the amount owed like a payment,
+// with no paying account behind it (the credit came from the merchant/issuer). Full refund
+// only: UNIQUE (card_purchase_id). category_id is always the `is_system` "Estorno" (INCOME).
+// See AI_CONTEXT.md "Estorno".
+export interface CardRefundRow {
+  id: string;
+  user_id: string;
+  card_purchase_id: string;
+  credit_card_id: string;
+  category_id: string;
+  amount: number;
+  refund_date: string;
+  created_at: string;
+}
+
 export interface DebtRow {
   id: string;
   user_id: string;
@@ -223,6 +250,7 @@ export interface BudgetRow {
   category_id: string | null;
   subcategory_id: string | null;
   amount: number;
+  month: string; // migration 0009 — NOT NULL, first day of the month this budget row belongs to
   active: boolean;
   created_at: string;
 }

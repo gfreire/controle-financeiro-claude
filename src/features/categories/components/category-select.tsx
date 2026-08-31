@@ -22,11 +22,13 @@ const CREATE_SUBCATEGORY = "__create_subcategory__";
  * (AI_GENERATION_RULES.md "Form Rules") — no separate button needed, so it fits even a compact
  * table-row cell. Selecting the sentinel opens a small creation dialog instead of a real value.
  *
- * `is_system` categories (Juros/Rendimentos/Ajuste/Estorno/Compras retroativas) are never offered
+ * `is_system` categories (Juros / Rendimentos / Ajuste / Estorno / Compras retroativas /
+ * Pagamento de Cartão / Resgate de Meta Concluída / Resgate de Meta Antecipado) are never offered
  * here — they're only ever applied by their own dedicated system flow ("Informar Rendimento",
- * "Ajustar Saldo", "Lançar Juros", estorno, backfill), never hand-picked from a form (AI_CONTEXT.md
- * "is_default vs is_system"). Dashboard/Cards/Transactions *filter* dropdowns are separate
- * components and still list them, so the user can filter by "Estorno"/"Compras retroativas".
+ * "Ajustar Saldo", "Lançar Juros", estorno, backfill, "Pagar fatura", resgate de meta), never
+ * hand-picked from a form (AI_CONTEXT.md "is_default vs is_system"). Dashboard/Cards/Transactions
+ * *filter* dropdowns are separate components and still list them, so the user can filter by them.
+ * `BudgetTreeFields` (budget-tree-fields.tsx) applies the same `!c.isSystem` filter by hand.
  */
 export function CategorySelect({
   categories,

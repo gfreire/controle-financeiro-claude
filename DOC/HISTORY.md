@@ -394,6 +394,21 @@ Next's `loading.tsx`).
 
 # Resolved bugs (kept for the record)
 
+- **`is_system` categories were budget-plannable in the tree editor** (fixed 2026-08-31) —
+  `BudgetTreeFields` (shared by "Planejar orçamentos" and the onboarding budget step) filtered
+  `c.type === "EXPENSE"` but not `!c.isSystem`, so `Ajuste` / `Juros` / `Estorno` / `Pagamento
+  de Cartão` showed up as rows you could set a budget on — contradicting the documented rule
+  (`is_system` is never form-selectable) and the single-row `BudgetFormDialog`, which uses
+  `CategorySelect` (already filtered). Added `&& !c.isSystem` in `budget-tree-fields.tsx`,
+  `budget-tree-editor.tsx`, and `onboarding-budget-form.tsx`.
+- **`src/types/database.ts` had drifted from `schema.sql`** (fixed 2026-08-31) — during a full
+  code/doc reconciliation pass: `BudgetRow` was missing `month` (NOT NULL since migration
+  0009), `TransactionRow` was missing `refund_of_transaction_id` (0019); `card_refunds` (0019)
+  and `fixed_expense_amount_history` (0023) had no row interface at all. All added. Also
+  corrected `ARCHITECTURE.md`'s `getAccountBalance` CREDIT_CARD contract line (it claimed
+  "totalCommitted − totalPayments, floored at 0"; the code returns a negative raw-sum figure
+  with no consumer) and `AI_CONTEXT.md`'s reservoir-withdrawal note (the "(or `card_purchases`)"
+  path is documented but not implemented).
 - **Edit paths skipped validation** (fixed 2026-08-23) — `updateAccountAction`/
   `updateCardPurchaseAction` called their services directly, bypassing
   `updateAccountSchema`/`updateCardPurchaseSchema` (dead code at the time). Both now

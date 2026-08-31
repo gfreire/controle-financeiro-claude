@@ -24,7 +24,10 @@ export function BudgetTreeFields({
   onChange: (key: RowKey, value: string) => void;
   fixedExpenses?: FixedExpenseDTO[];
 }) {
-  const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
+  // `!c.isSystem` mirrors CategorySelect (category-select.tsx): Ajuste/Juros/Estorno/Pagamento
+  // de Cartão are bookkeeping mechanisms, never a spending area you set a budget on — see
+  // AI_CONTEXT.md "is_default vs is_system" ("never selectable from a form").
+  const expenseCategories = categories.filter((c) => c.type === "EXPENSE" && !c.isSystem);
 
   // Mirrors the server-side floor (AI_CONTEXT.md "Budget hierarchy") using data already on
   // screen — a category's floor is the live sum of its subcategory rows in this same form plus

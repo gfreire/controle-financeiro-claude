@@ -35,7 +35,7 @@ export function OnboardingBudgetForm({
     startTransition(async () => {
       const allErrors: string[] = [];
       const allNotices: string[] = [];
-      const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
+      const expenseCategories = categories.filter((c) => c.type === "EXPENSE" && !c.isSystem); // keep in sync with BudgetTreeFields
 
       function floorFor(categoryId: string, subcategoryId: string | undefined): number {
         if (subcategoryId) {

@@ -497,7 +497,11 @@ getAccounts() / getFinancialInstitutions() / createAccount(data) / updateAccount
 deactivateAccount(id) / deleteAccount(id)   -- deactivate = soft delete; delete = last resort
 getAccountBalance(accountId) → number
   -- CASH/BANK: initial_balance + SUM of transactions affecting the account (every type,
-  -- incl. RESERVE/REDEEM). CREDIT_CARD: totalCommitted − totalPayments, floored at 0.
+  -- incl. RESERVE/REDEEM). CREDIT_CARD: −(Σ card_installments − Σ card_payments) — a negative
+  -- "owed to date" figure on RAW sums (includes paid_before_system, does NOT net card_refunds,
+  -- NOT floored at 0); it is NOT getCardTotalCommitted. The Cards screen / AccountCard usage
+  -- figures all come from getCardSummary instead, and dashboard "Saldo" filters CREDIT_CARD
+  -- accounts out entirely, so this value has effectively no consumer today.
 registerYield(accountId, realBalance)          -- "Informar Rendimento", BANK-only → INCOME/"Rendimentos" for the delta
 reconcileAccountBalance(accountId, realBalance) -- "Ajustar Saldo", CASH+BANK → "Ajuste" (INCOME or EXPENSE by sign)
 registerInterest({ accountId, amount, date? }) -- "Lançar Juros". EXPLICIT amount. Branches on

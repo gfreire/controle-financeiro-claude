@@ -522,8 +522,11 @@ unchanged. Search the codebase for `reservoir`.
 - **Accumulation entries** (`amount` positive): logged as soon as the user knows/estimates a
   value. No pending/confirmed status — every entry is just a value.
 - **Withdrawal entries** (`amount` negative): logged when money is actually received into a
-  real account. Creates a linked `transactions` (or `card_purchases`) row via
-  `linked_transaction_id`/`linked_card_purchase_id`.
+  real account. `withdrawReservoir` always creates a linked **INCOME `transactions`** row
+  (`linked_transaction_id`) into a CASH/BANK account — there is currently **no card path**.
+  `reservoir_transactions.linked_card_purchase_id` exists in the schema and
+  `deleteReservoirTransaction` still handles it defensively, but nothing writes it today; a
+  "withdraw onto a card" flow would be a future addition, not an existing one.
 
 The withdrawal amount **need not match** the accumulated total — the balance
 (`SUM(reservoir_transactions.amount)`) just carries the difference forward.

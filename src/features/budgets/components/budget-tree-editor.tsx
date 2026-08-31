@@ -35,7 +35,7 @@ export function BudgetTreeEditor({
   fixedExpenses: FixedExpenseDTO[];
   month: string;
 }) {
-  const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
+  const expenseCategories = categories.filter((c) => c.type === "EXPENSE" && !c.isSystem); // keep in sync with BudgetTreeFields
   const budgetByKey = new Map<RowKey, BudgetDTO>();
   for (const b of budgets) budgetByKey.set(rowKey(b.categoryId, b.subcategoryId), b);
 
