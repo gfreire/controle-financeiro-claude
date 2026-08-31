@@ -224,7 +224,7 @@ export default async function CardsPage({
                                   </p>
                                 </div>
                                 <span className="shrink-0 text-sm font-medium tabular-nums">{formatCurrency(r.amount)}</span>
-                                <div className="flex shrink-0 items-center gap-2">{editActions}</div>
+                                <div className="flex w-20 shrink-0 items-center justify-end gap-2">{editActions}</div>
                               </div>
                               <EditableCategoryCell row={categoryRow} categories={categories} layout="row" />
                             </div>
@@ -247,7 +247,7 @@ export default async function CardsPage({
                               <div className="w-40 shrink-0">
                                 <EditableCategoryCell row={categoryRow} categories={categories} />
                               </div>
-                              <div className="flex shrink-0 items-center gap-2">{editActions}</div>
+                              <div className="flex w-20 shrink-0 items-center justify-end gap-2">{editActions}</div>
                             </div>
                           </div>
                         );

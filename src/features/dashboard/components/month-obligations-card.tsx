@@ -162,14 +162,17 @@ export function MonthObligationsCard({
       {data.items.length === 0 ? (
         <p className="text-sm opacity-60">Tudo pago neste mês.</p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-2.5 sm:gap-2">
           {listItems.map((item) => (
-            <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-1.5">
+            <li
+              key={item.id}
+              className="flex flex-col gap-1.5 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-2"
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
                 <span className="size-2.5 shrink-0" style={{ background: colorByItemId.get(item.id) }} />
-                {item.description}
+                <span className="truncate">{item.description}</span>
               </span>
-              <span className="flex items-center gap-2">
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-4 sm:shrink-0 sm:justify-end sm:pl-0">
                 <span className="font-medium tabular-nums">{formatCurrency(item.amount)}</span>
                 <DueBadge dueDay={item.dueDay} month={data.month} />
                 {renderAction(item)}
