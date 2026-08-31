@@ -96,7 +96,12 @@ export function AccountCard({ account, institutions, cardSummary, cardSummaryMon
               {formatCurrency(cardSummary.totalCommitted)}
             </span>
             {cardSummary.creditLimit !== null && (
-              <span className="text-sm opacity-60 tabular-nums">/ {formatCurrency(cardSummary.creditLimit)}</span>
+              <>
+                <span className="text-sm opacity-60 tabular-nums">/ {formatCurrency(cardSummary.creditLimit)}</span>
+                <span className="text-sm opacity-60 tabular-nums">
+                  ({formatCurrency(Math.max(0, cardSummary.creditLimit - cardSummary.totalCommitted))})
+                </span>
+              </>
             )}
           </div>
           {cardSummary.creditLimit !== null && (

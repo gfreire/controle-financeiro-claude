@@ -134,7 +134,10 @@ export default async function CardsPage({
                           {formatCurrency(summary.totalCommitted)}
                         </span>
                         {summary.creditLimit !== null && (
-                          <span className="text-sm opacity-60 tabular-nums">/ {formatCurrency(summary.creditLimit)}</span>
+                          <>
+                            <span className="text-sm opacity-60 tabular-nums">/ {formatCurrency(summary.creditLimit)}</span>
+                            <span className="text-sm opacity-60 tabular-nums">({formatCurrency(Math.max(0, summary.creditLimit - summary.totalCommitted))})</span>
+                          </>
                         )}
                       </div>
                       {summary.creditLimit !== null && (
