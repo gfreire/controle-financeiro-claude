@@ -166,14 +166,17 @@ export function MonthObligationsCard({
           {listItems.map((item) => (
             <li
               key={item.id}
-              className="flex flex-col gap-1.5 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-2"
+              className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-2"
             >
-              <span className="flex min-w-0 items-center gap-1.5">
+              {/* Linha 1: cor + descrição + valor */}
+              <span className="flex min-w-0 items-center gap-2 sm:flex-1">
                 <span className="size-2.5 shrink-0" style={{ background: colorByItemId.get(item.id) }} />
-                <span className="truncate">{item.description}</span>
+                <span className="min-w-0 flex-1 truncate">{item.description}</span>
+                <span className="font-medium tabular-nums sm:hidden">{formatCurrency(item.amount)}</span>
               </span>
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-4 sm:shrink-0 sm:justify-end sm:pl-0">
-                <span className="font-medium tabular-nums">{formatCurrency(item.amount)}</span>
+              {/* Linha 2 (mobile) / continuação (sm+): valor + vencimento + pagar */}
+              <span className="flex items-center justify-end gap-2 pl-[18px] sm:shrink-0 sm:pl-0">
+                <span className="hidden font-medium tabular-nums sm:inline">{formatCurrency(item.amount)}</span>
                 <DueBadge dueDay={item.dueDay} month={data.month} />
                 {renderAction(item)}
               </span>
