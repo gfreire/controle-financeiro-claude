@@ -8,17 +8,19 @@ Rules that AI code generators must follow when creating or modifying code in thi
 
 # Documentation Maintenance (read this first)
 
-These three docs (`AI_GENERATION_RULES.md`, `AI_CONTEXT.md`, `ARCHITECTURE.md`) plus `schema.sql`/`seed.sql` are the **only** context a fresh session starts with — the whole point of auto-loading them via `CLAUDE.md` is so a new chat can pick up this project without the user re-explaining it and without you re-deriving it by reading half of `src/`. That only works if they stay accurate.
+Three docs auto-load via `CLAUDE.md` at the start of every session — `AI_GENERATION_RULES.md`, `AI_CONTEXT.md`, `ARCHITECTURE.md` — plus `schema.sql`/`seed.sql`. They are the **only** context a fresh session starts with: a new chat picks up this project from them without the user re-explaining it and without you re-deriving it by reading half of `src/`. That only works if they stay accurate **and stay lean** — every token they carry is spent at the top of every session, so they hold *current rules*, not history.
+
+**`DOC/HISTORY.md` is the archive and is NOT auto-loaded.** The dated chronology — "decided X, corrected Y, revised Z", resolved bug reports, verbose per-migration prose — lives there. Read it only when a rule in the loaded docs looks arbitrary and you need the reasoning before changing it. When you add a decision this session, put the *rule* (current-state, present tense) in `AI_CONTEXT.md`/`ARCHITECTURE.md` and the *story* (what it was before, why it changed, what got corrected mid-way) in `HISTORY.md` — don't grow the loaded docs with narrative.
 
 **Whenever a change in this session alters any of the following, update the relevant doc(s) in the same turn — not as a follow-up, not left for later:**
 
-- A schema change (new column, table, constraint, trigger) → add a new file in `supabase/migrations/` (never hand-edit an already-applied one) **and** reflect the same change in `DOC/schema.sql`/`DOC/seed.sql` so that file always represents the schema as it stands today, not as it stood at t=0. Note in the migration's own comment *why*, not just *what* — the next session reads the comment, not this conversation.
+- A schema change (new column, table, constraint, trigger) → add a new file in `supabase/migrations/` (never hand-edit an already-applied one), reflect it in `DOC/schema.sql`/`DOC/seed.sql`, and add a one-line row to the migrations changelog table in `ARCHITECTURE.md`. Note in the migration's own comment *why*, not just *what*.
 - A new/changed service function, DTO shape, or service contract → update the "Service Layer & Contracts" and "DTO Definitions" sections in `ARCHITECTURE.md`.
-- A new domain rule, or a correction to one already documented → update `AI_CONTEXT.md`. If something documented as a "known gap" gets built, remove the gap note — don't leave stale TODOs claiming something doesn't exist once it does.
+- A new domain rule, or a correction to one already documented → update the rule in `AI_CONTEXT.md` (present tense, current state). If something documented as a "known gap" gets built, remove the gap note.
 - A new page/route, or a structural change to `src/` → update "Project Structure" / "Routing" in `ARCHITECTURE.md`.
-- Any decision the user made that isn't derivable from the code itself (e.g. "drop this default subcategory, it's confusing," "soft-enforce this limit, never block") → capture the *reasoning*, not just the outcome, in `AI_CONTEXT.md` or a migration comment — future sessions (and future you) need to know *why*, or they'll second-guess or silently revert it.
+- Any decision the user made that isn't derivable from the code (e.g. "drop this default subcategory, it's confusing," "soft-enforce this limit, never block") → capture the *reasoning* (not just the outcome). The load-bearing "why chose X over Y" that would stop a future session reverting it goes in `AI_CONTEXT.md` or the migration comment; the fuller dated story goes in `HISTORY.md`.
 
-See `ARCHITECTURE.md`'s "Implementation Status" section for the running log of what's actually built vs. still spec-only, and `supabase/migrations/` for the applied-migrations changelog — keep both current the same way.
+See `ARCHITECTURE.md`'s "Implementation Status" for what's built vs. spec-only, its migrations changelog table for the applied migrations, and `HISTORY.md` for the decision history — keep all three current the same way.
 
 ---
 

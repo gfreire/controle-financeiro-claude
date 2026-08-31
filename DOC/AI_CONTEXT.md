@@ -1,718 +1,1186 @@
 # Financial Control System — AI Context
 
-This document explains the **domain rules and business logic** of the financial control system, so an AI code generator (Codex / Claude Code) implements system behavior correctly. Read together with `ARCHITECTURE.md`.
+Domain rules and business logic, so an AI code generator implements system behavior
+correctly. Read together with `ARCHITECTURE.md`.
+
+**Scope of this file: current rules, in present tense, plus the load-bearing "why we chose X
+over Y".** The dated chronology of how each rule was reached — corrections made mid-design,
+resolved bugs, verbose per-migration prose — lives in `DOC/HISTORY.md` (not auto-loaded).
+Consult it only when a rule here looks arbitrary and you need the reasoning before changing
+it. `schema.sql`/`seed.sql` and `supabase/migrations/` are the source of truth for schema.
 
 ---
 
 # System Purpose
 
-Personal financial management system for the owner and a closed group of friends, each with **fully isolated data** (see "Multi-tenant / Access Model" in `ARCHITECTURE.md`). Not commercial. Focused on financial analysis and insight, not just record-keeping.
+Personal financial management for the owner and a closed group of friends, each with **fully
+isolated data** (RLS, see `ARCHITECTURE.md` → "Multi-tenant / Access Model"). Not commercial.
+Focused on financial analysis and insight, not just record-keeping. All financial entry is
+manual.
 
----
-
-# Open Finance — decisão
-
-Evaluated and **dropped**. Building a proprietary Open Finance integration is not just difficult, it is legally blocked: only Central-Bank-authorized financial/payment institutions can register as Open Finance participants in Brazil. Using a paid aggregator (Pluggy) was also ruled out — their commercial API for third-party users starts at R$ 2.500/month, unfeasible for a non-commercial friend project. OFX file import was considered as a lighter-weight alternative (no registration needed, most Brazilian banks support it) but is **deferred indefinitely** — not part of the current scope. All financial entry is manual for now.
+**Open Finance / bank sync is out of scope, permanently.** A proprietary integration is
+legally blocked (only Central-Bank-authorized institutions can be Open Finance participants
+in Brazil); a paid aggregator (Pluggy) starts at R$ 2.500/month, unfeasible for a friend
+project. OFX file import was considered as a lighter alternative but is deferred indefinitely.
 
 ---
 
 # Core Entities
 
-Accounts, Transactions, Credit Cards (Purchases/Installments/Payments), Categories, Subcategories, Reservoirs, Debts, Budgets, Fixed Expenses, Financial Institutions.
+Accounts, Transactions, Credit Cards (Purchases/Installments/Payments), Categories,
+Subcategories, Reservoirs, Debts, Goals, Budgets, Fixed Expenses, Financial Institutions.
 
 ---
 
 # Accounts
 
-Real money locations. `type`: `CASH`, `BANK`, `CREDIT_CARD`. Each type has a 1:1 extension table for type-specific fields:
+Real money locations. `type`: `CASH`, `BANK`, `CREDIT_CARD`. Each type has a 1:1 extension
+table:
 
 - `CASH` → `cash_accounts.initial_balance`
 - `BANK` → `bank_accounts.initial_balance`, `bank_accounts.overdraft_limit`
-- `CREDIT_CARD` → `credit_cards.closing_day`, `credit_cards.due_day`, `credit_cards.credit_limit` (required, must be > 0 — see below)
+- `CREDIT_CARD` → `credit_cards.closing_day`, `credit_cards.due_day`, `credit_cards.credit_limit`
 
-`bank_accounts.initial_balance` was added after the fact (migration `0005`) — the original design only gave `CASH` an initial balance, which meant every new `BANK` account started at zero and needed an immediate `Ajustar Saldo` just to reflect reality. Both `CASH` and `BANK` now work the same way: `balance = initial_balance + SUM(transactions affecting the account)`.
+For CASH/BANK: `balance = initial_balance + SUM(transactions affecting the account)`.
 
-`closing_day`/`due_day` are what allow the system to compute which invoice month (competence) a given purchase's installments fall into. Both are constrained to **1-28** (not 1-31, decided 2026-08-09) — the same simplification real card issuers already make, so a card set to close on the 30th never has to special-case February. Enforced in `src/lib/validations/accounts.ts` (`accountBaseSchema`) and mirrored as HTML `min`/`max` on every input that edits these fields (account creation, "Editar Cartão").
-
-`credit_limit` (migration `0007`) is **required and must be > 0 for every `CREDIT_CARD` account** (migration `0008`, decided 2026-08-08 — reverses the original "optional" design). What stays **soft-enforced only** is what happens once the limit exists: a purchase that would push the card's outstanding balance past it doesn't get blocked; the UI shows a warning ("you may have forgotten to log the invoice payment, or made a mistake in this entry") and requires an explicit "insert anyway" acknowledgment before it proceeds. This is deliberate: a real payment not yet logged, or a genuine data-entry mistake, are both things the user needs to see and decide about, not be locked out of correcting. The account creation form and the "Editar Cartão" quick action both require a positive `creditLimit` before saving (`src/lib/validations/accounts.ts`); a card simply can't exist without one anymore.
-
-**`credit_limit` and `bank_accounts.overdraft_limit` are both user-editable at any time**, via a dedicated quick action mirroring the existing "Ajustar Saldo" pattern (a small dialog off the account, not a full account-edit form) — decided and implemented 2026-08-07 (`src/features/accounts/components/limit-adjust-dialog.tsx` — internal name unchanged). Banks routinely raise or cut these limits outside the user's control (temporary increase, revolving-credit renegotiation, etc.), so locking either value to account-creation time drifts from reality almost immediately. Same soft-enforce philosophy carries over for *purchases against the limit*: changing the limit never rewrites past purchases or warnings already shown, it only changes the threshold used for *future* soft-limit checks. The limit value itself, though, can never be cleared or zeroed for a `CREDIT_CARD` account — see above.
-
-**This dialog is labeled "Editar Conta" (CASH/BANK) / "Editar Cartão" (CREDIT_CARD) and also edits the account's `name` and `institution_id` — renamed and extended 2026-08-28, at the user's request** ("apesar de ser bem dificil o usuario modificar a instituição financeira e o nome"). It was `"Ajustar Limite"` / `"Ajustar Cartão"`, shown only for BANK/CREDIT_CARD, and only touched the limit (+ closing/due day for a card). Name and institution rarely change, but they can (a card reissued under a new brand, a typo at creation) and there was previously *no* way to fix them once the account existed — this closes the "no general account-level edit dialog" gap without adding a separate full-edit form. `updateAccountAction`/`updateAccount` already accepted partial `name`/`institutionId` updates, so this was almost entirely UI. **`CASH` accounts now get this dialog too, name-only** — cash in hand has no institution (deliberately hidden, same as the create form) and no limit, so for a `CASH` account the dialog collapses to just the name field and submits `{ name }` alone.
-
-**Contas shows a credit card's usage exactly like the Cards tab does — decided and implemented 2026-08-08.** `AccountCard` used to just show `account.balance` for every account type, which for a `CREDIT_CARD` is a meaningless figure (a card's balance isn't "how much is committed against the limit" the way `CardSummaryDTO.totalCommitted` is — see "Credit Card Purchases" above). The Accounts page now calls the same `getCardSummary(cardId, currentMonth, creditLimit)` the Cards page uses and renders the identical `totalCommitted / creditLimit` block (progress bar, danger color past 90%, current month's invoice, overdue badge) — the two pages must never show conflicting numbers for the same card.
-
-**For `CREDIT_CARD` accounts, this same dialog also edits `closing_day`/`due_day`** — decided and implemented 2026-08-07, at the user's request ("pode ser o mesmo menu ou um diferente do editar limite... só mudar o label"). The invoice closing/due dates are just as subject to change by the bank as the limit is, and both live on the same `credit_cards` extension row, so one quick-action dialog (labeled "Editar Cartão" for cards, "Editar Conta" for banks — see the label/scope change above) covers name, institution, limit, closing and due day in a single save instead of needing a separate flow per field.
-
-## Alerta de dados inconsistentes (Contas)
-
-**Decidido e implementado 2026-08-28, a pedido do usuário.** Um ícone-só de alerta vermelho (`TriangleAlert`, lucide) ao lado do "kicker" de tipo no `AccountCard`, com o motivo no `title`/`aria-label` (sem texto visível — "apenas com o icone"), quando os números de uma conta não fecham. Três casos, exatamente os que o usuário listou:
-
-- **Conta `CASH` com saldo negativo** — dinheiro em espécie não fica negativo; indica lançamento errado.
-- **Conta `BANK` com saldo negativo além do limite de cheque especial** — `balance < -(overdraftLimit ?? 0)`.
-- **Cartão `CREDIT_CARD` usado acima do limite informado** — `CardSummaryDTO.totalCommitted > creditLimit` (pode faltar registrar um pagamento de fatura — mesma hipótese do warning soft-limit de compra).
-
-`account-card.tsx#getInconsistency(account, cardSummary)` devolve a string do motivo ou `null`. **Não é agregação** — é só comparação de figuras que o DTO já carrega (mesma natureza dos checks `balance < 0` / `usagePercent >= 90` que já existiam no arquivo), então roda no componente sem violar "Chart Rules". Não há sinal equivalente no dashboard — é local à tela de Contas.
-
-**CASH accounts never show an institution selector in the account form** — decided and implemented 2026-08-07: cash in hand isn't tied to a bank, so offering the picker was confusing. `institution_id` stays a valid nullable column for `CASH` rows at the schema level (no constraint added — a user could theoretically still set it via direct DB access), the change is UI-only: `account-form-dialog.tsx` conditionally hides the field once `type === 'CASH'` (and clears any previously-picked institution on switching a form to CASH).
-
-Accounts may reference a `financial_institutions` catalog entry (global, no `user_id`) for branding — e.g. Banco do Brasil, Mercado Pago, Santander, Nubank. This is a plain lookup table, not a limiter: a user can have **any number** of accounts and credit cards, including several pointing at the same institution (e.g. a checking account plus multiple "cofrinhos"/poupanças at the same bank, or several credit cards).
-
-`categories` carries a `color` and an `icon` field (emoji, same convention as the rest of the seed). `financial_institutions` carries only `color` — no `icon`, by choice: there's no emoji that meaningfully tells one bank apart from another, and reproducing real bank logos raises brand/IP concerns, so it was dropped rather than faked. Both fields are purely presentational — no business logic depends on them.
+- **`closing_day`/`due_day` are constrained 1-28** (not 1-31), so a card never has to
+  special-case February. Enforced in `src/lib/validations/accounts.ts` and mirrored as HTML
+  `min`/`max`. These are what let the system compute a purchase's competence month.
+- **`credit_limit` is required and must be `> 0` for every `CREDIT_CARD`** (`NOT NULL CHECK`).
+  It can be edited but never cleared/zeroed. What is *soft-enforced only*: a purchase that
+  would push the outstanding balance past the limit is **not blocked** — the UI shows a
+  warning ("you may have forgotten to log the invoice payment, or made a mistake") and
+  requires an explicit "insert anyway" acknowledgment. A real unlogged payment and a genuine
+  data-entry mistake are both things the user needs to see and decide about, not be locked
+  out of.
+- **`credit_limit` and `overdraft_limit` are user-editable at any time** via the account's
+  quick-action dialog. Banks change these outside the user's control, so locking them to
+  creation time drifts from reality. Changing a limit never rewrites past purchases or
+  warnings — it only changes the threshold for *future* soft-limit checks.
+- **The quick-action dialog is "Editar Conta" (CASH/BANK) / "Editar Cartão" (CREDIT_CARD)**
+  (`limit-adjust-dialog.tsx` / `LimitAdjustDialog` — file/component name kept from when it
+  was "Ajustar Limite"). It edits: `name` (all types); `institution_id` +
+  `credit_limit`/`overdraft_limit` (BANK/CREDIT_CARD); `closing_day`/`due_day` (CREDIT_CARD).
+  For `CASH` it collapses to the name field alone. `updateAccount` accepts a partial
+  `AccountInput`; `updateAccountAction` runs `updateAccountSchema.parse({ id, ...input })`.
+- **`AccountCard` shows a `CREDIT_CARD`'s usage exactly like the Cards page** — the same
+  `getCardSummary(cardId, currentMonth, creditLimit)` and `totalCommitted / creditLimit`
+  block. The two screens must never show conflicting numbers for the same card.
+- **Inconsistency warning** — `account-card.tsx#getInconsistency(account, cardSummary)`
+  returns a reason string or `null` for a red icon-only `TriangleAlert` (reason in
+  `title`/`aria-label`, no visible text): CASH balance `< 0`; BANK `balance <
+  -(overdraftLimit ?? 0)`; `CardSummaryDTO.totalCommitted > creditLimit`. A pure figure
+  comparison, not aggregation — runs in the component. No dashboard equivalent.
+- **CASH accounts never show the institution selector** — cash in hand isn't tied to a bank.
+  `institution_id` stays a valid nullable column at the schema level; the change is UI-only.
+- Accounts may reference a `financial_institutions` catalog entry (global, no `user_id`) for
+  branding. A plain lookup, not a limiter — a user can have any number of accounts/cards,
+  several pointing at the same institution. `financial_institutions` carries only `color` (no
+  `icon` — no emoji meaningfully distinguishes banks, and real logos raise IP concerns).
+  `categories` carries `color` + `icon` (emoji). All presentational — no logic depends on
+  them.
 
 ---
 
 # Transactions
 
-Types: `INCOME`, `EXPENSE`, `TRANSFER`, `CREDIT_CARD_PAYMENT`.
+Types: `INCOME`, `EXPENSE`, `TRANSFER`, `CREDIT_CARD_PAYMENT`, `RESERVE`, `REDEEM`.
 
-A single table models all four using `origin_account_id` + `destination_account_id`:
+One table, `origin_account_id` + `destination_account_id`:
 
 - `INCOME`: destination only.
 - `EXPENSE`: origin only.
-- `TRANSFER`: both — moving money between the user's own accounts. **Never included in analytics.**
+- `TRANSFER`: both — moving money between the user's own accounts. **Never in analytics.**
 - `CREDIT_CARD_PAYMENT`: origin = paying account, destination = credit card account.
+- `RESERVE` / `REDEEM`: Meta aporte/resgate (see "Metas"). Move CASH/BANK balances like
+  `TRANSFER`, never counted as INCOME/EXPENSE.
 
-Dashboard analytics only ever read from: `transactions` (INCOME/EXPENSE) and `card_installments`.
+**Dashboard analytics only ever read from `transactions` (`type in ('INCOME','EXPENSE')`) and
+`card_installments`.**
 
-**`CREDIT_CARD_PAYMENT` has exactly one entry point**: the Cards page's "Pagar fatura" action (`cards.service.ts#registerCardPayment`), which creates the `transactions` row and the linked `card_payments` metadata row together. The manual transaction form (`/transactions`, and the Dashboard's "Novo lançamento") deliberately does **not** offer this type — only `EXPENSE`/`INCOME`/`TRANSFER` — so there's a single path to it instead of two UIs racing to do the same thing slightly differently. It also suggests the statement balance due through the current month (`getCardBalanceThroughMonth`), not the full lifetime balance including future installments not yet due.
+**`CREDIT_CARD_PAYMENT` has exactly one entry point**: the Cards page's "Pagar fatura"
+(`cards.service.ts#registerCardPayment`), which creates the `transactions` row and the linked
+`card_payments` metadata row together. The manual transaction form only offers
+`EXPENSE`/`INCOME`/`TRANSFER`. "Pagar fatura" suggests the statement balance due through
+today's real month (`getCardBalanceThroughMonth`), not the lifetime balance.
 
-The payment form has no description field (it's a fixed action: card, paying account, amount, date), so `registerCardPayment` defaults the transaction's `description` to `"Pagamento da fatura do cartão {nome do cartão}"` server-side (fixed 2026-08-07) — previously it stayed `null`, showing as blank/"Sem descrição" everywhere the column is displayed or searched.
-
-Since migration `0031`, `registerCardPayment` also tags every `CREDIT_CARD_PAYMENT` transaction with the `is_system` `EXPENSE` category `Pagamento de Cartão` (see "Pagamento de Cartão — categoria `is_system`" below) — automatically, since there's only ever one flow. This is purely a label; it changes nothing in analytics.
+`registerCardPayment` defaults the description to `"Pagamento da fatura do cartão {nome}"` and
+tags the transaction with the `is_system` `EXPENSE` category `Pagamento de Cartão` (migration
+`0031`) — automatically, a label only, changes nothing in analytics.
 
 ---
 
 # Credit Card Purchases / Installments / Payments
 
-A card purchase (`card_purchases`) generates N rows in `card_installments`, one per installment, each with its own **competence date** — computed from `purchase_date` and the card's `closing_day`/`due_day`, never the raw purchase date itself.
+A `card_purchases` row generates N `card_installments`, one per installment, each with its
+own **competence date** computed from `purchase_date` + the card's `closing_day`/`due_day` —
+**never the raw purchase date**.
 
-**Central rule**: analytics always use installment competence date, never purchase date. Example: purchase on Feb 28, 3 installments → competence Mar/Apr/May, never counted in February.
+**Central rule: analytics always use installment competence date, never purchase date.**
+Example: purchase Feb 28, 3 installments → competence Mar/Apr/May, never counted in February.
 
-The purchase form defaults the first installment's competence month to this automatic `closing_day`-derived calculation, but it's directly overridable (a month picker, not just a date) — the user might not remember the exact closing date, or the card behaves slightly differently than the formula assumes. The override replaces the anchor month only; the "add one month per subsequent installment" and rounding rules still apply on top of it (`calculateInstallmentCompetencesFromAnchorMonth` in `src/lib/utils/date.ts`).
+**Competence month formula** (`calculateInstallmentCompetences`, `src/lib/utils/date.ts`),
+two steps:
+1. Which billing cycle the purchase falls into — made after `closing_day` rolls into the
+   cycle closing the *following* month (`pushedToNextMonth`).
+2. Which calendar month that cycle's invoice is due in —
+   `dueMonthOffset = dueDay <= closingDay ? 1 : 0`. (A `due_day <= closing_day` card, e.g.
+   closes-28th/due-10th, has its due date in the *next* month.)
 
-**Bug fixed 2026-08-23: competence month must also account for `due_day <= closing_day`, not just `closing_day` alone.** `calculateInstallmentCompetences` (`src/lib/utils/date.ts`) decides the competence month in two steps, and the original implementation only ever did the first one: (1) which billing cycle a purchase falls into — a purchase made after `closing_day` rolls into the cycle that closes the *following* month; (2) which calendar month that cycle's invoice is actually due in. Step 2 was missing entirely. It only happens to be a no-op when `due_day > closing_day` (the common case — e.g. closes the 5th, due the 15th, same month) — which is why this went unnoticed for every card in this pattern. It breaks for a card like closes-28th/due-10th (Banco do Brasil, in the user's own data): the due date can only be chronologically *after* the close by falling in the *next* month (the 10th of the same month as a 28th close would be *before* the close, which is nonsensical) — so a purchase on, say, Aug 23 (before the Aug 28 close) belongs to the invoice due **Sep 10**, not Aug 10. The old formula anchored it to Aug 10 instead, silently mislabeling every such card's default-suggested competence one month early. Fixed by adding `dueMonthOffset = dueDay <= closingDay ? 1 : 0` to the anchor-month computation, alongside the existing `pushedToNextMonth` step — see the function's own doc comment for the full two-step reasoning. This only affects the *default suggestion* on new/edited purchases (`purchase-form-dialog.tsx`'s suggested competence, and `cards.service.ts#createCardPurchase`/`updateCardPurchase` whenever the user accepts it without manually overriding via the month picker) and the new `openInvoiceMonth`/`openInvoiceAmount` figures below — it does **not** retroactively touch already-stored `card_installments.competence` values, since those are only ever regenerated when a purchase is actually edited (rollback-and-re-register, per the paragraph below), never recomputed live. No data migration was run: the user's existing Banco do Brasil purchases already carried correct competences (entered via the manual override, before this default was fixed), so nothing needed correcting retroactively in this case — but a future session should be aware that any *unedited* purchase on a `due_day <= closing_day` card, created before this fix and never manually overridden, may still carry a stale one-month-early competence.
+The purchase form defaults the first installment's competence month to this calculation but
+it's directly overridable via a month picker (the user may not remember the exact closing
+date). `initialCompetenceMonth(purchaseDate, card)` seeds the field on open and after a
+create. The override replaces the anchor month only; "add one month per subsequent
+installment" and rounding still apply
+(`calculateInstallmentCompetencesFromAnchorMonth`).
 
-`card_purchases` is metadata only (what was bought, total, installment count) — never a direct analytics source. Editing a purchase (amount, date, installment count, or the competence override) **rolls back and re-registers**: every installment is deleted and regenerated from the new values, never patched installment-by-installment — this is what keeps the rounding rule correct after an edit. Deleting a purchase cascades its installments (`ON DELETE CASCADE`).
+- `card_purchases` is **metadata only**, never a direct analytics source.
+- **Editing a purchase rolls back and re-registers**: every installment is deleted and
+  regenerated from the new values, never patched installment-by-installment (this keeps the
+  rounding rule correct after an edit). Deleting a purchase cascades its installments.
+- **`installment_number`/`total_installments` are not stored columns** — derive by ordering
+  the purchase's installments by `competence` (total count is `card_purchases.installments`).
+  Number first over **all** the purchase's installments, filter for display second — filtering
+  then numbering mislabels a purchase's 3rd installment as "1/N" when its 1st/2nd fall
+  outside the window.
+- **Rounding**: any remainder from dividing the total goes to the **first** installment
+  (100 ÷ 3 = 33.34 / 33.33 / 33.33).
+- Paying the bill (`card_payments`) creates a `transactions` row (`CREDIT_CARD_PAYMENT`) + a
+  `card_payments` metadata row linked via `transaction_id`.
 
-`installment_number`/`total_installments` are **not stored columns** — derive by ordering a purchase's installments by `competence` (the total count is already `card_purchases.installments`). This ordering must be computed from **every** installment belonging to the purchase, not just whichever ones happen to fall inside a date-range filter being applied for display — filtering first and then numbering the filtered subset mislabels a purchase's 3rd installment as "1/N" whenever its 1st/2nd fall outside the filtered window. Number first (unfiltered), filter for display second.
+## Two "how much is used" figures — never conflate them
 
-Rounding: any remainder from dividing the purchase value into installments goes to the **first** installment, so the sum always matches the original amount exactly (e.g. 100 ÷ 3 = 33.34 / 33.33 / 33.33).
+- **Against the credit limit** — `CardSummaryDTO.totalCommitted` (`getCardTotalCommitted`):
+  every installment ever generated (past, current, **and future not-yet-due**) with
+  `paid_before_system = false`, minus every payment **and every `card_refunds`** ever made,
+  floored at 0. A real issuer counts an installment plan against the limit the moment it's
+  committed.
+- **What to pay right now** — `CardSummaryDTO.usedThroughCurrentMonth`
+  (`getCardBalanceThroughMonth`): installments with competence through **today's real month**
+  and `paid_before_system = false`, minus payments and refunds through that month, floored at
+  0. Excludes future not-yet-due installments on purpose. This drives "Pagar fatura" and
+  stays anchored to today even while the page browses another month.
+- `currentMonthInvoice` — a third figure: sum of installments whose competence falls in the
+  **viewed** month (follows the `MonthNav` filter). Gross — does **not** exclude
+  `paid_before_system` installments (it's the historical billed fact).
 
-Paying the card bill (`card_payments`) creates both a `transactions` row (`type = CREDIT_CARD_PAYMENT`) and a `card_payments` metadata row linked to it via `transaction_id`.
+## Compras retroativas (backfill of installments already paid before the system)
 
-**Two different "how much is used" figures, on purpose (decided and implemented 2026-08-07).** The Cards page shows a card's usage two ways, and they must not be conflated:
-- **Against the credit limit** (`CardSummaryDTO.totalCommitted`, `cards.service.ts#getCardTotalCommitted`): every installment ever generated for the card — past, current, *and future not-yet-due* — minus every payment ever made. This is the correct figure for "how much of my limit is used," because a real card issuer counts an installment plan against the limit the moment it's committed, not only once each installment individually comes due.
-- **What to actually pay right now** (`CardSummaryDTO.usedThroughCurrentMonth`, `getCardBalanceThroughMonth`): installments with competence through *today's real month* minus payments — deliberately excludes future installments not yet due. This is what "Pagar fatura" suggests, and it stays anchored to today's real month even while the Cards page is browsing a different month via its `MonthNav` filter — paging through history to look at a past invoice must never change what a real payment made today should be.
+Lets a user register a whole installment purchase from before they started using the system
+(real total, real date, real count) and mark up to which month it was already paid outside
+the system.
 
-`currentMonthInvoice` is a third, separate figure: the sum of installments whose competence falls in whichever month the page's `MonthNav` is currently viewing — this one *does* follow the filter (fixed 2026-08-07; it used to silently ignore the filter and always show today's real month regardless of what the user was browsing).
+- `card_purchases.paid_through_competence` (user input, a month) → `card_installments.paid_before_system`
+  (derived per installment in `createCardPurchase`/`updateCardPurchase`): every installment
+  with `competence <= paid_through_competence` is flagged `true`. Always a **contiguous
+  prefix** from installment 1 — no per-installment UI toggle.
+- The flag **excludes** the installment from the card's outstanding/committed balance
+  (`getCardBalanceThroughMonth`/`getCardTotalCommitted` and thus
+  `usedThroughCurrentMonth`/`totalCommitted`) — settled, just not through a tracked payment.
+  `currentMonthInvoice` does **not** exclude it.
+- The flag changes **nothing** in expense-by-category analytics — the installment counts as a
+  normal EXPENSE of its category/competence month.
+- The flag amount **counts as synthetic INCOME**, grouped under the `is_system` INCOME
+  category **"Compras retroativas"** (migration `0030`, one row — the EXPENSE side already
+  has the purchase's real spending category). `fetchPeriodEntries` emits these installments
+  as `INCOME` entries. It feeds `getFinancialSummary`, `getMonthlyEvolution`, **and the
+  income-by-category donut** (so those reconcile). Never a real `transactions` row.
+  - **Filter semantics**: the dashboard category filter matches the "Compras retroativas"
+    system-category id, **not** the purchase's spending category. A subcategory or
+    `uncategorizedOnly` filter excludes it entirely (same as `card_refunds`).
+  - **Not in the Explorador de Lançamentos** — no synthetic row. The installment already
+    appears there as an EXPENSE row with a "paga antes do sistema" badge. Clicking the
+    "Compras retroativas" income slice filters the Explorer to empty (same as "Estorno").
+- `FinancialSummaryDTO.retroactiveIncomeAmount` — the period's R$ total under that category.
+  A distinct signal from `Ajuste` (which is about bookkeeping looseness) — this is about a
+  purchase genuinely predating the system. Currently no UI consumer.
+- `paid_through_competence` cannot be a future month (validated client + service).
+- Editing follows the same rollback-and-re-register rule — the flag is recomputed from
+  scratch for every generated installment.
 
-## Compras retroativas (backfill de parcelas já pagas antes do sistema)
+## Fatura — paid / partial indicator
 
-**Decidido e implementado 2026-08-10, a pedido do usuário.** Facilita o cadastro pra um usuário leigo que começa a usar o sistema já com compras parceladas em andamento: em vez de calcular manualmente "quanto falta pagar" e cadastrar só o resto, ele cadastra a compra **inteira** (valor total real, data real, nº de parcelas real) e marca até que mês ela já foi paga fora do sistema — dinheiro que "apareceu" de algum jeito pra cobrir aquilo, sem um pagamento rastreado aqui. Cobre os dois casos que o usuário descreveu: uma compra inteiramente já paga (marcar "pago até" no mês da última parcela) ou só parte das parcelas.
+`card_payments` has no month/competence column, so "how much of THIS month's invoice is
+paid" is derived: `CardSummaryDTO.currentMonthPaidAmount`, assuming a payment always settles
+the **oldest open competence first** (the same assumption `getCardBalanceThroughMonth` /
+`overdueAmount` already make). Concretely: a `paid_before_system` installment of the viewed
+month counts paid outright; the rest is covered by whatever's left of all-time
+`card_payments` **+ `card_refunds` credited through the end of the viewed month** after
+settling every non-`paid_before_system` installment strictly before the viewed month.
 
-- `card_purchases.paid_through_competence` é a entrada do usuário ("já paguei até este mês", um mês, não uma parcela específica). `card_installments.paid_before_system` é a flag derivada por parcela, calculada em `cards.service.ts#createCardPurchase`/`updateCardPurchase`: toda parcela cuja competência seja `<= paid_through_competence` nasce com a flag `true` — sempre um **prefixo contíguo** a partir da 1ª parcela (não dá pra marcar a 1ª e a 3ª pulando a 2ª), porque isso já cobre o caso real (fatura paga em sequência) sem precisar de um toggle por parcela na UI.
-- A flag **exclui** a parcela do saldo/fatura em aberto do cartão — `getCardBalanceThroughMonth`/`getCardTotalCommitted` (e por consequência `CardSummaryDTO.usedThroughCurrentMonth`/`totalCommitted`) passam a ignorá-la, como se já tivesse sido paga (porque foi, só que fora do sistema). `CardSummaryDTO.currentMonthInvoice` **não** exclui — continua representando o fato histórico "o que foi faturado naquele mês", que não muda só porque o usuário logou esse pagamento depois.
-- A flag **não muda nada** nos dashboards de despesa por categoria — `card_installments` já alimenta `getCategoryDistribution`/`getMonthlyEvolution` (lado despesa) independente de qualquer flag, então uma parcela retroativa conta normalmente como despesa da categoria/mês da sua competência, sem código novo.
-- A flag **soma em RECEITA** no resumo (`FinancialSummaryDTO.income`) e na evolução mensal (`MonthlyEvolutionDTO.income`) do mês de competência de cada parcela — já que, na prática, dinheiro real pagou aquilo, mesmo sem uma origem rastreada. Isso é **calculado na consulta**, nunca uma `transactions` real criada — não polui a tabela `transactions` nem o Explorador de Lançamentos com uma linha falsa. `FinancialSummaryDTO.retroactiveIncomeAmount` expõe o mesmo tipo de sinal que `adjustmentAmount` já expõe pra "Ajuste" (o total em R$ do período sob essa categoria) — deliberadamente **não** é o mesmo conceito de Ajuste: Ajuste é sobre desleixo de registro (o usuário devia ter lançado e não lançou), enquanto isto é sobre uma compra genuinamente anterior ao uso do sistema.
-- **Essa receita retroativa agora É agrupada numa categoria e aparece no donut/barras de RECEITA por categoria — mudado 2026-08-28, a pedido do usuário** ("as parcelas retroativas têm categoria então devem ser mostradas também... na parte de receita este valor está faltando ser listado"). Antes ela era um valor calculado solto (`fetchRetroactiveIncomeEntries`, removido) que alimentava só `getFinancialSummary`/`getMonthlyEvolution` e ficava **fora** de `getCategoryDistribution`/`getCategoryComparison` — o donut de receita mostrava um total menor que a barra de receita da evolução mensal, sem explicação visível. A correção seguiu o mesmo padrão de "Estorno" (2026-08-23): a migration `0030` cria a categoria `is_system` **INCOME "Compras retroativas"** (uma linha só — o lado DESPESA da parcela já tem a categoria de gasto real), e `fetchPeriodEntries` passa a emitir essas parcelas como entradas `INCOME` marcadas com essa categoria. Assim os dois gráficos reconciliam, a fatia é clicável, e não há risco de um `categoryId` falso vazar num `category_id.in(...)` que espera uuid.
-  - **Mudança de semântica de filtro que isso traz:** o filtro de categoria do dashboard agora casa com o id da categoria system "Compras retroativas", **não** mais com a categoria de gasto da compra. Filtrar o dashboard por uma categoria de despesa (ex.: "Roupas") não puxa mais a receita retroativa daquelas compras pro total; filtrar por "Compras retroativas" mostra toda ela. Um filtro de subcategoria ou `uncategorizedOnly` ativo exclui a receita retroativa (ela nunca casa com nenhum dos dois), igual ao bloco de `card_refunds`.
-  - **Continua fora do Explorador de Lançamentos** — `getTransactionsFiltered` não ganhou linha sintética (mesma decisão que já vale pra `card_refunds`/estorno): a parcela já aparece lá como linha de DESPESA com a badge "paga antes do sistema"; clicar a fatia "Compras retroativas" no donut de receita filtra o Explorador pra vazio, aceitável e idêntico ao comportamento de clicar a fatia "Estorno".
-- Rastreabilidade da parcela em si fica visual: badge "paga antes do sistema" em Cartões (`src/app/(app)/cards/page.tsx`) e no Explorador de Lançamentos (`TransactionViewDTO.paidBeforeSystem`), sem criar nenhuma linha de receita real em nenhum dos dois.
-- `paid_through_competence` não pode ser um mês futuro — validado no client (`purchase-form-dialog.tsx`) e repetido no service (`createCardPurchase`/`updateCardPurchase`), já que não faz sentido marcar uma parcela ainda não vencida como "paga antes do sistema".
-- Editar uma compra com parcelas retroativas segue a mesma regra de "rollback e re-registro" já existente — mudar valor/data/parcelas/cartão/`paid_through_competence` recalcula a flag do zero pra todas as parcelas geradas, nunca é um patch parcela-por-parcela.
+This is a heuristic, not a real allocation — a payment made today to prepay a future invoice
+still shows as clearing the oldest month first. Accepted: the common case ("fatura de 650,
+paguei 600, faltam 50" — partial payment of the most recent open invoice) is covered
+correctly.
 
-## Fatura: indicador de pago/parcial
-
-**Decidido e implementado 2026-08-12, a pedido do usuário** ("gostaria de colocar um simbolo de pago ou se pago pela metade"). `card_payments` nunca teve (e continua sem ter) uma coluna de mês/competência — é só `{ credit_card_id, account_id, transaction_id, amount, payment_date }`, um valor solto contra o cartão como um todo. Então "quanto da fatura DESTE mês já foi pago" não é um fato guardado, é derivado: `cards.service.ts#getCardSummary` ganhou `currentMonthPaidAmount`, calculado assumindo que um pagamento sempre quita a competência mais antiga em aberto primeiro — a mesma suposição que `getCardBalanceThroughMonth`/`overdueAmount` já faziam implicitamente (nenhuma delas jamais tentou saber PARA QUAL mês um pagamento era). Concretamente: uma parcela `paid_before_system` do mês visualizado conta como paga direto (já quitada fora do sistema, ver "Compras retroativas" acima); o resto do mês visualizado é coberto pelo que sobrar do bolo de crédito — `card_payments` (soma de todos os tempos) **+ `card_refunds` creditados até o fim do mês visualizado** (mudado 2026-08-28, ver "Estorno") — depois de quitar toda parcela não-`paid_before_system` com competência estritamente anterior ao mês visualizado.
-
-Isso é uma heurística, não uma alocação real — se o usuário pagar hoje adiantando uma fatura futura, o sistema ainda mostra esse valor quitando o mês mais antigo em aberto primeiro, não o mês que o usuário tinha em mente. Aceito como trade-off deliberado: implementar uma alocação explícita exigiria uma coluna nova ligando pagamento a mês (ou a parcelas específicas), e o caso de uso descrito pelo usuário — "fatura de 650, paguei 600, faltam 50" — é exatamente o caso comum (pagamento parcial da fatura mais recente em aberto) que a heurística já cobre certo.
-
-`src/components/ui/invoice-paid-badge.tsx` (novo, compartilhado entre `/cards` e `AccountCard`, mesma convenção do bloco `totalCommitted/creditLimit` que as duas telas já compartilhavam) renderiza: nada quando `currentMonthPaidAmount === 0` (comportamento anterior, sem poluir a tela pra fatura totalmente em aberto); badge verde "Paga" quando `currentMonthPaidAmount >= currentMonthInvoice`; badge amarelo "`{pago}` pago · faltam `{resto}`" no caso parcial.
+`src/components/ui/invoice-paid-badge.tsx` (shared by `/cards` and `AccountCard`): nothing
+when `currentMonthPaidAmount === 0`; green "Paga" when `>= currentMonthInvoice`; yellow
+"`{pago}` pago · faltam `{resto}`" when partial.
 
 ## Fatura aberta vs. fatura do mês visualizado
 
-**Decidido e implementado 2026-08-23, a pedido do usuário** ("gostaria que elas pudessem exibir duas linhas, primeira com a fatura do mes atual e a segunda linha com a fatura aberta no momento"). Até então, tanto `/cards` quanto `AccountCard` mostravam uma única linha de fatura — `currentMonthInvoice`, para o mês visualizado (o filtro `MonthNav` em `/cards`; sempre o mês real de hoje em `/accounts`, que não tem filtro). Isso confunde dois conceitos diferentes assim que o `closing_day` do cartão já passou dentro do mês visualizado: a fatura que está sendo exibida (já fechada, aguardando pagamento) e a fatura que ainda está aberta (recebendo lançamentos novos agora), que pode já ser a competência do mês seguinte.
+Once `closing_day` has passed within the viewed month, "the invoice being displayed"
+(closed, awaiting payment) and "the invoice still open" (accumulating new charges now) are
+different — the open one may already be next month's competence.
 
-`cards.service.ts#getCardSummary` ganhou `openInvoiceMonth`/`openInvoiceAmount` — a competência que uma compra feita **hoje** cairia, calculada com a mesma `calculateInstallmentCompetences(todayIso(), closingDay, dueDay, 1)` que uma compra real usa. Segue a mesma convenção de `usedThroughCurrentMonth`/`overdueAmount`: sempre ancorada em hoje, nunca no mês visualizado — navegar pelo histórico em `/cards` não muda qual fatura está "aberta" agora.
+`CardSummaryDTO.openInvoiceMonth`/`openInvoiceAmount` — the competence a purchase made
+**today** would fall in (`calculateInstallmentCompetences(todayIso(), …)`), always anchored
+to today. `openInvoiceAmount` is gross (same convention as `currentMonthInvoice`).
 
-A UI (`/cards` e `AccountCard`) renderiza essa segunda linha ("Fatura aberta ({mês}): {valor}") **somente quando `openInvoiceMonth` difere do mês já mostrado na primeira linha** — se o `closing_day` ainda não passou, a fatura aberta é a mesma que está sendo exibida, e mostrar as duas seria redundante. Esse é exatamente o caso comum (ex.: `closing_day` no fim do mês, hoje ainda dentro do ciclo) — a segunda linha só aparece quando genuinamente há duas faturas distintas em jogo (ex.: fatura de agosto já fechada e vencida, fatura de setembro já acumulando compras novas).
+`/cards` and `AccountCard` render a second "Fatura aberta ({mês}): {valor}" line **only when
+`openInvoiceMonth` differs** from the month on the first line.
 
-## Mês inicial de /cards
+## Mês inicial de `/cards`
 
-**Decidido e implementado 2026-08-28, a pedido do usuário** ("ao entrar na tela de cartões se eu tiver com todos os meus cartões com faturas do mês corrente pagas exiba o próximo mês... se eu não tiver faturas pro próximo mês pode exibir o mês corrente mesmo"). `/cards` sempre abria no mês real de hoje quando não havia `?month=` na URL. Agora `cards.service.ts#getDefaultCardsMonth()` decide:
+`cards.service.ts#getDefaultCardsMonth()` decides the month `/cards` opens on when there's no
+`?month=` in the URL:
 
-- **próximo mês** quando (a) `getCardBalanceThroughMonth(cartão, mês de hoje) === 0` pra **todos** os cartões — ou seja, não há nada a pagar agora; essa é a mesma figura que o "Pagar fatura" sugere, já líquida de pagamentos **e** estornos, e já incluindo atraso de meses anteriores (uma fatura totalmente estornada ou totalmente paga conta como quitada; um pagamento parcial ou uma fatura antiga em aberto mantém a tela no mês corrente) — **e** (b) o próximo mês tem `card_installments` com competência nele.
-- **mês de hoje** em qualquer outro caso (algo ainda a pagar, ou próximo mês vazio).
+- **next month** when (a) `getCardBalanceThroughMonth(card, todayMonth) === 0` for **every**
+  card (nothing to pay now — that figure is already net of payments and refunds and includes
+  prior-month overdue) **and** (b) next month has `card_installments`.
+- **today's month** otherwise.
 
-Isso é só o **default** — qualquer navegação explícita (setas do `MonthNav`, botão "Hoje", month picker) grava `?month=` e passa a mandar dali em diante. `MonthNav` recebe o mês resolvido pelo servidor como prop (`month`) e cai nele quando `searchParams` não tem `month`, então rótulo, setas prev/next e o atalho "Hoje" ficam coerentes com o conteúdo que a página está mostrando de fato. Deliberadamente baseado em `getCardBalanceThroughMonth` (o que se deve agora), não no par `currentMonthInvoice`/`currentMonthPaidAmount` da `InvoicePaidBadge` — esse par não desconta estornos, então uma fatura estornada apareceria como "faltam R$X" e bloquearia o avanço sem necessidade.
+Only the default — any explicit navigation (`MonthNav` arrows, "Hoje", month picker) writes
+`?month=` and takes over. `MonthNav` receives the server-resolved month as a prop and falls
+back to it. Based on `getCardBalanceThroughMonth`, not `currentMonthInvoice`/
+`currentMonthPaidAmount` — that pair doesn't discount refunds.
+
+## Antecipar parcelas
+
+`cards.service.ts#advancePurchaseInstallments(purchaseId, count)` — from a purchase's
+not-yet-billed installments (`getPurchaseFutureInstallments`, ordered by `competence`,
+excluding `paid_before_system`), the user picks **how many** (`count`, not necessarily all):
+1. The `count` nearest go to the open-invoice competence (anchored to today).
+2. The rest are renumbered contiguously right after — open-invoice month +1, +2, … — with no
+   gap, shortening the whole plan by `count` months.
+
+**Never creates `transactions`/`card_payments`** — pure `UPDATE card_installments SET
+competence`. Same as `refundCardPurchase` does, but partial and user-chosen. To actually pay
+the now-current installments, the user still uses "Pagar fatura" afterward. Doesn't change
+`totalCommitted` (sums by competence regardless). Button (⏩) appears per purchase when
+`remainingInstallmentsCount > 0` and the purchase isn't refunded; the "how many" field
+accepts 1..`remainingInstallmentsCount`.
+
+## Cards page empty state
+
+`/cards` with zero cards → "Criar cartão de crédito" navigates to
+`/accounts?newAccountType=CREDIT_CARD`; `AccountsPage` passes `initialOpen`/`initialType`
+into `AccountFormDialog` so the dialog opens pre-set to `CREDIT_CARD`.
 
 ---
 
 # Categories and Subcategories
 
-Categories = broad areas (Food, Housing, Transport). Subcategories = detail (Groceries, Restaurants).
+Categories = broad areas (Food, Housing, Transport). Subcategories = detail (Groceries,
+Restaurants).
 
-**Income categories never have subcategories** — extra detail goes in the transaction's `description`, not a subcategory. Enforced in `src/lib/validations`, not by a database constraint.
+**Income categories never have subcategories** — detail goes in the transaction's
+`description`. Enforced in `src/lib/validations` **and** in `categories.service.ts#createSubcategory`
+(throws for an `INCOME` parent), not by a DB constraint.
 
 ## `is_default` vs `is_system` — two distinct, non-overlapping flags
 
-Confirmed against the actual legacy implementation (both flags live on rows with `user_id IS NULL`, but they mean different things and never overlap):
+Both live on rows with `user_id IS NULL`; they never overlap.
 
-- **`is_default = true`**: the onboarding starter pack (Moradia, Alimentação, Transporte, Financeiro, Dívidas, Salário, Investimentos, Recebimento de Dívida, etc.). At signup, the user picks which ones apply to their life; the system **copies** the selected rows (category + subcategories) into the user's own `user_id`. These rows are never queried directly by the app after that — they only exist to be copied once.
-- **`is_system = true`**: a small, permanent, global catalog — **never copied, never editable, available to every user directly** (queried as `user_id = auth.uid() OR is_system = true`). Today this is `Juros` (EXPENSE), `Rendimentos` (INCOME), `Ajuste` (two rows, `INCOME` + `EXPENSE`), `Estorno` (two rows, migration `0019`), `Compras retroativas` (`INCOME` only, migration `0030`), and `Pagamento de Cartão` (`EXPENSE` only, migration `0031`) — see "Juros, Rendimentos e Ajuste", "Estorno", and "Pagamento de Cartão — categoria `is_system`" below. **None of these is ever selectable from a form.** They never appear in `CategorySelect` (`src/features/categories/components/category-select.tsx` filters `!c.isSystem`), and `EditableCategoryCell` shows a row already tagged with one as plain text, not an editable dropdown. Each is applied *only* by its own dedicated flow (`registerYield`, `reconcileAccountBalance`, `registerInterest`, `refundCardPurchase`/`refundTransaction`, retroactive-purchase computed income, `registerCardPayment`). The dashboard/Cards/Transactions *filter* dropdowns are separate components and deliberately still list them, so a user can filter by "Estorno"/"Compras retroativas"/"Pagamento de Cartão".
+- **`is_default = true`**: the onboarding starter pack (Moradia, Alimentação, Transporte,
+  Salário, Investimentos, …). At signup the user picks which apply; the system **copies** the
+  selected rows into their own `user_id`. Never queried directly after that — they exist only
+  to be copied.
+- **`is_system = true`**: a small permanent global catalog — **never copied, never editable,
+  available to every user directly** (`user_id = auth.uid() OR is_system = true`). Currently:
+  `Juros` (EXPENSE), `Rendimentos` (INCOME), `Ajuste` (INCOME + EXPENSE), `Estorno` (INCOME
+  + EXPENSE, migration `0019`), `Compras retroativas` (INCOME only, `0030`), `Pagamento de
+  Cartão` (EXPENSE only, `0031`), `Resgate de Meta Concluída` / `Resgate de Meta Antecipado`
+  (INCOME, `0036`).
+  - **None is ever selectable from a form.** `CategorySelect` filters `!c.isSystem`;
+    `EditableCategoryCell` shows a row already tagged with one as plain text, not a dropdown.
+    Each is applied only by its own dedicated flow (`registerYield`,
+    `reconcileAccountBalance`, `registerInterest`, `refundCardPurchase`/`refundTransaction`,
+    retroactive-purchase computed income, `registerCardPayment`, `redeemGoal`,
+    `registerGoalYield`).
+  - The dashboard/Cards/Transactions **filter** dropdowns are separate components and
+    deliberately still list them.
 
-**There is no foreign key between an `is_default` copy and its source.** The only "link" is the name, informally, at copy time. Editing or deleting the user's copy never affects the catalog, and vice-versa. `is_system` rows are never copied at all — they stay global forever and every user's transactions can reference them directly.
+**No foreign key between an `is_default` copy and its source.** The only "link" is the name,
+at copy time. `is_system` rows are never copied — they stay global forever.
 
-Users can also create a category/subcategory **inline**, from within the transaction form or the card purchase form, without leaving the screen — a small popover (name, curated emoji icon, color) that creates the row and selects it in place, no navigation away from the form.
+Users can create a category/subcategory **inline** from the transaction or card-purchase form
+(a small popover: name, curated emoji icon, color) without leaving the screen. The shared
+picker is `CategorySelect`/`SubcategorySelect` (`src/features/categories/components/category-select.tsx`),
+used by every form that assigns a category, with a "Nova categoria/subcategoria" item at the
+end of the same dropdown.
 
-**Onboarding is implemented and reusable, not one-shot.** `/onboarding` shows a tree picker (category checkbox + nested subcategory checkboxes — uncheck one subcategory while keeping the rest of the category, e.g. keep "Moradia" but only "Aluguel", skip "IPTU"); a new signup lands there once a session exists, and `profiles.onboarding_completed` (migration `0004`) gates every other page via the `(app)` layout so it's reachable regardless of which path established the session (immediate signup vs. confirming email then logging in later). The same page reopens from Settings ("Importar categorias padrão") to re-visit the `is_default` catalog later — e.g. importing "Transporte" only once the user actually buys a car.
+## Name uniqueness
 
-**The re-import picker always shows the FULL `is_default` catalog, not just what's missing — decided and implemented 2026-08-08, at the user's explicit request.** Previously `getAvailableDefaultCategories` diffed the starter pack against the user's own categories (by `(type, name)`, since there's no FK back to the source) and only returned genuinely new ones — an already-imported category disappeared from the list entirely, so there was no way to see the whole picture or add a subcategory you'd skipped under a category you already had. `getDefaultCategoryImportOptions` (`categories.service.ts`) now returns every `is_default` category and subcategory, each annotated `alreadyImported: boolean` (still matched by `(type, name)` — no FK exists to check instead). `CategoryTreeItem` renders an already-imported item **checked and disabled** — visible, not removable, with a "Já importada" badge — while anything still missing (a whole new category, or just a subcategory under a category the user already has) stays a normal selectable checkbox. Disabled checkboxes never submit via the browser's own `FormData`, so the server action only ever receives genuinely new selections without any extra client-side filtering.
+Only the **literal** duplicate name is blocked, and only within the same tree:
 
-`copyDefaultCategories` was extended to match: a selected subcategory whose parent category ISN'T among the selected category ids means that category is already imported (its checkbox was disabled) and the subcategory must attach to the user's **existing** category copy — resolved by the same `(type, name)` match — rather than creating a duplicate category. Selecting a whole new category still works exactly as before.
+- `categories`: unique per `(user_id, type, name)` — a user can't have two `EXPENSE`
+  categories named "Mercado", but the same name can exist once per `type` (this is why
+  `Ajuste`/`Estorno` need two rows each, not a conflict).
+- `subcategories`: unique per `(category_id, name)` — "Outros" can exist under many
+  categories, not twice under one.
 
-### Onboarding — conta padrão
+Semantically similar names side by side are fine (`iFood` + `Delivery` under one category).
 
-**Decidido e implementado 2026-08-23/24, a pedido do usuário**, depois que a auditoria do sistema apontou o gap: o onboarding cobria categorias e orçamento, mas nenhuma conta — um usuário novo terminava sem conseguir lançar absolutamente nada até ir em Contas manualmente. A ideia do próprio usuário: "sempre existir uma primeira Conta com nome 'Carteira' do tipo Dinheiro por default assim que criar o sistema... segunda tela ir pra conta já avisando que foi criada apenas a conta de carteira em dinheiro simples e pedindo o saldo atual dela pro usuário."
+## Onboarding
 
-`public.handle_new_user()` (o trigger `on_auth_user_created`, migration `0003`, alterado pela `0025`) agora insere, no mesmo insert que já cria `profiles`, uma conta `CASH` chamada "Carteira" com `initial_balance = 0` — todo usuário novo (incluindo contas de teste) já nasce com uma conta pronta pra usar, sem esperar nenhuma tela de onboarding rodar.
+Reusable, not one-shot. `/onboarding` shows a tree picker (category checkbox + nested
+subcategory checkboxes — uncheck one subcategory, keep the rest). `profiles.onboarding_completed`
+(migration `0004`) gates every `(app)` page until set. Reopened from Settings ("Importar
+categorias padrão") to import categories skipped the first time.
 
-**Ordem revisada 2026-08-24, a pedido do usuário** ("Primeiro acesso acho mais interessante a tela inicial ser a conta inicial da carteira mesmo"). O fluxo de primeira vez agora é: **conta** (`/onboarding/account`) → **categorias** (`/onboarding`) → **orçamento** (`/onboarding/budget`, ainda pulável) → dashboard — a conta virou a primeira tela, não a segunda. `signUp` (`(auth)/actions.ts`) e o gate de `(app)/layout.tsx` (quando `!profile.onboardingCompleted`) redirecionam direto pra `/onboarding/account` agora, não mais pra `/onboarding`. `/onboarding/account` não pede nome/tipo/instituição — a conta já existe — só pergunta o saldo real atual da Carteira, com uma nota curta avisando que o usuário pode cadastrar quantas contas bancárias e cartões quiser depois, em Contas e Cartões (a versão simplificada dos "outros pop-ups" que o usuário descreveu — uma frase no lugar de mais telas, por pedido explícito de manter o tutorial "básico"). Ao confirmar o saldo, redireciona pra `/onboarding`; `completeOnboarding` (`onboarding/actions.ts`) então segue pra `/onboarding/budget` sempre que `isFirstTime`, independente de o usuário ter escolhido alguma categoria ou não (diferente da condição anterior, que só levava pro passo de orçamento se `importedSomething`) — tanto a tela de conta quanto a de orçamento já lidam bem com o caso de zero categorias.
+- **The re-import picker always shows the FULL `is_default` catalog**, each item annotated
+  `alreadyImported` (matched by `(type, name)` — no FK). Already-imported items render
+  checked+disabled with a "Já importada" badge (browsers omit disabled checkboxes from
+  `FormData`, so the action only ever gets genuinely new selections).
+- `copyDefaultCategories`: a selected subcategory whose parent category isn't among the
+  selected ids is attached to the user's **existing** category copy (resolved by
+  `(type, name)`), not a duplicate.
 
-**Tela de categorias — atalho "início rápido" (2026-08-24, a pedido do usuário).** Antes, toda categoria do pacote `is_default` vinha marcada por padrão no primeiro acesso — uma lista grande demais pra decidir de cara. Agora só cinco vêm pré-marcadas: Alimentação, Compras, Moradia, Transporte, Salário (`QUICK_START_CATEGORY_NAMES`, `src/app/onboarding/page.tsx`) — as demais aparecem desmarcadas, mas continuam clicáveis normalmente. **Essa lista é exclusiva desta tela** — não tem nenhuma relação com a flag `is_default` do catálogo (que só controla o que pode ser copiado, não o que vem marcado) nem com nenhum outro conceito de "default" do sistema. Como consequência natural (não é lógica extra), a tela de orçamento seguinte também fica menor pro primeiro usuário — só mostra as categorias que ele de fato importou.
+**Onboarding — conta padrão.** `public.handle_new_user()` (trigger `on_auth_user_created`,
+migration `0003`, updated by `0025`) inserts a `CASH` account named "Carteira"
+(`initial_balance = 0`) in the same insert that creates `profiles` — every new user has an
+account before reaching the dashboard. First-time flow: **account** (`/onboarding/account` —
+just confirm the wallet's real balance) → **categories** (`/onboarding` — only 5 pre-checked:
+`QUICK_START_CATEGORY_NAMES` = Alimentação, Compras, Moradia, Transporte, Salário, an
+onboarding-screen-only list unrelated to `is_default`) → **budget** (`/onboarding/budget`,
+skippable) → dashboard. `signUp` and the `(app)` layout gate redirect to `/onboarding/account`.
+`completeOnboarding` goes to `/onboarding/budget` whenever `isFirstTime`.
 
-## Ajuda por tela
+## Per-screen help
 
-**Decidido e implementado 2026-08-24, a pedido do usuário** — um botão "?" (`src/components/ui/help-button.tsx`, `HelpButton`) no cabeçalho de cada página principal (Dashboard, Movimentações, Contas, Cartões, Receita Programada, Dívidas, Orçamentos, Configurações), abrindo um popover curto (2-3 frases) com o essencial daquela tela. Deliberadamente **não** é um tour guiado com spotlight sobre elementos da UI — o usuário foi explícito: "tutorial tem que ser o básico de cada tela," não um passo a passo clicando em cada botão. Conteúdo é estático, escrito uma vez por página, sem nenhum registro/sistema de conteúdo por trás — mesma filosofia de simplicidade do resto do onboarding.
+A `?` button (`src/components/ui/help-button.tsx`, `HelpButton`) in every main page's header
+opens a short static popover (2-3 sentences) with that screen's essentials. Deliberately not
+a spotlight tour — "tutorial tem que ser o básico de cada tela".
 
 ## Deleting a category or subcategory — guided reassignment
 
-Categories and subcategories are never silently deleted while still in use. `category_id`/`subcategory_id` on `transactions`, `card_purchases`, `budgets`, `fixed_expenses`, and `reservoirs` are all nullable but **not** `ON DELETE CASCADE` or `SET NULL` — deleting a category/subcategory the database still finds referenced simply fails (default `RESTRICT`). This is deliberate: it forces every deletion through the app-level flow below, never a silent side effect.
+`category_id`/`subcategory_id` on `transactions`, `card_purchases`, `budgets`,
+`fixed_expenses`, `reservoirs`, and `debts.default_category_id` are all nullable but **not**
+`ON DELETE CASCADE`/`SET NULL` — a `DELETE` of a still-referenced category simply fails
+(default `RESTRICT`). This forces every deletion through the app-level flow:
 
-Flow, triggered when the user asks to delete a category or subcategory:
+1. Count every referencing row (`transactions`, `card_purchases`, plus any
+   `budgets`/`fixed_expenses`/`reservoirs`/`debts` still configured to use it) and show a
+   preview (~last 10).
+2. The user picks **one** action, applied as a single batch:
+   - **Reassign** to a different category (and/or subcategory).
+   - **Fall back to the parent category** (subcategory deletion only) — clears
+     `subcategory_id`, keeps `category_id`.
+   - **Leave uncategorized** — clears both. Uncategorized rows are a tolerated state, not an
+     error.
+3. Only after the batch clears every reference does the `DELETE` run (`RESTRICT` guarantees
+   the ordering).
 
-1. The system counts every `transactions` and `card_purchases` row (and any `budgets`/`fixed_expenses`/`reservoirs` still configured to use it) referencing the category/subcategory, and shows a preview — e.g. the last 10 — so the user recognizes what they logged under it.
-2. The user picks **one** action, applied to all affected rows in a single batch:
-   - **Reassign** everything to a different category (and/or subcategory) the user picks.
-   - **Fall back to the parent category** (subcategory deletion only) — clears `subcategory_id`, keeps `category_id`.
-   - **Leave uncategorized** — clears both `category_id` and `subcategory_id`. The system already tolerates uncategorized transactions (a new user who hasn't set up categories yet, or simply didn't pick one) — this is not an error state.
-3. Only after the batch update clears every reference does the actual `DELETE` run and succeed (the `RESTRICT` FKs guarantee this ordering — the delete cannot skip ahead of the reassignment).
-
----
-
-# Juros, Rendimentos e Ajuste — categorias `is_system`
-
-Three permanent global categories, never copied, always available directly to every user: `Juros` (EXPENSE), `Rendimentos` (INCOME), and `Ajuste` — this last one is **two separate rows** (`Ajuste`/INCOME and `Ajuste`/EXPENSE), since every category requires a `type`. Having the same name twice is fine here: category name uniqueness is scoped per `(user_id, type)`, not global — the two `Ajuste` rows sit in different "trees" (different type) so they don't collide. In the transaction list the user just sees "Ajuste" either way; the direction is already visible from the transaction's own amount/type.
-
-## Name uniqueness (categories and subcategories)
-
-Same literal name is only blocked **within the same tree**:
-
-- `categories`: unique per `(user_id, type, name)` — a user can't have two `EXPENSE` categories both named "Mercado", but the same name can exist once per `type` (this is exactly why `Ajuste` needs two rows, not a conflict).
-- `subcategories`: unique per `(category_id, name)` — "Outros" can exist under many different categories (different trees) with no conflict, but not twice under the same category.
-
-This blocks only the **literal** duplicate name — semantically similar names are allowed side by side (e.g. `iFood` and `Delivery` under the same category is fine, even though they overlap in meaning).
-
-## Juros — "Lançar Juros" (ação dedicada)
-
-**Mudado 2026-08-28, a pedido do usuário** ("juros deve funcionar q nem rendimento... clicar jogar o valor do juros que será lançado"). Antes `Juros` era escolhido à mão como categoria num lançamento normal (ex.: uma compra 1x no cartão para a linha de juros da fatura). Agora **nenhuma** categoria `is_system` é selecionável em formulário (ver "`is_default` vs `is_system`" acima), então `Juros` ganhou o mesmo tipo de fluxo que `Rendimentos`/`Ajuste` já têm.
-
-`accounts.service.ts#registerInterest({ accountId, amount, date? })` — recebe um **valor explícito** (não um delta contra saldo informado, ao contrário de `registerYield`/`reconcileAccountBalance`). O `type` da conta, lido do banco (nunca do client, mesmo padrão de `payFixedExpense`), decide como o lançamento é gravado:
-
-- **`CASH`/`BANK`** → uma `transactions` `EXPENSE` contra a conta, categoria `Juros`, descrição default `"Lançamento de juros — {conta}"` (ex.: juros de cheque especial).
-- **`CREDIT_CARD`** → uma `card_purchases` de 1x, categoria `Juros`, competência derivada normalmente do `closing_day`/`due_day` (a linha de juros da fatura) — flui pelo pipeline `card_purchases` → `card_installments` como qualquer compra.
-- `amount <= 0` → não lança nada.
-
-**UI:** item "Lançar Juros" no menu do card da conta (`account-card.tsx`), gated `type === "BANK"` (mesmo critério de "Informar Rendimento" — dinheiro em espécie não cobra juros sozinho); e no cartão, o botão "Pagar fatura" de `/cards` virou um menu ("Fatura ▾") com "Pagar fatura" e "Lançar juros". O dialog (`src/features/accounts/components/interest-dialog.tsx`, `InterestDialog`, compartilhado pelas duas telas) tem valor, data e uma **calculadora opcional** `base × %` que preenche o valor uma vez (unidirecional, igual à calculadora de juros de `DebtTransactionDialog`, nunca um par reativo).
-
-## Rendimentos — "informar rendimento" (check-in de cofrinho)
-
-Routine, expected, small periodic entry the user triggers explicitly via an **"Informar Rendimento"** action on the account (a "cofrinho"/pocket that yields daily but that the user doesn't want to log day by day). The user enters the account's current real balance; the system compares it to the calculated balance (initial balance + all transactions affecting that account) and creates **one INCOME transaction, category `Rendimentos`, for the difference**.
-
-Example: cofrinho starts at R$1.000. It yields daily — 92, 95, 94, 93, 98 centavos over 5 days — instead of logging 5 separate entries, once a week the user opens "Informar Rendimento", types the current balance (R$1.004,72), and the system logs a single R$4,72 INCOME/`Rendimentos` entry.
-
-## Ajuste — balance reconciliation (anomalies / logging negligence)
-
-A **separate** action (e.g. "Ajustar Saldo"), used when the gap is clearly **not** plausible yield — many untracked transactions accumulated, or the user simply lost track and wants to fix the number going forward without attributing a cause. Same underlying mechanic (enter the current real balance, system computes the difference against the calculated balance), but the resulting transaction is tagged `Ajuste` instead of `Rendimentos`.
-
-Example: a R$1.000 cofrinho that somehow became R$2.500 after weeks of untracked movements (clearly not yield) — or the reverse, dropped to R$20 from untracked withdrawals the user doesn't want to reconstruct. Either way: enter the new value, system creates one INCOME or EXPENSE transaction (depending on the sign) categorized `Ajuste`.
-
-**The choice between the two actions is the user's** — the system does not try to auto-detect whether a given gap "looks like" yield or an anomaly; it only computes the delta. Both share the same internal delta calculation in `accounts.service.ts`, exposed as two distinct entry points:
-
-- `registerYield(accountId, realBalance)` → `Rendimentos`
-- `reconcileAccountBalance(accountId, realBalance)` → `Ajuste` (the INCOME row or the EXPENSE row, matching the transaction's own type)
-
-- Difference zero on either action → nothing is created.
-
-No new table — both are a normal `createTransaction` call under the hood. Both actions default the transaction's `description` to `"Informar Rendimento — {conta}"`/`"Ajustar Saldo — {conta}"` (fixed 2026-08-07) — previously the account name wasn't included, so two "Ajustar Saldo" rows on different accounts in the same list read identically until clicked into.
-
-**`registerYield` ("Informar Rendimento") is `BANK`-only — decided and implemented 2026-08-07, `CASH` is explicitly excluded.** Physical cash in hand does not yield on its own; offering the action on a `CASH` account implied a behavior that can never actually happen. `reconcileAccountBalance` ("Ajustar Saldo") stays available for **both** `CASH` and `BANK` — miscounting cash in a wallet, or losing track of a drawer, is a legitimate reconciliation case, just never one attributable to yield. `CREDIT_CARD` remains out of scope for either action (revolving interest interacts with installments differently and isn't speced yet).
-
-**Dashboard signal**: because a high `Ajuste` share is itself useful information (it means the user isn't logging carefully), the dashboard should surface how much of the period's total sits under `Ajuste` — not as a hard rule, but as a visible warning so the user notices their own bookkeeping is getting loose.
+`reassignCategory` is exclusive to this flow — there is no standalone bulk-reassign action.
+When reassigning away from a subcategory it writes **both** `category_id` and
+`subcategory_id`. The reassign-target list is filtered to the source's own `type`.
 
 ---
 
-# Estorno — categoria `is_system`
+# Juros, Rendimentos e Ajuste — `is_system` categories
 
-**Decidido e implementado 2026-08-23, a pedido do usuário**, depois que uma auditoria completa do sistema apontou que não havia forma nenhuma de registrar um reembolso sem ou (a) inflar RECEITA com uma categoria sem relação com o gasto original, ou (b) reescrever a compra original perdendo o histórico. Um estorno pode acontecer **meses depois** da compra original (ex.: devolução de uma peça de roupa comprada há 3 meses) — por isso a solução nunca tenta "voltar no tempo" e reescrever `card_installments`/competências já geradas; ela sempre registra o estorno na data em que ele realmente aconteceu.
+Three permanent global categories: `Juros` (EXPENSE), `Rendimentos` (INCOME), `Ajuste` (two
+rows, INCOME + EXPENSE — every category requires a `type`; the user just sees "Ajuste", the
+direction is visible from the transaction's own amount).
 
-**Só estorno integral, nunca parcial** — decisão explícita do usuário ("pra ser reembolso creio que tenha que ser o total"). O valor do estorno é sempre o valor total da compra/despesa original, nunca aceito do client nem editável na tela — só a data é.
+## Juros — "Lançar Juros" (dedicated action)
 
-Mesma convenção de `Ajuste`: `Estorno` é um par `is_system` (`EXPENSE` + `INCOME`, migration `0019`), já que `type` é obrigatório em toda categoria.
+`accounts.service.ts#registerInterest({ accountId, amount, date? })` — an **explicit amount**
+(not a delta against an informed balance, unlike `registerYield`/`reconcileAccountBalance`).
+The account's `type`, read from the DB (never from the client), decides the write:
 
-**Compra no cartão** (`cards.service.ts#refundCardPurchase(purchaseId, refundDate)`) — três coisas acontecem juntas:
-1. A compra (`card_purchases.category_id`/`subcategory_id`) é reclassificada para a categoria system `Estorno` (`EXPENSE`) — isso tira o valor de qualquer gráfico/soma da categoria original (ex.: "Roupas") a partir dali, já que `card_installments` herda a categoria via join com `card_purchases`. O gasto bruto do período não desaparece, só passa a aparecer sob "Estorno" em vez da categoria original — mesma filosofia de transparência de `Ajuste`/`Rendimentos` (nunca esconder o evento, só rotular com clareza).
-2. **Toda parcela ainda não faturada é adiantada pra fatura que estava aberta no momento do estorno** (decidido 2026-08-23, depois que o usuário relatou o comportamento real de um estorno no cartão Amazon: a 1ª parcela já tinha sido faturada e paga numa fatura anterior — essa fica intocada — mas as parcelas restantes (2 em diante) foram todas adiantadas pelo emissor de uma vez só pra fatura que estava aberta na hora do estorno, junto com o crédito do valor total). `refundCardPurchase` calcula a competência que uma compra feita em `refundDate` cairia (mesma fórmula de `openInvoiceMonth`, só que ancorada em `refundDate` em vez de hoje — o estorno pode ser lançado tempos depois de ter acontecido) e faz `UPDATE card_installments SET competence = essa_competência WHERE purchase_id = ... AND competence > essa_competência`. Uma parcela já faturada (competence <= a fatura aberta na hora do estorno) nunca é tocada — já virou fato histórico, não pode ser reescrita. Isso significa que múltiplas parcelas podem terminar com a mesma `competence` — aceitável, é exatamente o que acontece na fatura real; a numeração "N/total" delas fica ambígua nesse caso, mas isso é só cosmético (não afeta nenhum total).
-3. Um `card_refunds` é inserido — um crédito no cartão que reduz o saldo devido **exatamente como um pagamento reduziria**, sem uma conta pagadora real por trás: o crédito veio do lojista/emissor, o dinheiro nunca saiu de uma conta rastreada do usuário. **Corrigido/completado 2026-08-28**, a pedido do usuário ("o usuario pode inclusive ficar com saldo no cartao ao inves de divida"): antes o crédito só era enxergado por `getCardBalanceThroughMonth`/`getCardTotalCommitted` (que já subtraíam `card_refunds`), então uma fatura 100% estornada continuava aparecendo como dívida a pagar em `currentMonthInvoice`, no badge `InvoicePaidBadge` e no card "Despesas de {mês}", e um crédito acima do que restava a faturar ficava escondido pelo `Math.max(0, …)`. Agora:
-   - `getCardSummary.currentMonthPaidAmount` **inclui** os `card_refunds` creditados até o fim do mês visualizado no mesmo bolo mais-antigo-primeiro dos `card_payments` — um estorno "paga" a competência mais antiga em aberto e o excedente cascateia pras faturas seguintes (é o "abate automático" que o usuário pediu). Uma fatura estornada passa a mostrar badge "Paga" e some da lista de obrigações do dashboard.
-   - `currentMonthInvoice` **continua** o valor bruto faturado (fato histórico — só a parte "paga" reflete o estorno). `getCardMonthlyEvolution` também soma os `card_refunds` na parte verde (paga) do split.
-   - Novo `CardSummaryDTO.creditBalance` (>= 0) = `(Σpagamentos + Σestornos) − Σparcelas!paid_before_system`, floored em 0 — o "saldo a favor" quando o crédito passa de tudo que já foi faturado. Exibido em verde em `/cards` e `AccountCard`; **nunca é dinheiro sacável**, nunca entra em saldo de conta, só abate compras/faturas futuras do próprio cartão. `getCardBalanceThroughMonth`/`getCardTotalCommitted` mantêm o `Math.max(0, …)` (alimentam "quanto pagar agora" e `getDefaultCardsMonth === 0`, não podem virar negativos) — o sinal negativo vive só no `creditBalance`.
-   `card_refunds.category_id` é sempre a categoria system `Estorno` (`INCOME`) e conta como RECEITA real do dashboard no mês do `refund_date` (nunca no mês da compra original) — computado dentro de `fetchPeriodEntries` (`dashboard.service.ts`), com categoria real, então aparece normalmente nos gráficos de categoria de RECEITA (diferente do caso de "Compras retroativas" acima, que não tem categoria real e por isso fica de fora desses gráficos de propósito). A constraint `UNIQUE (card_purchase_id)` em `card_refunds` impede estornar a mesma compra duas vezes.
+- **`CASH`/`BANK`** → a `transactions` `EXPENSE` against the account, category `Juros`,
+  default description `"Lançamento de juros — {conta}"` (e.g. overdraft interest).
+- **`CREDIT_CARD`** → a 1x `card_purchases`, category `Juros`, competence derived normally
+  from `closing_day`/`due_day` (the invoice's interest line) — flows through
+  `card_purchases` → `card_installments` like any purchase.
+- `amount <= 0` → no-op.
 
-**Transação fora do cartão** (`transactions.service.ts#refundTransaction(transactionId, refundDate)`) — mais simples, porque dinheiro real volta pra uma conta real: reclassifica a despesa original pra `Estorno` (`EXPENSE`) e cria uma **nova transação real** de `INCOME`, categoria `Estorno`, no mesmo valor, creditada na mesma conta de origem da despesa, datada de quando o estorno de fato aconteceu. `transactions.refund_of_transaction_id` (auto-FK, `ON DELETE SET NULL`) só existe para rastreabilidade — quem de fato reclassifica a despesa é `category_id`, igual sempre. Bloqueia um segundo estorno checando se a despesa já está categorizada como `Estorno`.
+UI: "Lançar Juros" in the account card's menu (`type === "BANK"` only, same criterion as
+"Informar Rendimento"); and on the Cards page, "Pagar fatura" is now a "Fatura ▾" menu with
+"Pagar fatura" + "Lançar juros". Dialog: `src/features/accounts/components/interest-dialog.tsx`
+(`InterestDialog`, shared), with value, date, and an **optional `base × %` calculator** that
+fills the value once (one-directional, like `DebtTransactionDialog`'s).
 
-**Dashboard signal**: `FinancialSummaryDTO.refundAmount` mostra a mesma ideia de `adjustmentAmount`/`retroactiveIncomeAmount` — o total em R$ do período (nas duas direções, então lê ~2× o valor de um estorno isolado) sob "Estorno" — exibido como badge ao lado do Balanço Mensal.
+## Rendimentos — "Informar Rendimento" (cofrinho check-in)
 
-**Mudança 2026-08-28 (os três sinais):** `adjustmentShare`/`refundShare`/`retroactiveIncomeShare` viraram `adjustmentAmount`/`refundAmount`/`retroactiveIncomeAmount` — badge agora mostra valor em R$ (`formatCurrency`), não porcentagem, a pedido do usuário ("porcentagem é muito dificil de ler e entender"). Nenhuma mudança de cálculo: os totais (`adjustmentTotal` etc.) já eram computados em `getFinancialSummary`, só pararam de ser divididos por `periodTotal`.
+`registerYield(accountId, realBalance)` → the user enters the account's current real balance;
+the system compares it to the calculated balance and creates **one INCOME transaction,
+category `Rendimentos`, for the difference**. For a "cofrinho" that yields daily but the user
+doesn't want to log day by day. **`BANK`-only** — physical cash doesn't yield.
 
-**Segunda mudança no mesmo dia:** só o badge de **"Ajuste"** continua sendo exibido no `summary-cards.tsx` — os de "Estorno" e "compras retroativas" foram removidos da UI a pedido do usuário ("mais rastro contábil do que alerta"). "Ajuste" perdeu o limiar `> 15%` que alternava `warning`/`neutral` (sem sentido contra valor absoluto) e é sempre `warning`. `FinancialSummaryDTO.refundAmount`/`retroactiveIncomeAmount` continuam calculados e no DTO — só não têm consumidor de UI no momento (o usuário deixou como decisão em aberto: "enquanto isso...").
+## Ajuste — balance reconciliation
 
-**Fora de escopo por enquanto**: um `card_refunds`/estorno de transação não aparece como sua própria linha no Explorador de Lançamentos (só a recategorização da compra original é visível lá) — ver a nota em `refundCardPurchase`. Também não existe hoje um caminho pra desfazer um estorno já registrado (equivalente ao "Cancelar pagamento" de despesas fixas) — se precisar reverter, a compra/transação precisa ser recategorizada manualmente de volta e o `card_refunds`/a transação de receita apagados à mão.
+`reconcileAccountBalance(accountId, realBalance)` → same delta mechanic, but the transaction
+is tagged `Ajuste` (INCOME or EXPENSE row, matching the transaction's own type). For when the
+gap is clearly **not** yield — many untracked movements, or the user lost track and wants to
+fix the number going forward without attributing a cause. Available for **CASH and BANK**.
+`CREDIT_CARD` is out of scope for both actions.
+
+- The choice between the two is the **user's** — the system only computes the delta, never
+  auto-classifies.
+- Zero delta on either → nothing is created.
+- Both default the description to `"Informar Rendimento — {conta}"` /
+  `"Ajustar Saldo — {conta}"`.
+- **Dashboard signal**: a high `Ajuste` share means the user isn't logging carefully —
+  `FinancialSummaryDTO.adjustmentAmount` (the period's R$ total under `Ajuste`) is shown as a
+  badge next to Balanço Mensal, always `variant="warning"`.
 
 ---
 
-# Pagamento de Cartão — categoria `is_system`
+# Estorno — `is_system` category
 
-**Decidido e implementado 2026-08-28, a pedido do usuário** ("Crie a categoria system de Pagamento de Cartão como EXPENSE... e categorize todas as transactions passadas para pagamento de cartao nesta categoria... como é uma categoria system ela nao podera ser usada pelo usuario... mas o sistema categorizar ela pode ser util no futuro").
+For recording a **refund**, which can happen months after the original purchase. The solution
+never "goes back in time" — it always records the refund on the date it actually happened.
+**Full refund only** — the amount is always the original total, never client-supplied or
+editable; only the date is. `Estorno` is a pair (`EXPENSE` + `INCOME`, migration `0019`).
 
-Migration `0031` adiciona a categoria `is_system` **EXPENSE "Pagamento de Cartão"** (uma linha só) e faz backfill: toda `transactions` `type = CREDIT_CARD_PAYMENT` já existente (que nunca teve categoria — o form de "Pagar fatura" não pede uma) recebe essa categoria. Daqui pra frente, `cards.service.ts#registerCardPayment` (via o helper compartilhado `insertCardPayment`) aplica a categoria automaticamente em todo novo pagamento de fatura — não é uma classificação que o usuário escolhe, é só o rótulo do único fluxo que existe.
+**Card purchase** — `cards.service.ts#refundCardPurchase(purchaseId, refundDate)`, three
+things together:
+1. The purchase's `category_id`/`subcategory_id` is reclassified to `Estorno` (`EXPENSE`) —
+   this moves the value out of the original category's charts/sums from then on
+   (`card_installments` inherits the category via join). The gross spend doesn't disappear,
+   it just shows under "Estorno" (same transparency philosophy as `Ajuste`/`Rendimentos`).
+2. **Every not-yet-billed installment is advanced to the invoice open at `refundDate`** —
+   replicating the real issuer: a refunded purchase's future installments don't keep pinging
+   through their original months, the remainder is dumped into the open invoice at once.
+   `UPDATE card_installments SET competence = <that competence> WHERE purchase_id = … AND
+   competence > <that competence>`. An already-billed installment is never touched. Multiple
+   installments can share a `competence` — matches the real invoice; "N/total" numbering is
+   cosmetically ambiguous but affects no total.
+3. A `card_refunds` row is inserted — a **credit that reduces the amount owed exactly like a
+   payment would**, with no paying account behind it (the credit came from the
+   merchant/issuer). `UNIQUE (card_purchase_id)` prevents refunding the same purchase twice.
 
-- **O usuário nunca pode escolhê-la.** `is_system` ⇒ fora do `CategorySelect` (`!c.isSystem`), e o `EditableCategoryCell` já mostra qualquer linha `CREDIT_CARD_PAYMENT` como o texto fixo "Pagamento de Cartão" (early-return por `row.type`, antes até do check de `isSystem`) — a exibição no Explorador de Lançamentos não mudou nada.
-- **Exceção documentada à regra "o `type` da categoria casa com o `type` da transação"** (ver "Domain Rules Enforcement"): um `CREDIT_CARD_PAYMENT` não é `INCOME` nem `EXPENSE`, e não existe `CategoryType` pra ele. `EXPENSE` foi escolha explícita do usuário — um pagamento de fatura é conceitualmente uma saída.
-- **Não entra em analytics.** `fetchPeriodEntries`, `getTransactionsFiltered` e as consultas de `getFinancialSummary`/`getCategoryDistribution`/`getMonthlyEvolution` restringem `type in ('INCOME','EXPENSE')` na própria query — a categoria nova nunca puxa um `CREDIT_CARD_PAYMENT` pra um gráfico, soma de despesa, Balanço, ou pro Explorador do dashboard. Filtrar o dashboard por "Pagamento de Cartão" não retorna nada (igual filtrar por uma categoria sem lançamentos naquele período).
-- **Onde ela É útil:** o filtro de categoria de `/transactions` (`transaction-filters.tsx`) lista categorias `is_system` — filtrar por "Pagamento de Cartão" ali agrupa exatamente os pagamentos de fatura (`getTransactions` não restringe por `type` e faz `eq("category_id", ...)`). E abre espaço pra relatórios futuros que queiram separar esse fluxo.
-- **Nota histórica:** a migration `0006` removeu uma *subcategoria* "Pagamento de Cartão" do pacote `is_default` (sob "Dívidas") justamente porque ela convidava o usuário a lançar o pagamento do jeito errado (uma despesa categorizada em vez da transferência `CREDIT_CARD_PAYMENT`). Esta é o oposto: `is_system`, nunca escolhível, aplicada só pelo próprio fluxo de pagamento.
+`card_refunds` effects:
+- `getCardSummary.currentMonthPaidAmount` **includes** refunds credited through the end of
+  the viewed month in the same oldest-first pool as `card_payments` — a refund "pays" the
+  oldest open competence and the excess cascades forward. A fully-refunded invoice shows
+  "Paga" and drops off the dashboard's obligations list.
+- `currentMonthInvoice` stays the **gross** billed value (historical fact — only the "paid"
+  part reflects the refund). `getCardMonthlyEvolution` also adds refunds to the green (paid)
+  part of the split.
+- `CardSummaryDTO.creditBalance` (>= 0) = `(Σ payments + Σ refunds) − Σ installments
+  !paid_before_system`, floored at 0 — the "saldo a favor" when the credit exceeds everything
+  billed. Shown in green on `/cards` and `AccountCard`. **Never withdrawable**, never enters
+  an account balance — only offsets the card's own future purchases/invoices.
+  `getCardBalanceThroughMonth`/`getCardTotalCommitted` keep the `Math.max(0, …)` — the
+  negative sign lives only in `creditBalance`.
+- `card_refunds.category_id` is always `Estorno` (`INCOME`) and counts as **real dashboard
+  INCOME** for the month of `refund_date` (never the original purchase's month) — computed in
+  `fetchPeriodEntries`, with a real category, so it appears in the income-by-category charts
+  (unlike "Compras retroativas", which has no real category).
+
+**Transaction outside a card** — `transactions.service.ts#refundTransaction(transactionId,
+refundDate)`: simpler, because real money returns to a real account. Reclassify the original
+`EXPENSE` to `Estorno`; create a **new real `INCOME` transaction**, category `Estorno`, same
+amount, credited to the same origin account, dated when the refund happened.
+`transactions.refund_of_transaction_id` (self-FK, `ON DELETE SET NULL`) is traceability only.
+Blocks a second refund by checking the original is already categorized `Estorno`.
+
+- **Dashboard signal**: `FinancialSummaryDTO.refundAmount` — the period's R$ total flowing
+  through "Estorno" (both directions, so ~2× a single refund). Currently no UI consumer.
+- **Out of scope**: a refund doesn't appear as its own row in the Explorador de Lançamentos
+  (only the original's recategorization is visible). No undo path — to reverse, recategorize
+  manually and delete the `card_refunds` / income transaction by hand.
 
 ---
 
-**Decidido e implementado 2026-08-23, a pedido do usuário** ("posso se quiser adiantar parcelas de compras pra liberar limite do cartão") — **corrigido no mesmo dia** depois que a primeira versão saiu conceitualmente errada (tratava "antecipar" como um pagamento). O usuário esclareceu: antecipar não é pagar nada — é só remanejar **quando** as parcelas estão previstas pra faturar, exatamente como `refundCardPurchase` já faz, só que **parcial** e **escolhido pelo usuário** (não precisa ser todas as parcelas restantes).
+# Pagamento de Cartão — `is_system` category
 
-`cards.service.ts#advancePurchaseInstallments(purchaseId, count)` pega as parcelas ainda não faturadas de uma compra (`getPurchaseFutureInstallments`, ordenadas por `competence`, excluindo `paid_before_system`) e faz duas coisas:
-1. As `count` mais próximas (as primeiras da lista) vão todas pra mesma competência da fatura aberta agora (`calculateInstallmentCompetences` ancorado em hoje, mesma fórmula de `openInvoiceMonth`).
-2. As demais (a partir da `count+1`) são renumeradas em sequência logo em seguida — mês da fatura aberta +1, +2, +3... — sem pular nenhum, encurtando o parcelamento inteiro em `count` meses.
+`is_system` `EXPENSE` "Pagamento de Cartão" (migration `0031`, one row). Applied automatically
+by `registerCardPayment` (via `insertCardPayment` / `getCardPaymentCategoryId`) to every
+`CREDIT_CARD_PAYMENT` transaction — not a classification the user chooses, just the label of
+the one flow that exists. Backfilled onto all existing `CREDIT_CARD_PAYMENT` rows.
 
-**Nunca cria `transactions`/`card_payments`** — é puramente `UPDATE card_installments SET competence = ...`. Pra de fato **pagar** as parcelas que agora caíram na fatura corrente, o usuário continua usando o fluxo normal de "Pagar fatura" (`registerCardPayment`) depois — antecipar só resolve "quando", pagar resolve "com que dinheiro". Como `getCardTotalCommitted`/`getCardBalanceThroughMonth` somam por `competence`, isso não muda o total comprometido contra o limite — só reorganiza a distribuição mensal (útil, por exemplo, se o usuário quer ver o compromisso concentrado antes de decidir quitar tudo de uma vez).
-
-Botão (ícone de "avançar", ⏩) só aparece por compra quando `remainingInstallmentsCount > 0` e a compra não foi estornada. O campo "quantas parcelas antecipar" aceita de 1 até `remainingInstallmentsCount` — o usuário não é obrigado a antecipar todas.
-
-## Cartões — atalho pra criar o primeiro cartão
-
-**Corrigido 2026-08-24, a pedido do usuário.** `/cards` sem nenhum cartão cadastrado só mostrava um texto ("crie um cartão de crédito na página de Contas") sem nenhuma ação real — o usuário precisava navegar até Contas e lembrar de trocar o tipo pra "Cartão de crédito" manualmente. O botão "Criar cartão de crédito" agora leva pra `/accounts?newAccountType=CREDIT_CARD`, que `AccountsPage` lê e repassa como `initialOpen`/`initialType` pro `AccountFormDialog` — o modal de nova conta já abre direto no tipo certo, só falta preencher os campos. Mesmo padrão pode ser reaproveitado por qualquer outra tela que hoje só aponta genericamente pra Contas.
+- **Never user-selectable** (`is_system` ⇒ out of `CategorySelect`; `EditableCategoryCell`
+  already shows any `CREDIT_CARD_PAYMENT` row as the fixed text "Pagamento de Cartão", an
+  early return on `row.type`).
+- **Documented exception to "a category's `type` matches the transaction's `type`"**: a
+  `CREDIT_CARD_PAYMENT` is neither `INCOME` nor `EXPENSE` and has no `CategoryType`. `EXPENSE`
+  was an explicit user choice (a bill payment is conceptually an outflow).
+- **Not in analytics** — every relevant query restricts `type in ('INCOME','EXPENSE')`.
+  Filtering the dashboard by "Pagamento de Cartão" returns nothing.
+- **Useful in**: the `/transactions` category filter (`getTransactions` doesn't restrict
+  `type` and does `eq("category_id", …)`), which groups the bill payments; and future
+  reports.
 
 ---
 
 # Reservoir (Cofre) — displayed as "Receita Programada"
 
-Represents accumulated value that is **not yet real money** — projected or already-earned-but-not-yet-received income. Originated from the owner's own work pattern (freelance/session-based income: poker cash game and tournament earnings, but the model is generic — applies equally to e.g. a weekly-paid freelancer).
+Accumulated value that is **not yet real money** — projected or already-earned-but-not-yet-
+received income (originated from freelance/session-based income; the model is generic).
+**Display-only rename** — route (`/reservoirs`), tables (`reservoirs`,
+`reservoir_transactions`), service, DTOs (`ReservoirDTO`, `ReservoirTransactionDTO`) all
+unchanged. Search the codebase for `reservoir`.
 
-**Renamed in the UI to "Receita Programada" — decided and implemented 2026-08-07, at the user's request.** "Reservatórios" with a water-droplet icon didn't read as what the feature actually is (nothing to do with water/liquid volume), and the mismatch was confusing even though the underlying feature itself was considered good as-is. This was a **display-only** rename: the route (`/reservoirs`), table names (`reservoirs`, `reservoir_transactions`), service (`reservoirs.service.ts`), DTOs (`ReservoirDTO`, `ReservoirTransactionDTO`), and all internal identifiers are unchanged by design — only user-facing Portuguese strings and the nav icon changed (`Droplets` → `Vault`, chosen over reusing `PiggyBank`/`HandCoins` since those are already Orçamentos/Dívidas' icons and reusing one would hurt nav scannability). If a future session needs to touch this feature, search the codebase for `reservoir`, not `receita programada` — the display name is a label, not a rename of the domain concept.
+`reservoirs` is the header (name + optional default `category_id`/`subcategory_id`).
+`reservoir_transactions` is the ledger:
 
-`reservoirs` is the header (name + an optional default `category_id`/`subcategory_id`, used to pre-fill the category when the money is withdrawn). `reservoir_transactions` is the ledger:
+- **Accumulation entries** (`amount` positive): logged as soon as the user knows/estimates a
+  value. No pending/confirmed status — every entry is just a value.
+- **Withdrawal entries** (`amount` negative): logged when money is actually received into a
+  real account. Creates a linked `transactions` (or `card_purchases`) row via
+  `linked_transaction_id`/`linked_card_purchase_id`.
 
-- **Accumulation entries** (`amount` positive): logged as soon as the user knows/estimates a value — e.g. today's tournament fixed pay, or a cash game session's expected net cut. No separate "pending vs confirmed" status exists; every entry is just a value in the ledger.
-- **Withdrawal entries** (`amount` negative): logged when money is actually received, moved to a real account. Creates a linked `transactions` (or `card_purchases`) row via `linked_transaction_id`/`linked_card_purchase_id`.
+The withdrawal amount **need not match** the accumulated total — the balance
+(`SUM(reservoir_transactions.amount)`) just carries the difference forward.
 
-**The withdrawal amount does not need to match the accumulated total exactly.** Real-world payouts can differ slightly from what was projected (e.g. cash rounding). The reservoir balance (`SUM(reservoir_transactions.amount)`) simply carries the difference forward — no reconciliation step is required.
+Default description (when blank): `"Movimentação da receita programada {nome}"` — applied
+server-side to accrual, withdrawal, and the withdrawal's linked `transactions` row; the
+accrual dialog also pre-fills it.
 
-**Default description names the reservoir (decided and implemented 2026-08-07, same convention as Dívidas' "Movimentação da dívida {agent}").** When left blank, both accrual and withdrawal entries — and the linked `transactions` row a withdrawal creates — default to `"Movimentação da receita programada {nome}"` instead of a generic/unattributed message (previously a withdrawal without an explicit description fell back to the bare "Saque de reservatório", with no way to tell which one from the transaction list alone). `reservoirs.service.ts#addReservoirTransaction`/`withdrawReservoir` apply this server-side; the accrual dialog also pre-fills the same text into its description field so the user sees and can edit it before saving (the withdrawal dialog has no description field of its own, so it always relies on the server-side default, same as `CREDIT_CARD_PAYMENT` below).
+**Gross / percentage / net split (accrual entries only)** — three optional related fields:
+`grossAmount`, `percentage`, `amount` (the net, which always drives the balance).
+`amount = grossAmount × (percentage / 100)`.
+- `amount` alone is the default, simplest case.
+- `grossAmount` is always a direct user input, **never** auto-calculated.
+- `percentage` and `amount` are the dependent pair: editing one recalculates the other, given
+  `grossAmount` is present (`calculateGrossNetSplit`, `src/lib/utils`).
+- Validation: `grossAmount` filled ⇒ `grossAmount >= amount`; `percentage`, when filled,
+  0..100.
 
-**Gross/percentage/net split (accrual entries only)**: three optional, related fields on an accrual entry — `grossAmount`, `percentage`, and `amount` (the net, the field that already exists and always drives the reservoir balance). The relationship: `amount = grossAmount × (percentage / 100)`.
+**Reservoir-level defaults** (migration `0010`): `reservoirs.default_percentage`,
+`reservoirs.default_destination_account_id` pre-fill `AccrualDialog`'s `percentage` and
+`WithdrawalDialog`'s `destinationAccountId`. Set at creation and editable later. Starting
+values, not constraints.
 
-- Filling in just `amount` (net) alone is the default, simplest case — nothing else required.
-- `grossAmount` is always a direct, user-entered value when used — it is **never** auto-calculated from the other two.
-- `percentage` and `amount` are the dependent pair: whichever of the two the user is *not* actively editing gets recalculated from the other, given `grossAmount` is present — same reactive pattern already used for editing card installments on insertion. E.g. gross = 600, user types percentage = 75 → `amount` recalculates to 450 automatically; if the user instead edits `amount` directly (gross already set), `percentage` recalculates instead. This generalizes to any percentage-based deduction taken at the source (common across freelance-style income, not poker-specific).
-- Validation: whenever `grossAmount` is filled, `grossAmount >= amount` (a cut can't leave you with more than the gross). `percentage`, when filled, is between 0 and 100.
-- None of this is required — a plain `amount`-only entry remains fully valid.
+**Reservoir must never affect account balances, income/expense totals, or analytics** — only
+a withdrawal (which creates a real transaction) does.
 
-Otherwise, when gross/percentage don't matter, the detail can just live in `description`.
+**Deletion — hard delete, not the `active` soft-delete convention.** A reservoir needs no
+guided reassignment — there's nothing to reassign — but a withdrawal's real linked row must
+survive:
+- `deleteReservoirTransaction(id)`: deletes one ledger row. If it's a withdrawal, the linked
+  `transactions`/`card_purchases` row is deleted too (a ledger entry's only reason to exist
+  *is* that specific withdrawal).
+- `deleteReservoir(id)`: deletes the header; `reservoir_transactions` cascade (`ON DELETE
+  CASCADE`). The cascade does **not** reach `transactions`/`card_purchases` (the FK points
+  the other way, `ON DELETE SET NULL`) — every withdrawal stays intact in Lançamentos/Cartões,
+  just no longer traceable to a reservoir.
 
-**Reservoir-level defaults (decided and implemented 2026-08-09).** `reservoirs.default_percentage` and `reservoirs.default_destination_account_id` (migration `0010`) let a reservoir remember its usual gross→net cut and its usual withdrawal account, since most recurring income sources always use the same split and land in the same account. `ReservoirFormDialog` sets both at creation time and, in its edit mode (`reservoir` prop present, saves via `updateReservoirAction`), lets them be changed later too. `AccrualDialog` pre-fills its `percentage` field from `defaultPercentage`; `WithdrawalDialog` pre-fills `destinationAccountId` from `defaultDestinationAccountId`, falling back to the first account only when no default is set. Both remain fully editable per entry — these are starting values, not constraints.
-
-Reservoir must **never** affect account balances, income/expense totals, or dashboard analytics — only a withdrawal (which creates a real transaction) does.
-
-## Reservoir deletion — hard delete, not the `active` soft-delete convention
-
-**Decided and implemented 2026-08-10, at the user's explicit request** ("esta poderá ser excluída direto"). Both a single ledger entry and the whole reservoir can be deleted, and both are a real `DELETE`, not the `active = false` soft-delete convention most of the schema uses (see "Money Precision" → general rule at the top of `ARCHITECTURE.md`'s Implementation Status). The user was explicit that a reservoir needs no guided-reassignment flow the way a category does — there's nothing to reassign — but was equally explicit about one constraint: **a withdrawal's real linked `transactions`/`card_purchases` row must keep existing as an ordinary transaction even after the reservoir (or the ledger entry that caused it) is deleted**, since that money genuinely moved and the rest of the app's history shouldn't lose it.
-
-- `deleteReservoirTransaction(id)`: deletes one `reservoir_transactions` row. If it's a withdrawal (has a `linked_transaction_id` or `linked_card_purchase_id`), the linked row is deleted too — deliberately different from the whole-reservoir case below, because a ledger entry's only reason to exist *is* to represent that specific withdrawal; deleting the entry without its linked record would leave a dangling, purposeless transaction with no ledger trace of why it happened.
-- `deleteReservoir(id)`: deletes the reservoir header. `reservoir_transactions` cascades away with it (`ON DELETE CASCADE`, already the schema's design, unchanged) — but this does **not** cascade further into `transactions`/`card_purchases`, because the foreign key runs the other direction (`reservoir_transactions.linked_transaction_id → transactions`, `ON DELETE SET NULL` — that clause only matters if a `transactions` row is deleted first, never the reverse). So deleting a reservoir always leaves every withdrawal it ever generated intact in Lançamentos/Cartões, just no longer traceable back to a reservoir that no longer exists. This is the intended behavior, not an oversight: once the reservoir itself is gone, "which reservoir did this withdrawal come from" is no longer a question the app needs to answer.
-- `deactivateReservoir` (the original soft-delete function) was removed — it was never wired to any UI action, and keeping two competing deletion mechanisms (one soft, one hard) for the same entity would have been confusing once the hard delete above became the actual, user-facing behavior.
+Account pickers on `/reservoirs` use the shared `AccountSelect`.
 
 ---
 
 # Metas ("Goals")
 
-**Decidido e implementado 2026-08-30, a pedido do usuário**, depois de várias rodadas de design (registradas na conversa). Migrations `0034`-`0037`. Feature interna `goals` (rota `/goals`, `goals.service.ts`, `GoalDTO`), rótulo "Metas" na UI — mesma convenção de nomes-internos-em-inglês do resto do projeto.
-
-Uma Meta é o **espelho invertido da "Receita Programada" (Reservoir)**: dinheiro que o usuário **já tem** e está separando ativamente de uma conta rumo a um objetivo, com um valor-alvo e — opcionalmente — um aporte mensal e/ou um prazo.
+Internal feature `goals` (route `/goals`, `goals.service.ts`, `GoalDTO`), UI label "Metas".
+The **mirror image of "Receita Programada"**: money the user **already has** and is actively
+setting aside from an account toward an objective, with a target and — optionally — a monthly
+contribution and/or a deadline.
 
 | | Receita Programada | Meta |
 |---|---|---|
-| Representa | dinheiro que ainda vou receber | dinheiro que já tenho e estou separando |
-| Lançamento positivo | acúmulo esperado | aporte (`RESERVE`) |
-| Rende? | não (não é dinheiro real ainda) | sim (é dinheiro real parado) |
-| Saque | dinheiro "chega" → vira RECEITA | dinheiro **volta** pro bolso → **não** é receita nova (`REDEEM`) |
-| Cronograma | — | adiantado/atrasado, padrão `INSTALLMENT_PLAN` (`0032`) |
+| Represents | money I'll receive later | money I have and am setting aside |
+| Positive entry | expected accrual | contribution (`RESERVE`) |
+| Yields? | no (not real money yet) | yes (real money sitting still) |
+| Withdrawal | money "arrives" → INCOME | money **returns** to the pocket → **not** new income (`REDEEM`) |
+| Schedule | — | ahead/behind, `INSTALLMENT_PLAN` pattern (`0032`) |
 
-## Tabelas e o modelo de dinheiro
+## Tables and the money model
 
-- **`goals`** (migration `0035`): `name`, `goal_target` (obrigatório, > 0 — o "valor total" do donut, a coisa que se alcança), `start_competence` (mês de início do cronograma, 1º dia do mês), `end_date` (opcional — mês-alvo de conclusão), `monthly_contribution` (opcional — dá pra guardar "o que der", sem aporte fixo), `anchor_date` (início da "perna" atual do cronograma).
-- **`goal_yields`** (migration `0035`): rendimento. `origin_redeem_transaction_id` distingue **rendimento informado** (`NULL`) de **rendimento reconhecido dentro de um resgate** (FK `ON DELETE CASCADE` pro `REDEEM` — apagar o resgate apaga esse rendimento junto, sem matching frágil por data).
-- **`transactions.goal_id`** (migration `0035`, `ON DELETE SET NULL`): liga um `RESERVE`/`REDEEM` à meta. Apagar a meta deixa o histórico de dinheiro real intacto em Movimentações, só solta o vínculo — mesma ideia de `reservoir_transactions.linked_transaction_id`.
-- **`currentBalance` nunca é coluna**: `Σ RESERVE − Σ REDEEM + Σ goal_yields`, sempre calculado (`goals.service.ts#computeGoalBalance` / `getGoals`).
+- **`goals`** (`0035`): `name`, `goal_target` (required, `> 0` — the donut's total), `start_competence`
+  (schedule start, 1st of month), `end_date` (optional target completion month),
+  `monthly_contribution` (optional — "save whatever you can"), `anchor_date` (start of the
+  current schedule leg).
+- **`goal_yields`** (`0035`): yield. `origin_redeem_transaction_id` distinguishes an
+  **informed yield** (`NULL`) from a **yield recognized inside a redeem** (FK `ON DELETE
+  CASCADE` to that `REDEEM`).
+- **`transactions.goal_id`** (`0035`, `ON DELETE SET NULL`): links a `RESERVE`/`REDEEM` to
+  the goal. Deleting the goal leaves the real money history intact, just drops the link.
+- **`currentBalance` is never a column**: `Σ RESERVE − Σ REDEEM + Σ goal_yields`, always
+  computed (`computeGoalBalance` / `getGoals`).
 
-**Tipos de transação novos: `RESERVE` / `REDEEM` (migration `0034`).** Aportar/resgatar é movimento de dinheiro real (sai/entra de uma conta **CASH/BANK** — nunca cartão, checado server-side lendo o `type` da conta, igual `payFixedExpense`/`addDebtTransaction`), mas **não é receita nem despesa** — é dinheiro seu mudando de bolso, exatamente como `TRANSFER`. Toda query de analytics restringe `type in ('INCOME','EXPENSE')`, então `RESERVE`/`REDEEM` ficam de fora automaticamente (donut de categoria, DESPESAS/RECEITAS, Balanço, Evolução mensal, Explorador de Lançamentos do dashboard). `getAccountBalance` (CASH/BANK) soma **toda** transação por origin/destination sem olhar o `type`, então `RESERVE` (origin) reduz o saldo da conta e `REDEEM` (destination) aumenta, sem código novo. Consequência: o "Saldo total nas contas" do dashboard **já exclui** o dinheiro guardado sozinho — "dinheiro de giro" fica correto de graça, e o "guardado" aparece como sub-linha (`FinancialSummaryDTO.reservedTotal`).
+**`RESERVE` / `REDEEM` transaction types** (`0034`): real money leaving/entering a **CASH/BANK**
+account (never a card — checked server-side from the account's `type`), but **not** income or
+expense — money changing pockets, like `TRANSFER`. Analytics filter `type in
+('INCOME','EXPENSE')`, so they're excluded automatically. `getAccountBalance` (CASH/BANK)
+sums every transaction by origin/destination without looking at `type`, so `RESERVE` reduces
+and `REDEEM` raises the account balance with no new code. Consequence: the dashboard's "Saldo
+total nas contas" already excludes money set aside; the set-aside total shows as a sub-line
+(`FinancialSummaryDTO.reservedTotal`).
 
-## Rendimento — sempre RECEITA, reconhecido em um de dois momentos
+## Yield — always INCOME, recognized at one of two moments
 
-Rendimento de meta é **dinheiro novo** e conta como receita, na categoria system **"Rendimentos"** já existente (o usuário decidiu reusar: "cofrinho rende igual conta, só separado" — nenhuma categoria nova). Ele **não** vira uma `transactions` real — vive em `goal_yields` e entra no dashboard como **RECEITA sintética** sob "Rendimentos", exatamente o padrão de "Compras retroativas" (migration `0030`): `dashboard.service.ts#fetchPeriodEntries` emite as `goal_yields` do período como entradas `INCOME` (via o helper cacheado `getRendimentosCategory`). Aparece no donut de receita, no total de RECEITAS, na Evolução mensal. **Não aparece no Explorador de Lançamentos** — mas o rendimento informado nunca apareceria mesmo, então é consistente. Guards: só lado receita, pula `uncategorizedOnly`/subcategoria, e é excluído quando há filtro de conta (rendimento de meta não tem conta).
+Goal yield is **new money** and counts as INCOME, under the existing `is_system` category
+**"Rendimentos"** ("cofrinho rende igual conta, só separado" — no new category). It's **not**
+a real `transactions` row — it lives in `goal_yields` and enters the dashboard as **synthetic
+INCOME** under "Rendimentos" (`fetchPeriodEntries`, via cached `getRendimentosCategory`),
+exactly like "Compras retroativas". Appears in the income donut, RECEITAS total, monthly
+evolution. **Not** in the Explorador de Lançamentos (an informed yield never would be).
+Guards: income side only, skips `uncategorizedOnly`/subcategory, excluded under an account
+filter.
 
-- **"Informar rendimento"** (`registerGoalYield`): o usuário digita o saldo real atual da meta; o delta sobre o saldo calculado vira uma `goal_yields` (`origin_redeem_transaction_id = NULL`). Mesma UX de `accounts.service#registerYield`. Só delta positivo na v1 — uma correção pra baixo se faz editando a meta, não aqui.
-- **No resgate** (`redeemGoal`): o `REDEEM` é sempre o **valor cheio sacado**. Se `amount > saldo de livro` (rendimento que nunca foi informado), o excedente vira uma `goal_yields` datada no dia do resgate, `origin_redeem_transaction_id` = o `REDEEM`. Exemplo do usuário: 80k reservados, nunca informou rendimento, saca 85k → `REDEEM` de 85k (categoria de resgate) + `goal_yields` de 5k. Se o rendimento tivesse sido informado ao longo do tempo, o saldo de livro já seria 85k e não haveria excedente — sem dupla contagem.
+- **"Informar rendimento"** (`registerGoalYield`): the user types the goal's current real
+  balance; the delta over the computed balance becomes a `goal_yields`
+  (`origin_redeem_transaction_id = NULL`). Same UX as `accounts.service#registerYield`.
+  Positive delta only in v1 — a downward correction is done by editing the goal.
+- **At redeem** (`redeemGoal`): the `REDEEM` is always the **full amount withdrawn**. If
+  `amount > book balance` (yield never informed), the excess becomes a `goal_yields` dated on
+  the redeem day, `origin_redeem_transaction_id` = the `REDEEM`. (If yield had been informed
+  along the way, the book balance would already be right and there'd be no excess — no double
+  counting.)
 
-## Resgate — categoria e motivo
+## Redeem — category and reason
 
-`REDEEM` carrega uma de duas categorias `is_system` **INCOME** (migration `0036`), escolhida automaticamente e sobrescrevível por um **toggle dedicado de 2 opções** no dialog (nunca pelo `CategorySelect`, que filtra `is_system`):
+`REDEEM` carries one of two `is_system` **INCOME** categories (`0036`), auto-picked by balance
+vs. target and overridable by a **dedicated 2-option toggle** in the dialog (never
+`CategorySelect`):
 
-- **"Resgate de Meta Concluída"** — o saldo já tinha atingido o `goal_target`.
-- **"Resgate de Meta Antecipado"** — o saldo estava abaixo do alvo (o sinal de "tive que mexer no dinheiro guardado" — emergência / descuido, no espírito do sinal de "Ajuste").
+- **"Resgate de Meta Concluída"** — the balance had reached `goal_target`.
+- **"Resgate de Meta Antecipado"** — the balance was below target (the "I had to dip into
+  savings" signal, in the spirit of `Ajuste`).
 
-Tipo INCOME (o dinheiro volta pro bolso), mas isso é irrelevante pra analytics — `REDEEM` já é excluído por `type`. A categoria é rótulo puro + alça de filtro em `/transactions` (`getTransactions` não restringe `type`, então filtrar por ela agrupa os resgates). Mesma mecânica de "Pagamento de Cartão" (`0031`). Decisão do usuário de usar categoria em vez de uma coluna-enum: "categoria já existe em transactions, dá o filtro de graça; uma coluna-enum só pra um fluxo é que seria poluição."
+INCOME-typed, but irrelevant to analytics (`REDEEM` is excluded by `type`). The category is a
+pure label + a `/transactions` filter handle. **Partial / total / over-redeem all free** —
+the user can withdraw any time, even below target, even more than what's saved (the excess is
+recognized yield).
 
-**Só resgate parcial ou total livre** — o usuário pode sacar a qualquer momento, mesmo sem bater a meta, e mesmo mais do que o guardado (o excedente vira rendimento reconhecido, acima).
+## Schedule (ahead / behind) and "Recalcular"
 
-## Cronograma (adiantado / atrasado) e "Recalcular"
+Follows the `INSTALLMENT_PLAN.scheduleOffset` pattern (`0032`), always anchored to today.
+`goals.service.ts#scheduleFor`:
 
-Segue o padrão de `INSTALLMENT_PLAN.scheduleOffset` (migration `0032`), sempre ancorado em hoje. `goals.service.ts#scheduleFor`:
-
-- `anchorBalance` = saldo da meta considerando lançamentos com `date <= anchor_date` — calculado **ao vivo do ledger imutável**, então um rebase nunca precisa gravar um snapshot de valor.
+- `anchorBalance` = the goal's balance from entries with `date <= anchor_date` — computed
+  live from the immutable ledger, so a rebase never needs to store a value snapshot.
 - `monthsElapsed = max(0, monthsBetween(anchorMonth, currentMonth))`.
 - `expectedByNow = min(anchorBalance + monthly_contribution × monthsElapsed, goal_target)`.
-- `scheduleOffsetMonths = round((currentBalance − expectedByNow) / monthly_contribution)` — `> 0` adiantado, `< 0` atrasado, `0` em dia. Só quando `monthly_contribution` existe e a meta não foi atingida.
-- `status`: `REACHED` (saldo ≥ alvo) / `AHEAD` / `ON_TRACK` / `BEHIND` / `NO_SCHEDULE` (sem `monthly_contribution` — a meta vira só um tracker de progresso, sem badge de adiantado/atrasado).
-- `projectedCompletionMonth` = `ceil((goal_target − currentBalance) / monthly_contribution)` meses à frente.
+- `scheduleOffsetMonths = round((currentBalance − expectedByNow) / monthly_contribution)` —
+  `> 0` ahead, `< 0` behind, `0` on track. Only when `monthly_contribution` exists and the
+  goal isn't reached.
+- `status`: `REACHED` / `AHEAD` / `ON_TRACK` / `BEHIND` / `NO_SCHEDULE` (no
+  `monthly_contribution` — the goal is just a progress tracker, no ahead/behind badge).
+- `projectedCompletionMonth` = `ceil((goal_target − currentBalance) / monthly_contribution)`
+  months out.
 
-**"Recalcular" (`updateGoal` com `rebase: true`, ou qualquer edição de `end_date`)**: `anchor_date = hoje` e, se não veio um `monthly_contribution` explícito, ele é regravado = `(goal_target − saldo atual) / meses restantes até end_date`. O **ledger nunca é tocado** — "quanto já foi feito" é sempre o saldo calculado em `anchor_date`. Não há track separado de "X era aporte, Y era rendimento": o ledger *é* esse track (`Σ RESERVE` = principal aportado, `Σ goal_yields` = rendimento reconhecido, ambos imutáveis). É por isso também que **excluir um lançamento errado é hard delete** e seguro — nenhum valor derivado é guardado, tudo recalcula.
+**"Recalcular"** (`updateGoal` with `rebase: true`, or any `end_date` edit): `anchor_date =
+today` and, if no explicit `monthly_contribution` was passed, it's rewritten as
+`(goal_target − current balance) / months left to end_date`. **The ledger is never touched** —
+"how much is done" is always the balance at `anchor_date`. There's no separate "X was
+contribution, Y was yield" track: the ledger *is* that track (`Σ RESERVE` = principal, `Σ
+goal_yields` = recognized yield, both immutable). This is also why **deleting a wrong entry
+is a safe hard delete** — no derived value is stored, everything recomputes.
 
-## Alvo, aporte e prazo — dois definem o terceiro
+## Target, contribution, deadline — two define the third
 
-`goal_target` sempre obrigatório ("meta sempre tem objetivo; só guardar dinheiro é deixar na conta"). `monthly_contribution` e `end_date` opcionais. Se `end_date` for preenchido e `monthly_contribution` não, o service calcula o aporte = `(goal_target − reserva inicial) / meses`. O `GoalFormDialog` também mostra essa sugestão ao vivo (client-side) com um botão "usar". Reserva inicial opcional no form de criação = um primeiro `RESERVE` real de uma conta, datado em `start_competence` (pra cair dentro do `anchorBalance`, não contar como aporte posterior).
+`goal_target` always required. `monthly_contribution` and `end_date` optional. If `end_date`
+is set and `monthly_contribution` isn't, the service computes the contribution =
+`(goal_target − initial reserve) / months`; `GoalFormDialog` also shows this live (client-side)
+with a "use" button. An optional initial reserve on the create form = a first real `RESERVE`
+from an account, dated at `start_competence` (so it lands in `anchorBalance`, not as a later
+contribution).
 
-## Exclusão
+## Deletion
 
-- **`deleteGoal`** — hard delete (uma meta não precisa de fluxo de reatribuição). `goal_yields` cascateia (`ON DELETE CASCADE`); os `RESERVE`/`REDEEM` sobrevivem com `goal_id = NULL` (dinheiro real se moveu — o histórico não some). Mesma filosofia de `deleteReservoir`.
-- **`deleteGoalEntry`** (um `RESERVE`/`REDEEM`) — hard delete; o saldo da conta recalcula; um `goal_yields` reconhecido num `REDEEM` apagado cascateia junto. Pra corrigir um **erro de digitação**, o caminho preferido é **editar** o lançamento (`updateGoalEntry` — valor/data/conta/descrição, propaga pra `transactions`), não apagar; delete é pra um lançamento genuinamente espúrio. Editar o *valor* de um `REDEEM` que gerou rendimento reconhecido não recalcula esse rendimento — nesse caso, exclua e refaça.
-- **`deleteGoalYield`** — só um rendimento **informado** (`origin_redeem_transaction_id IS NULL`); um reconhecido num resgate se apaga apagando o resgate.
-- `RESERVE`/`REDEEM` no Explorador de Lançamentos / `/transactions` são **read-only** ("Edite pela tela de Metas"), igual parcelas de cartão — `EditableCategoryCell` mostra rótulo fixo ("Aporte para meta" / "Resgate de meta").
+- **`deleteGoal`** — hard delete. `goal_yields` cascade; `RESERVE`/`REDEEM` survive with
+  `goal_id = NULL` (real money moved). Same philosophy as `deleteReservoir`.
+- **`deleteGoalEntry`** (a `RESERVE`/`REDEEM`) — hard delete; the account balance recomputes;
+  a `goal_yields` recognized inside a deleted `REDEEM` cascades. To fix a **typo**, **edit**
+  (`updateGoalEntry` — value/date/account/description, propagates to `transactions`), don't
+  delete. Editing the *value* of a `REDEEM` that generated recognized yield does not
+  recompute that yield — delete and redo instead.
+- **`deleteGoalYield`** — only an **informed** yield (`origin_redeem_transaction_id IS NULL`);
+  a recognized one is deleted by deleting its redeem.
+- `RESERVE`/`REDEEM` in the Explorador de Lançamentos / `/transactions` are **read-only**
+  ("Edite pela tela de Metas"), like card installments — `EditableCategoryCell` shows a fixed
+  label ("Aporte para meta" / "Resgate de meta").
 
 ## Dashboard
 
-- **Bloco "Metas"** (`GoalsOverview` / `getGoalsOverview`): um donut compacto + badge de status por meta. Escondido sob filtro de categoria (igual o card "Despesas de {mês}" — lista compromissos não filtráveis por categoria).
-- **Evolução mensal** ganha uma 3ª barra "Guardado (metas)" = **fluxo do mês** (`Σ RESERVE − Σ REDEEM` datado no mês, `MonthlyEvolutionDTO.reserved`) — mesma unidade das outras barras. Não é cumulativo; o acumulado vive no gráfico próprio de `/goals`. Só renderiza se houver algum mês com fluxo > 0.
-- **Card de Saldo** ganha a sub-linha "R$ X guardado em metas" (`FinancialSummaryDTO.reservedTotal` = Σ saldo de todas as metas ativas; figura global, não escopada pelo filtro de conta).
-- **`/goals`**: gráfico "Acumulado guardado" (`getGoalAccumulation` — total guardado no fim de cada um dos últimos 13 meses + linha de referência na soma dos alvos) + um card por meta (donut, badges, ações Aportar/Rendimento/Resgatar/Recalcular, lista de lançamentos).
+- **"Metas" block** (`GoalsOverview` / `getGoalsOverview`): a compact donut + status badge
+  per goal. Hidden under a category filter (like the "Despesas de {mês}" card).
+- **Evolução mensal** gets a 3rd bar "Guardado (metas)" = the month's **flow** (`Σ RESERVE −
+  Σ REDEEM` dated in the month, `MonthlyEvolutionDTO.reserved`) — same unit as the other
+  bars, not cumulative. Only renders if some month has flow `> 0`.
+- **Saldo card** gets a sub-line "R$ X guardado em metas" (`FinancialSummaryDTO.reservedTotal`
+  = Σ balance of every active goal; global, not scoped by the account filter).
+- **`/goals`**: an "Acumulado guardado" chart (`getGoalAccumulation` — total saved at the end
+  of each of the last 13 months + a reference line at the sum of targets) + one card per goal
+  (donut, badges, Aportar/Rendimento/Resgatar/Recalcular, ledger list).
 
-## Visão futura (não implementada)
+## Future vision (not implemented)
 
-O objetivo de longo prazo do usuário com Metas é **previsibilidade com juros compostos** (projetar a curva, comparar projetado vs. real, e a calculadora de aporte resolver o PMT dado alvo + taxa). O schema v1 não bloqueia isso: a fase 2 só adiciona um `expected_annual_rate` opcional em `goals` e uma linha de projeção no gráfico de acumulado — `goal_yields` já registra o rendimento real ao longo do tempo. Continua tudo manual no rendimento real; a taxa serviria só pra projeção.
+Long-term goal: predictability with compound interest (project the curve, compare projected
+vs. real, a contribution calculator that solves PMT given target + rate). The v1 schema
+doesn't block it — phase 2 only adds an optional `expected_annual_rate` on `goals` and a
+projection line on the accumulation chart.
 
 ---
 
 # Debts
 
-Types: `PAYABLE` (owed by the user) and `RECEIVABLE` (owed to the user). `debts.initial_balance` seeds the starting amount; the current `remainingBalance` is **never a stored column** — always `initial_balance + SUM(debt_transactions.amount)`, computed in the service layer (may be backed by a SQL view for performance).
+Types: `PAYABLE` (owed by the user) / `RECEIVABLE` (owed to the user). `debts.initial_balance`
+seeds the start; `remainingBalance` is **never a column** — always `initial_balance +
+SUM(debt_transactions.amount)`, computed in the service.
 
-`debt_transactions` is the ledger, mirroring `reservoir_transactions`:
+`debt_transactions` is the ledger: `amount` positive = the debt grew; negative = a payment
+reduced it.
 
-- `amount` positive = the debt increased (borrowed/lent more).
-- `amount` negative = a payment reduced the debt.
+**`linked_transaction_id` is optional in both directions**:
+- Real money in/out of a tracked account → a `transactions` row is created and linked
+  (mirrors `TRANSFER` semantics conceptually — money moves but isn't INCOME/EXPENSE, it's a
+  loan).
+- A third party pays a bill directly on the user's behalf → only the `debt_transactions`
+  entry, no `transactions` row.
 
-**`linked_transaction_id` is optional in both directions**, depending on whether real money passed through a tracked account:
+Paying a debt with the user's own money **always** creates a linked transaction. Debts never
+affect dashboard totals directly — only their linked transactions do.
 
-- If cash or a PIX enters/leaves one of the user's own accounts, a `transactions` row is created and linked. This deliberately mirrors `TRANSFER` semantics conceptually (money moves, but it must not be counted as INCOME/EXPENSE — it is not real gain/loss, it is a loan).
-- If a third party pays a bill directly on the user's behalf (e.g. a parent pays a boleto or the mechanic directly), only the `debt_transactions` entry exists — no money ever touched a tracked account, so no `transactions` row is created.
+- **Default description** (when blank): `"Movimentação da dívida {agent}"`, on the ledger row
+  and its linked transaction; `DebtTransactionDialog` also pre-fills it.
+- **Settling to zero is an automatic soft delete.** `addDebtTransaction` recomputes the real
+  balance post-insert; `<= 0` → `active = false`, the debt drops out of `getDebts()`.
+  Overpaying is intentional (interest the creditor folded in), not an error — it still zeroes
+  the debt, leaving the extra as the transaction's real value. `DebtTransactionDialog` warns
+  before submitting such a payment and requires a second "Confirmar quitação" click. The
+  decision is server-side from the real post-insert balance.
+- **Pie charts**: "Dívidas a pagar" / "Dívidas a receber", one per `side`, active debts by
+  remaining balance. A side's pie is omitted entirely when it has no positive-balance debt —
+  no empty/placeholder chart.
+- **Default category** (`debts.default_category_id`, migration `0015`): set at registration,
+  typed to whichever direction a *payment* produces (`EXPENSE` for `PAYABLE`, `INCOME` for
+  `RECEIVABLE`). `DebtTransactionDialog` pre-fills it **only in `mode="payment"`** (never
+  `"increase"`, which produces the opposite type). Always overridable. Server-side,
+  `addDebtTransaction` falls back to it only when `categoryId` is omitted **and** the entry
+  is a reduction. `RESTRICT` FK, wired into the guided category-deletion flow
+  (`CategoryUsageDTO.debtsCount`), special-cased (column is `default_category_id`, no
+  subcategory concept).
+- **The debt and its ledger entries are editable/deletable.**
+  - `updateDebt`: agent, side, initial balance, default category — all freely editable.
+    Changing `side` doesn't touch existing entries' history, only which type future entries
+    use.
+  - `DeleteDebtButton` → `deactivateDebt` directly (no ledger entry) — for a forgiven /
+    given-up-on debt.
+  - `updateDebtTransaction` propagates amount/date/description/category onto the linked
+    `transactions` row when one exists. **Can never flip an entry's direction** — the service
+    rejects a `Math.sign` mismatch. `deleteDebtTransaction` deletes the linked row too. Both
+    recompute the balance and reapply the settle-to-zero auto-deactivation.
+  - `debt_transactions.date` (migration `0016`) — before this the date picker was silently
+    discarded for an unlinked entry.
 
-Paying down a debt with the user's own money **always** creates a linked transaction (real money genuinely leaves a tracked account, so it must be reflected).
+## Subtypes — `debts.kind` (migration `0021`)
 
-Debts never affect dashboard totals directly — only the linked transactions they may generate do.
+- **`PERSONAL`** (default, preserves every existing debt's behavior) — a loan between people.
+  Any direction. **Never affects the dashboard.**
+- **`OVERDUE_BILL`** — a day-to-day bill (water, power, rent) left unpaid. Always `PAYABLE`
+  in practice (the form locks/hides the direction). **Always projects to the dashboard** (via
+  the "Despesas de {mês}" card).
+- **`INSTALLMENT_PLAN`** — an installment purchase outside a card (boleto, store financing) or
+  an informal "no boca a boca" agreement with a monthly amount. Always `PAYABLE`, also
+  projects. Extra fields, required only for this kind (validated in
+  `src/lib/validations/debts.ts`, not a DB `CHECK`): `monthlyAmount`, `dueDay` (1-28),
+  `startCompetence` (migration `0032`).
 
-**Default description names the debt (decided and implemented 2026-08-07).** When the user leaves a debt transaction's description blank, both the ledger row and its linked `transactions` row (if any) default to `"Movimentação da dívida {agent}"` instead of a generic, unattributed message — `debts.service.ts#addDebtTransaction` fills this in server-side, and `DebtTransactionDialog` also pre-fills the same text into the form field so the user sees (and can edit) it before submitting, rather than it only appearing after the fact.
+### `INSTALLMENT_PLAN` — competence and ahead/behind
 
-**Settling a debt to zero is a soft delete, decided and implemented 2026-08-07.** `addDebtTransaction` recomputes the debt's real remaining balance immediately after inserting the ledger entry; if it's `<= 0`, the debt is deactivated (`active = false`) and drops out of `getDebts()` — the same `active` convention used everywhere else in the schema, not a new mechanism. Overpaying is deliberately not an error: a debt of R$1.000 settled with a R$1.100 payment is treated as intentional (e.g. interest the payer/creditor decided to fold in) — it still zeroes the debt out, just leaving that extra R$100 as the transaction's real recorded value. What matters is that the user isn't surprised: `DebtTransactionDialog` predicts, from the debt's current balance, whether the payment being entered would settle or overpay it, and if so shows a warning *before* submitting (exact settlement: "this payment quits this debt, it'll leave the list"; overpayment: names the excess and asks whether that's intentional) and requires a second, explicit "Confirmar quitação" click — never a silent disappearance. The actual deactivation decision is still made server-side from the real post-insert balance, not the client's prediction, so it stays correct even if they ever disagree (e.g. a concurrent entry).
+- **`debts.start_competence`** (migration `0032`, a month, 1st day) — the competence month
+  from which the plan starts counting. Nullable in the DB, required in zod for this kind.
+  Freely editable after creation. Backfill = the month of `created_at`.
+- **Automatic oldest-first payment allocation** (no per-payment competence picker, no new
+  column). Exactly the `currentMonthPaidAmount` heuristic: `total paid ÷ monthlyAmount` (in
+  integer cents) = number of competences covered, from `startCompetence`. Only payments count
+  (`amount < 0`); an increase (interest) doesn't "pay" anything, it only extends how many
+  months the plan has. Paying two boletos today covers the next two competences and **carries
+  credit forward** — nothing is removed (unlike the card "Antecipar parcelas").
+- **`DebtDTO.paidThroughCompetence`** ("YYYY-MM" or absent) — the last competence covered =
+  `startCompetence + (competencesCovered − 1)` months. A heuristic — a payment meant to clear
+  a specific future month still shows as covering the oldest open competence first.
+- **`DebtDTO.scheduleOffset`** (signed months) = `competencesCovered − expected`, where
+  `expected` = how many installments *should* be paid by today (`monthsBetween(startCompetence,
+  currentMonth) + 1`), capped at the plan's total installment count
+  (`ceil((initial_balance + Σ increases) / monthlyAmount)`). `> 0` ahead, `< 0` behind, `0`
+  on track. Anchored to today.
+- Badge on `/installment-plans` (`debt-card.tsx#InstallmentScheduleBadges`): "Adiantado N
+  meses" / "Atrasado N meses" / "Em dia" + "Vence dia {dueDay}"; below the "{monthlyAmount}/mês
+  combinado": "Pago até {mês}" or "Nenhuma parcela paga ainda".
+- **Dashboard**: `getCurrentMonthObligations`/`fetchUnpaidObligationEntries` gate an
+  `INSTALLMENT_PLAN` obligation **by competence** — it appears for viewed month `M` only when
+  `M >= startCompetence` **and** `M` isn't covered (`!(paidThroughCompetence && M <=
+  paidThroughCompetence)`). Correct for any browsed month. `OVERDUE_BILL` (no competence
+  concept) is always open. The item's value is the full `monthlyAmount` (no partial-carry
+  subtraction — the progress detail lives in "Pago até {mês}").
+- `paidThisMonth` is still computed and in the DTO but no UI uses it anymore.
 
-**The Dívidas page opens with two simple pie charts** ("Dívidas a pagar", "Dívidas a receber" — one per `side`), each showing the active debts of that side by remaining balance. Either pie is omitted entirely when its side has no debts with a positive balance to show — there is no empty/placeholder chart. Purely a visual summary; no new aggregation beyond what `getDebts()` already computes per debt.
+### Separate screens per `kind`
 
-**Debts carry a default category, applied at payment time — decided and implemented 2026-08-11, at the user's request.** `debts.default_category_id` (migration `0015`) is set once, when the debt is registered (`DebtFormDialog`'s "Categoria padrão (ao pagar)"), typed to whichever direction a *payment* against that debt always produces — `EXPENSE` for a `PAYABLE` debt (paying off what's owed), `INCOME` for a `RECEIVABLE` one (money coming in) — mirroring `addDebtTransaction`'s own existing side/direction logic, not a new rule. `DebtTransactionDialog` shows a category field whenever it's registering a linked transaction, and pre-fills it from the debt's default **only in `mode="payment"`** — `mode="increase"` always produces the *opposite* type (borrowing/lending more), so it never inherits the payment-oriented default; it starts uncategorized, still freely pickable. Either way the field is always editable before submitting — the default is a starting value, never a constraint, same convention as reservoirs' `default_percentage`/`default_destination_account_id`. Server-side, `addDebtTransaction` only falls back to `debts.default_category_id` when `categoryId` is omitted and the entry is a reduction (a payment); an omitted `categoryId` on an increase stays uncategorized rather than silently attaching a mismatched-type category.
+The three `kind` values each have their own route, sidebar item, and dedicated form.
+**Presentation only — no domain rule changed** (service, DTOs, validations, ledger pipeline,
+dashboard projection are identical).
 
-`default_category_id` is a normal `RESTRICT` FK to `categories`, no `ON DELETE` clause — same as every other category reference in the schema, and for the same reason (`AI_GENERATION_RULES.md` → "Domain Rules Enforcement": RESTRICT is what forces category deletion through the guided reassignment flow instead of silently orphaning data). Since `debts` has no `subcategory_id` column and its FK column is named differently (`default_category_id`, not `category_id`), it's special-cased rather than folded into the generic loop `categories.service.ts#countReferences`/`reassignCategory` already run over `transactions`/`card_purchases`/`budgets`/`fixed_expenses`/`reservoirs` — but it participates in the exact same flow: deleting a category that's some debt's default surfaces that debt in the usage count (`CategoryUsageDTO.debtsCount`) and gets reassigned in the same batch update before the delete is allowed to proceed.
+- **`/debts`** — "Dívidas Pessoais", `kind = PERSONAL`. Keeps `DebtSideFilter` (Todas / A
+  pagar / A receber) and the two pies (only `PERSONAL` goes both directions).
+- **`/overdue-bills`** — "Contas em Atraso", `kind = OVERDUE_BILL`. No side filter, one pie.
+- **`/installment-plans`** — "Parcelamento Programado", `kind = INSTALLMENT_PLAN`. No side
+  filter; the form shows `monthlyAmount`/`dueDay`/`startCompetence`.
 
-**A debt itself is now editable and manually deletable, and its ledger entries are editable/deletable too, propagating to their linked transaction — decided and implemented 2026-08-11, at the user's request.** Three gaps, closed together:
+`DebtFormDialog` has a `kind` prop (fixed by the screen in create mode, from `debt.kind` in
+edit) and **no kind selector** — changing a debt's kind via UI is no longer possible. Shared
+`src/features/debts/components/`: `debts-view.tsx` (async — filters `getDebts()` by kind +
+optional side, renders charts + list), `debt-card.tsx` (async — one card, fetches its own
+`getDebtTransactions`). `DebtsCharts` has `payableTitle`/`receivableTitle` props.
+`revalidateDebtPaths()` covers all three routes.
 
-- **Editing a debt** (`DebtFormDialog`'s edit mode, `debts.service.ts#updateDebt`): agent, side, initial balance, and the default category above are all freely editable after creation — this is the actual fix for "there's no way to set or change the default category once the debt already exists." Changing `side` after transactions already exist doesn't touch their history (each entry's real type was fixed at the moment it was created); it only changes which type future entries use.
-- **Deleting a debt manually** (`DeleteDebtButton`, calling the existing `deactivateDebt` directly): for a debt that's forgiven, or one the user has simply given up on collecting — no payment, no ledger entry, just the same `active = false` soft delete `addDebtTransaction` already applies automatically once a real payment zeroes the balance. The manual path is that same ending state reached without the payment step.
-- **Editing or deleting a ledger entry** (`debt_transactions`), mirroring `reservoirs.service.ts#updateReservoirTransaction`/`deleteReservoirTransaction` but *less* restrictive: reservoirs blocks editing a withdrawal outright (only accrual entries are editable), while a debt entry is editable either way — `debts.service.ts#updateDebtTransaction` propagates amount/date/description/category onto the linked `transactions` row when one exists (`AI_GENERATION_RULES.md` → "Linked Records Consistency": editing the source of a linked record must propagate consistently). What editing can never do is flip an entry's direction — a payment can't silently become an increase — since the create-side UI already treats "aumento" and "pagamento" as two separate flows, never a toggle; the service rejects a sign mismatch outright. `deleteDebtTransaction` deletes the linked `transactions` row too, same reasoning as `deleteReservoirTransaction`: a linked ledger entry's only reason to exist is to represent that specific movement. Both recompute the real balance afterward and reapply the same settle-to-zero auto-deactivation `addDebtTransaction` already does post-insert — an edit or delete can just as well zero out a debt as a new entry can.
-- This surfaced a real, pre-existing gap: `debt_transactions` had no `date` column at all (only `created_at`, not user-editable) — `DebtTransactionDialog`'s date picker was always shown but silently discarded for any entry without a linked transaction. Migration `0016` adds `debt_transactions.date`, the same fix migration `0011` already made for `reservoir_transactions` for the identical reason.
+### Interest calculator
 
-## Dívidas — subtipos
+`DebtTransactionDialog`, in `mode="increase"` only (never editing an existing entry), has an
+optional "Calcular juros (%)": the user types a percentage, the system fills the Value field
+with `current balance × (percentage / 100)` (`roundMoney`) — still freely editable, never a
+reactive bidirectional pair. Works for any debt (the user decided it also serves a `PERSONAL`
+debt with interest agreed between the parties).
 
-**Decidido e implementado 2026-08-23, a pedido do usuário**, no mesmo dia da auditoria completa do sistema que apontou "dívida" como um conceito único demais pra cobrir os casos reais do usuário. `debts.kind` (migration `0021`) agora distingue três subtipos, cada um com um comportamento diferente no resto do sistema:
+---
 
-- **`PERSONAL`** (default, preserva 100% do comportamento anterior de toda dívida já cadastrada) — empréstimo entre pessoas (amigos, família). Pode ir em qualquer direção (`PAYABLE` ou `RECEIVABLE`). **Nunca afeta o dashboard** — continua exatamente como descrito acima, a urgência depende só do combinado entre as partes.
-- **`OVERDUE_BILL`** ("conta em atraso") — uma conta do dia a dia (água, luz, telefone, aluguel) que ficou sem pagar. Sempre `PAYABLE` na prática — a UI (`DebtFormDialog`) trava a direção e esconde o seletor quando o tipo é este. **Sempre aparece com alerta claro e sempre negativa o dashboard** (diferente de `PERSONAL`) — hoje via o card "Despesas do mês" (ver abaixo; o card dedicado "Dívidas em aberto" foi removido 2026-08-28).
-- **`INSTALLMENT_PLAN`** ("parcelamento programado", renomeado 2026-08-25 — era "parcelamento combinado") — uma compra parcelada fora do cartão (boleto, financiamento de loja) ou um acordo informal "no boca a boca" com valor mensal combinado. Também sempre `PAYABLE`, também sempre aparece no card "Despesas do mês" do dashboard. Ganha três campos extras, obrigatórios só nesse caso (validados em `src/lib/validations/debts.ts`, não em `CHECK` de banco — mesma convenção já usada pros campos CREDIT_CARD-only de `accounts`): `monthlyAmount` (valor combinado por mês), `dueDay` (dia de vencimento, 1-28) e `startCompetence` (mês de competência inicial, migration `0032` — ver a subseção abaixo).
+# Dashboard obligations projection
 
-### Parcelamento Programado — competência e adiantado/atrasado
+**"Despesas de {mês}" card** — `MonthObligationsCard` /
+`dashboard.service.ts#getCurrentMonthObligations(month?)`. A donut (`total` big in the
+center) + a list of what's still unpaid, each row with a "Pagar" button.
 
-**Decidido e implementado 2026-08-29, a pedido do usuário** ("Parcelamento Programado deve ter o mes de competencia de inicio, pois podemos calcular se o parcelamento esta adiantado ou atrasado... se alguem deliberadamente adiantar um boleto ele vai ter pago as duas primeiras parcelas diferente do adiantamento do cartao que tira a ultima parcela... isso deve ser identificado como pagamento do mes de competencia mesmo como se adiantasse fatura do cartao se eu pago hoje uma fatura de setembro vai deixar como pago em setembro mesmo").
+- **Follows the dashboard's viewed month** (`getCurrentMonthObligations(monthKey(filters.periodEnd))`);
+  no arg falls back to today's real month.
+- **`total` = `paidTotal` + `remainingTotal`** = "the month's realized expenses + what's
+  still to pay". Reconciles with the DESPESAS summary card (competence basis) **plus** the
+  month's unpaid fixed expenses / scheduled debts (which DESPESAS doesn't count until they
+  become a transaction). Center shows `total` + sub "`{remainingTotal}` a pagar".
+- **Card counted by competence** (not the outstanding invoice balance): per card,
+  `getCardSummary(card, viewedMonth).currentMonthInvoice` and `currentMonthPaidAmount`. The
+  "Fatura {cartão}" slice/row = `currentMonthInvoice − currentMonthPaidAmount` (when `> 0`);
+  the paid part goes into `paidTotal`.
+- **`paidTotal`** = Σ `transactions` `EXPENSE` dated in the month + Σ `currentMonthPaidAmount`
+  per card. **`CREDIT_CARD_PAYMENT` is NOT summed here** — it would double against the card's
+  competence figure (and a payment made this month usually settles a *prior* month's invoice).
+- **List** (unpaid items only, "Pago" slice stays donut-only): card invoices
+  (`currentMonthInvoice − currentMonthPaidAmount > 0`); each fixed expense `!isPaidThisMonth`
+  (`plannedAmount`); each `PAYABLE` `OVERDUE_BILL` (`remainingBalance`, badge "Atrasada") /
+  `INSTALLMENT_PLAN` whose viewed-month competence isn't covered (`monthlyAmount`). Sorted by
+  due day (no-`dueDay` `OVERDUE_BILL` first, then ascending `dueDay`) in the component;
+  `getCurrentMonthObligations` returns `items` by descending value (the donut's order). Each
+  row opens the right dialog (`PaymentFormDialog` / `PayFixedExpenseDialog` /
+  `DebtTransactionDialog` in `mode="payment"`).
+- **No double counting**: a fixed expense paid via bank → in "Pago" (it's EXPENSE), out of
+  the items list; paid via card → not EXPENSE, out of items, into the card invoice by the
+  installment's competence; a partial invoice payment → paid part into `paidTotal`, the
+  "Fatura" slice shows only the rest; a third-party debt payment (no linked transaction) →
+  invisible on both sides.
+- **`DueBadge` is month-aware**: future month → "Vence dia {dueDay}"; past month →
+  "Atrasada"; current month → the `daysUntilDueThisMonth` count.
+- **Aggregation is 100% in the service** — `getCurrentMonthObligations` returns `items` +
+  `paidTotal`/`remainingTotal`/`total` ready, no `reduce()` in the component. Self-contained
+  (does its own account / `getCardSummary` / fixed-expense / debt / transaction fetches).
+- **Hidden entirely when a category/subcategory/`uncategorizedOnly` filter is active** — it
+  lists whole-month commitments that aren't category-scoped.
+- **Inherited caveat**: a fixed expense paid via a card whose invoice already closed has the
+  installment in *next* month's competence, so `isPaidThisMonth` for the due month stays
+  `false` and the item stays "Atrasada" — see `DOC/HISTORY.md` → "Found, not fixed".
 
-Até aqui um `INSTALLMENT_PLAN` só sabia `monthly_amount` e `due_day` — não tinha noção de **desde quando** o parcelamento corre, então não dava pra dizer se estava adiantado ou atrasado, e "pago" era decidido por mês de calendário (`paidThisMonth` — existe um `debt_transactions.amount < 0` datado no mês corrente).
-
-- **`debts.start_competence`** (migration `0032`, `date`, primeiro dia do mês) — mês de competência a partir do qual o parcelamento passa a contar. Nullable no banco, obrigatório pra `INSTALLMENT_PLAN` via zod (`src/lib/validations/debts.ts`), nunca `CHECK` — mesma convenção de `monthly_amount`/`due_day`. Livremente editável depois de criado (é "desde quando isso conta", não um valor monetário protegido — mesma postura de `fixed_expenses.start_competence`). Backfill dos parcelamentos existentes = mês de `created_at` (o recurso `INSTALLMENT_PLAN` é de 2026-08-23, então nenhum tem histórico longo o bastante pra isso errar). `<input type="month">` no `DebtFormDialog`, no bloco `isInstallmentPlan`.
-- **Alocação automática, mais-antigo-primeiro** (confirmado com o usuário — sem seletor de competência por pagamento, sem coluna nova em `debt_transactions`). Exatamente a heurística que `cards.service.ts#getCardSummary.currentMonthPaidAmount` já usa pra uma fatura: `total pago ÷ monthlyAmount` (em centavos inteiros) = nº de competências cobertas, contando a partir de `startCompetence`. Só pagamentos contam (`amount < 0`); um aumento (juros) não "paga" nada, só estende quantos meses o plano tem. Pagar dois boletos hoje cobre as próximas duas competências e **carrega crédito pra frente** — nada é removido (diferente do "Antecipar parcelas" do cartão, que remexe as parcelas do fim). "Se eu pago hoje uma fatura de setembro fica como pago em setembro."
-- **`DebtDTO.paidThroughCompetence`** ("YYYY-MM" ou ausente) — a última competência coberta = `startCompetence + (competênciasCobertas − 1)` meses. É uma heurística, não uma alocação real registrada: um pagamento feito hoje deliberadamente pra quitar um mês futuro específico ainda aparece cobrindo a competência mais antiga em aberto primeiro — mesmo trade-off já aceito na fatura do cartão.
-- **`DebtDTO.scheduleOffset`** (meses com sinal) = `competênciasCobertas − esperadas`, onde `esperadas` = quantas parcelas **deveriam** estar pagas até o mês real de hoje (`monthsBetween(startCompetence, mêsAtual) + 1`), com teto no total de parcelas do plano (`ceil((initial_balance + Σ aumentos) / monthlyAmount)`). `> 0` adiantado, `< 0` atrasado, `0` em dia. Ancorado em hoje, igual o antigo `paidThisMonth` — "estou em dia?" é sempre relativo a agora.
-- **Badge em `/installment-plans`** (`debt-card.tsx#InstallmentScheduleBadges`) — "Adiantado N meses" (verde) / "Atrasado N meses" (vermelho) / "Em dia" (verde), + "Vence dia {dueDay}" ao lado, substituindo o antigo par "Pago este mês / Vence dia X". Abaixo do "{monthlyAmount}/mês combinado": "Pago até {mês}" ou "Nenhuma parcela paga ainda".
-- **Dashboard** — a apresentação **não muda** (o usuário pediu pra manter): `getCurrentMonthObligations`/`fetchUnpaidObligationEntries` continuam listando um `INSTALLMENT_PLAN` como item a pagar com seu `dueDay`. O que mudou: o gate deixou de ser `paidThisMonth` (mês de calendário) e passou a ser **por competência** — o plano só aparece pro mês visualizado `M` quando `M >= startCompetence` **e** `M` não está coberto (`!(paidThroughCompetence && M <= paidThroughCompetence)`). Isso torna o card correto pra qualquer mês navegado (some do mês que o pagamento adiantado cobriu; reaparece num mês futuro ainda não coberto) e **aposenta o caveat** antes documentado de que o `paidThisMonth` de `INSTALLMENT_PLAN` era "sempre o mês real de hoje". `OVERDUE_BILL`, que não tem conceito de competência, continua sempre em aberto. O valor do item continua o `monthlyAmount` cheio — sem subtrair o carry parcial da competência corrente (simplificação deliberada; o detalhe de progresso vive no "Pago até {mês}" de `/installment-plans`).
-- `paidThisMonth` continua sendo calculado e no DTO, mas virou sinal secundário — nenhuma UI o usa mais.
-
-### Telas separadas por `kind` (2026-08-29)
-
-**Decidido e implementado 2026-08-29, a pedido do usuário** ("Separar Parcelamento Programado e Contas em Atraso da area de Dividas, Renomear Dividas para Dividas Pessoais. Todas as Regras permanecem iguais, so separar forms e menus para ser mais intuitivo para o usuario"). Até então os três `debts.kind` moravam numa tela só (`/debts`, "Dívidas") e o `DebtFormDialog` tinha um seletor "Tipo de dívida". Agora cada `kind` tem sua própria rota, item de sidebar e form dedicado:
-
-- **`/debts`** — renomeada "Dívidas Pessoais", filtra `kind = PERSONAL`. Mantém o `DebtSideFilter` (Todas/A pagar/A receber) e as duas pizzas (a pagar / a receber), já que só `PERSONAL` pode ir nas duas direções.
-- **`/overdue-bills`** — "Contas em Atraso", `kind = OVERDUE_BILL`. Sem side filter (sempre PAYABLE), uma pizza só ("Contas em atraso").
-- **`/installment-plans`** — "Parcelamento Programado", `kind = INSTALLMENT_PLAN`. Sem side filter; o form mostra os campos `monthlyAmount`/`dueDay`.
-
-**Nenhuma regra de domínio mudou** — service, DTOs, validações (`debts.*`), o pipeline de `debt_transactions`/linked transactions, e a projeção no dashboard (`getCurrentMonthObligations`, `fetchUnpaidObligationEntries`, `MonthObligationsCard`) são exatamente os mesmos. É só apresentação:
-
-- `DebtFormDialog` ganhou um prop `kind` (fixado pela tela em modo criação; em modo edição vem de `debt.kind`) e **perdeu o seletor de tipo** — trocar o `kind` de uma dívida já criada não é mais possível pela UI (aceito: cada `kind` tem sua tela). O seletor de "Direção" só aparece pra `PERSONAL`; os campos `monthlyAmount`/`dueDay` só pra `INSTALLMENT_PLAN` — mesma lógica condicional de antes, agora dirigida pelo prop em vez do `<Select>`.
-- Componentes compartilhados novos em `src/features/debts/components/`: `debts-view.tsx` (async — filtra `getDebts()` por `kind` + side opcional, renderiza charts + lista) e `debt-card.tsx` (async — um card de dívida, com fetch próprio de `getDebtTransactions`). As três `page.tsx` são finas: header + `HelpButton` + `DebtFormDialog kind=...` + `DebtsView kind=...`.
-- `DebtsCharts` ganhou props opcionais `payableTitle`/`receivableTitle` pros títulos por tela.
-- `revalidatePath` das actions de dívida agora cobre as três rotas (`revalidateDebtPaths()` em `src/features/debts/actions.ts`).
-- O badge de nome do `kind` no card ("Conta em atraso"/"Parcelamento programado") foi removido — redundante numa tela dedicada. O badge de lado ("A pagar"/"A receber") e o de vencimento/pago do `INSTALLMENT_PLAN` continuam.
-
-### Dívidas em aberto (dashboard) — REMOVIDO 2026-08-28
-
-`src/features/dashboard/components/open-debts-alert.tsx` (`OpenDebtsAlert`) foi **removido do dashboard e deletado**, a pedido do usuário ("ficou redundante com o novo card de despesas do mês"). O card "Despesas de {mês}" (`MonthObligationsCard`, abaixo) já lista toda dívida `PAYABLE` `OVERDUE_BILL`/`INSTALLMENT_PLAN` não paga como uma linha acionável, com badge de vencimento e botão "Pagar" — ter os dois cards mostrando os mesmos compromissos era ruído. `dashboard/page.tsx` não filtra mais `openDebts`/`totalOpenDebts`; `getDebts()` continua sendo chamado lá só pra alimentar `MonthObligationsCard` (prop `debts`).
-
-O que se perdeu de propósito: a lente "saldo **total** em aberto de todas as dívidas não-`PERSONAL`, independente do filtro de período, visível mesmo quando tudo já foi pago no mês" — o `MonthObligationsCard` segue o mês visualizado e só lista o que ainda falta pagar *naquele mês* (uma `INSTALLMENT_PLAN` já paga no mês some da lista; o `remainingBalance` da dívida inteira não aparece em lugar nenhum do dashboard). Aceito como trade-off.
-
-O prop `defaultAmount` de `DebtTransactionDialog` continua existindo — consumido pelo `MonthObligationsCard` (e pelo botão "Pagamento" de `/installment-plans`). `paidThisMonth` também continua no DTO, mas desde 2026-08-29 nenhuma UI o usa — o `MonthObligationsCard` passou a filtrar `INSTALLMENT_PLAN` por competência (ver "Parcelamento Programado — competência e adiantado/atrasado").
-
-### Despesas do mês (dashboard)
-
-**Decidido e implementado 2026-08-28, a pedido do usuário** — um card no dashboard (`src/features/dashboard/components/month-obligations-card.tsx`, `MonthObligationsCard`, alimentado por `dashboard.service.ts#getCurrentMonthObligations`) com **as despesas do mês visualizado**, num donut + uma lista acionável do que ainda falta pagar. **Substitui** o antigo alerta "Vence essa semana" (`upcoming-due-alert.tsx`, removido): agora é o mês inteiro (não só ≤7 dias), três fontes (não só despesas programadas) e cada linha tem um botão de pagamento. **Também absorveu o card "Dívidas em aberto" (`OpenDebtsAlert`), removido 2026-08-28** por redundância — ver a seção acima.
-
-- **Segue o mês visualizado do dashboard** — mudado 2026-08-28 (mesmo dia), a pedido do usuário ("o grafico de despesas deve seguir o mês de visualização e não o mês corrente"). `getCurrentMonthObligations(month)` recebe o mês do filtro de período (`monthKey(filters.periodEnd)` — o mesmo mês de referência que a evolução mensal usa); sem argumento ainda cai no mês real de hoje. Desde 2026-08-29 um `INSTALLMENT_PLAN` é filtrado **por competência** (`startCompetence`/`paidThroughCompetence`, ambos independentes de mês), então está correto pra qualquer mês navegado — some do mês que um pagamento adiantado cobriu, reaparece num mês futuro não coberto (ver "Parcelamento Programado — competência e adiantado/atrasado"). `OVERDUE_BILL`, sem conceito de competência, continua sempre em aberto em qualquer mês. O `DueBadge` do componente também é month-aware: mês futuro → "Vence dia {dueDay}", mês passado → "Atrasada", mês corrente → a contagem de dias `daysUntilDueThisMonth` de antes.
-- **Mês default do dashboard** (2026-08-28, mesmo pedido) — `getDefaultDashboardMonth()` espelha `getDefaultCardsMonth()`: sem `?month=` na URL e no preset "month", se `getCurrentMonthObligations(mês de hoje).remainingTotal === 0` (todas as despesas do mês já pagas) **e** o próximo mês tem `total > 0` (há algo a mostrar), abre no **próximo mês**; senão, no mês de hoje. Qualquer outro preset mantém sua própria referência (injetar um mês ali deslocaria a janela multi-mês inteira). `DashboardFilters` recebe o mês resolvido pelo servidor como prop `month` e cai nele quando `searchParams` não tem `month`, igual ao `MonthNav` de `/cards`. Navegação explícita (month picker, botão de preset) grava `?month=`/`?period=` e passa a mandar dali em diante.
-- **Título** "Despesas de {mês}"; **sem** o total solto no canto do header (era duplicata do centro). O **centro do donut mostra `total`** (número grande) + sub "`{remainingTotal}` a pagar" — mesma "visualização padrão" dos outros donuts do app (`CategoryPie` etc. mostram o total no centro).
-- **`total` = `paidTotal` + `remainingTotal` = "despesas realizadas do mês + o que ainda falta pagar".** Reconcilia com o card DESPESAS do resumo (base de competência) **mais** as despesas programadas / dívidas programadas do mês ainda não pagas (que DESPESAS não conta até virarem lançamento). Sem nada pendente, os dois batem; com pendências, `total` fica acima de DESPESAS pela soma exata do `remainingTotal` projetado. **Corrigido 2026-08-28 mesmo dia**: a 1ª versão contava cartão pelo saldo em aberto da fatura (`getCardBalanceThroughMonth`) e subcontava o mês (mostrava 4.803 quando a DESPESAS era 6.306) sempre que havia parcela de cartão faturada mas ainda não paga.
-- **Cartão contado por competência**, igual a todo o resto do app: por cartão, `getCardSummary(card, mêsVisualizado).currentMonthInvoice` (parcelas com competência no mês) e `currentMonthPaidAmount` (quanto disso já foi pago). A fatia/linha **"Fatura {cartão}"** = `currentMonthInvoice - currentMonthPaidAmount` (quando > 0); a parte paga entra em `paidTotal`.
-- **`paidTotal`** = Σ `transactions` `EXPENSE` datadas no mês (gasto normal + despesas programadas pagas via banco/dinheiro + pagamentos de dívida via transação vinculada) + Σ `currentMonthPaidAmount` de cada cartão. **`CREDIT_CARD_PAYMENT` NÃO é somado aqui** — dobraria contra a figura de competência do cartão (e um pagamento feito no mês normalmente quita a fatura de um mês *anterior*).
-- **Lista abaixo do donut** = só os itens não pagos (a fatia "Pago" fica só no donut), cada um com badge de vencimento (mês inteiro, `daysUntilDueThisMonth`) e o dialog de pagamento certo (`PaymentFormDialog` / `PayFixedExpenseDialog` / `DebtTransactionDialog` em `mode="payment"`). **Ordenada por dia de vencimento** (contas sem `dueDay` — `OVERDUE_BILL` — primeiro, depois `dueDay` crescente) — reordenação feita no componente (`month-obligations-card.tsx`), o `getCurrentMonthObligations` continua devolvendo `items` por valor decrescente, que é a ordem que o donut usa. Mudado 2026-08-30 a pedido do usuário.
-- **Itens (não pagos)**: fatura de cada cartão (`currentMonthInvoice - currentMonthPaidAmount > 0`); cada despesa programada `!isPaidThisMonth` (`plannedAmount`); cada dívida `PAYABLE` `OVERDUE_BILL` (`remainingBalance`, badge fixo "Atrasada") / `INSTALLMENT_PLAN` cuja competência do mês visualizado não está coberta pelos pagamentos (`monthlyAmount`).
-- **Sem dupla contagem**: despesa programada paga via banco → conta em "Pago" (é EXPENSE), sai dos itens (`isPaidThisMonth`); paga via cartão → não é EXPENSE, sai dos itens, entra na fatura do cartão pela competência da parcela; pagamento parcial de fatura → a parte paga vai pra `paidTotal` via `currentMonthPaidAmount`, a fatia "Fatura {cartão}" mostra só o resto (soma = `currentMonthInvoice`); pagamento de dívida por terceiro (sem linked transaction) → invisível nos dois lados, consistente com "Money Reality Rules".
-- **Agregação 100% no serviço** (`getCurrentMonthObligations` devolve `items` + `paidTotal`/`remainingTotal`/`total` prontos — "Chart Rules", nada de `reduce()` no componente). O serviço é auto-contido (faz seus próprios fetches de contas/`getCardSummary`/despesas programadas/dívidas/transações).
-- **Caveat herdado**: uma despesa programada paga via cartão cuja fatura já fechou tem a parcela na competência do mês seguinte, então `isPaidThisMonth` do mês devido continua `false` e o item segue como "Atrasada" — mesmo comportamento já registrado em `ARCHITECTURE.md` ("Found, not fixed"), não corrigido aqui.
-
-### Despesas projetadas no resto do dashboard (donut de categoria, DESPESAS, Balanço, Evolução)
-
-**Decidido e implementado 2026-08-28, a pedido do usuário** ("Dashboard Graficos de Despesas por categoria e Card de Despesas devem seguir a mesma regra do grafico Despesas do Mês... devem incluir Parcelamentos Programados e Despesas Fixas não pagas"). O card "Despesas do mês" era a única parte do dashboard que enxergava obrigações não pagas; agora **o dashboard inteiro segue a mesma regra**. `dashboard.service.ts#fetchUnpaidObligationEntries(supabase, filters, month)` devolve, pro mês visualizado, uma lista de `Entry` `EXPENSE` sintéticas — uma por:
-
-- despesa programada `!isPaidThisMonth` → `plannedAmount`, categoria/subcategoria da própria despesa;
-- dívida `PAYABLE` `INSTALLMENT_PLAN` cuja competência do mês visualizado não está coberta pelos pagamentos → `monthlyAmount` (ou `remainingBalance`), `default_category_id`;
-- dívida `PAYABLE` `OVERDUE_BILL` → `remainingBalance`, `default_category_id`.
-
-`fetchPeriodEntries` ganhou um param `obligationsMonth?` — quando setado, anexa essas entradas ao conjunto. `getFinancialSummary`/`getCategoryDistribution`/`getMonthlyEvolution` ganharam o mesmo param opcional e a página passa `viewedMonth` pros três. Efeito:
-
-- **Card DESPESAS** (`FinancialSummaryDTO.expense`) e portanto o **Balanço Mensal** (`result = income − expense`) passam a projetar — o usuário pediu explicitamente que o balanço reflita isso.
-- **Donut "Despesas por categoria"** — cada obrigação vira uma fatia na sua categoria real (sem categoria → "Sem categoria").
-- **Evolução mensal** — só a **barra do mês visualizado** recebe a projeção (as `Entry`s carregam `date = "${viewedMonth}-01"`, então caem só naquele bucket da janela de 15 meses); as demais barras seguem só realizado. Isso mantém a barra do mês visualizado reconciliada com o donut.
-- **DESPESAS agora reconcilia exatamente com o `total` do card "Despesas do mês"** — os dois são "EXPENSE real por competência + as mesmas projeções não pagas".
-
-Pulado quando a projeção não faz sentido: filtro de conta ativo (uma projeção não é lançada contra conta nenhuma), toggle de origem de despesa em `liquid`/`cards` (`ExpenseSourceToggle`), ou visão só de RECEITA (`transactionType === "INCOME"`). Os filtros de categoria/subcategoria/`uncategorizedOnly` são respeitados igual às consultas reais (dívida não tem subcategoria → um filtro de subcategoria derruba as dívidas). **Caveat herdado de `getCurrentMonthObligations`**: `getDebts()` não aceita mês, mas `INSTALLMENT_PLAN` agora é filtrado por competência (`startCompetence`/`paidThroughCompetence`, independentes de mês), então está correto pra qualquer mês; só `OVERDUE_BILL` (sem competência) aparece em qualquer mês navegado — mesma imprecisão já aceita no card "Despesas do mês".
-
-Isso é uma quebra **deliberada e documentada** de "Money Reality Rules" pro lado de despesa do dashboard — ver a nota lá.
-
-### Filtro de período removido do dashboard
-
-**Decidido e implementado 2026-08-28, a pedido do usuário** ("Retire o filtro de periodo desta tela... apesar dele ter utilidade ele vai pesar muito a tela... pretendo refaze-lo talvez em alguma aba de relatorios no futuro"). Os presets de período (Mês / 3 meses / 6 meses / 12 meses / Ano / Personalizado) e o range de datas custom saíram do `DashboardFilters`. O dashboard agora é **sempre um único mês**, navegado só pelo `MonthPicker` (mesma ideia de `/cards` e `/transactions`). `parseDashboardFilters` sempre resolve `periodStart`/`periodEnd` = início/fim do mês de `?month=` (ou o mês de hoje). `getDefaultDashboardMonth()` continua decidindo o mês inicial quando não há `?month=`. A janela de 15 meses da Evolução mensal é independente disso e não mudou. `resolvePeriodPreset`/`DashboardPeriodPreset` (`src/lib/utils/date.ts`) ficaram sem uso — deixados no lugar de propósito, pra uma futura aba de relatórios.
-
-### Calculadora de juros
-
-`DebtTransactionDialog`, em `mode="increase"` (nunca na edição de um lançamento já existente), ganhou um campo opcional "Calcular juros (%)": o usuário digita uma porcentagem, o sistema preenche o campo Valor com `saldo atual × (porcentagem / 100)` (`roundMoney`, `src/lib/utils/money.ts`) — ainda livremente editável depois, nunca um par reativo bidirecional como o gross/net do reservoir (digitar direto no campo Valor não atualiza a porcentagem de volta). Funciona pra qualquer dívida, não só as com juros formais — o usuário decidiu explicitamente que também serve pra uma dívida `PERSONAL` com juros combinados entre as partes.
+**`getDefaultDashboardMonth()`** — mirrors `getDefaultCardsMonth()`: without `?month=`, if
+`getCurrentMonthObligations(todayMonth).remainingTotal === 0` **and**
+`getCurrentMonthObligations(nextMonth).total > 0`, opens on next month; else today's month.
+`DashboardFilters` receives the resolved month as a prop and falls back to it.
 
 ---
 
 # Budgets
 
+Each `budgets` row belongs to exactly one month (`budgets.month`, migration `0009` — replaced
+the old "standing target", which let raising a budget silently overwrite history).
 
-A **standing target** per category/subcategory foi substituído por linhas mensais (migration `0009`, decidido 2026-08-08) — cada linha de `budgets` pertence a exatamente um mês (`budgets.month`, primeiro dia do mês). O design anterior ("standing target, mês é só parâmetro de consulta") permitia que subir um orçamento (ex: aluguel) sobrescrevesse silenciosamente o histórico; isso não vale mais para esta tabela.
+- Never generates a transaction. Purely informational.
+- `actualAmount` = real sum of that category's `transactions` + `card_installments` in the
+  month.
+- `status = EXCEEDED` when `actualAmount > plannedAmount`. Alerts only, never blocks.
 
-- Never generates a transaction. Purely informational — reflects into alerts and the dashboard, and exists only for planning.
-- `actualAmount` = real sum of that category's transactions + installments in the queried month.
-- `status = EXCEEDED` whenever `actualAmount > plannedAmount`. Does not block anything, only alerts.
-- Example: Mercado (groceries) budget of R$800/month — dashboard shows real progress (e.g. "600/800") as the month goes on; exceeding it only triggers an alert, spending isn't capped.
+## Which months can be planned, and cloning
 
-## Which months can be planned, and cloning forward
+Only two months are directly creatable/editable:
+- **The current real calendar month** — always plannable, even the first time (a brand-new
+  user with zero budgets is normal).
+- **The next calendar month** — unlocks only once the current month has ≥1 active budget row
+  (`getBudgetMonthWindow().hasCurrentMonthBudget`).
+- **Every earlier month is read-only history** — browsable via the shared `MonthNav`.
 
-**Decided and implemented 2026-08-08** (`budgets.service.ts#getBudgetMonthWindow`/`cloneBudgetMonth`). Only two months are ever directly creatable/editable at a time:
-
-- **The current real calendar month** — always plannable, even the very first time (a brand-new user with zero budgets is a normal, expected state, not an error).
-- **The next calendar month** — unlocks only once the current month already has at least one active budget row (`getBudgetMonthWindow().hasCurrentMonthBudget`). Rent and similar costs are "extremamente mutável" (the user's own framing) — there's little value in planning further than one month ahead, and every month in between still needs its own real plan.
-- **Every earlier month is read-only history** — browsable (reuses the shared `MonthNav`/`MonthPicker`, same pattern as `/cards` and `/transactions`) but never editable, so past numbers stay exactly what was actually planned at the time.
-
-**Cloning** (`CloneBudgetButton`, `cloneBudgetMonthAction`) copies every active row from one month into another verbatim — offered when the viewed (editable) month has zero rows and a prior month exists. The clone source is always `lastRegisteredMonth` — the most recent month with *any* active budget row — **not** the literal previous calendar month. This matters for a sloppy user: someone who plans January and doesn't reopen the app until April should still get April cloned from January, not from an empty February/March. `getBudgetMonthWindow()` computes this via `MAX(month)` over the user's active budgets.
+**Cloning** (`CloneBudgetButton`) copies every active row from one month to another verbatim
+— offered when the viewed editable month is empty and a prior month exists. The source is
+always `lastRegisteredMonth` (`MAX(month)` over active budgets), **not** the literal previous
+calendar month (someone who planned January and returns in April gets April cloned from
+January).
 
 ## Category ceilings are never computed — only ever real or absent
 
-**Decided 2026-08-08, corrected mid-design after an initial draft got this wrong**: a category's `plannedAmount` is always either a real, explicitly-user-set row, or there is no category-level number at all — never an implicit "sum of its subcategories." The tempting alternative (show the sum of budgeted subcategories as the category's total when no explicit row exists) was rejected because a category's `actualAmount` already covers *everything* under it, tracked or not (an untracked subcategory like "Manutenção do Veículo" still counts toward its parent category's real spend). An implicit sum would only reflect the *tracked* subcategories, so an untracked expense would look like it blew a budget the user never actually set — a false alert. So:
+A category's `plannedAmount` is always either a real, explicitly-set row, or **no
+category-level number at all** — never an implicit "sum of its subcategories". The implicit
+sum was rejected because a category's `actualAmount` already covers *everything* under it,
+tracked or not — an implicit sum would only reflect *tracked* subcategories, so an untracked
+expense would look like it blew a budget the user never set (a false alert).
 
-- A category with **no** active row for the month has no ceiling and no alert of any kind at that level — its subcategories (if any are budgeted) simply show as their own standalone lines, and anything spent in an *unbudgeted* subcategory under it is invisible to the budget system entirely. This is intentional: budgeting is opt-in per line the user actually wants to police, not a mandate to track everything under a category the moment one subcategory gets a number.
-- A category *with* an active row gets its usual `actualAmount` vs. `plannedAmount` comparison — and because that `actualAmount` already includes untracked subcategories, this single number naturally gives two severities for free, no new mechanism required: the category's own `EXCEEDED` is a "soft" signal (total category spend, tracked or not, passed the ceiling), while a subcategory's own `EXCEEDED` is a "sharper" one (spend *specifically tracked* under that subcategory passed its own explicit number). Both already existed as-is; nothing new was built for this.
-  - Worked example (user-supplied): category "Veículos" = R$1000, subcategory "Combustível" = R$800 (R$200 unallocated headroom). An unbudgeted "Manutenção" expense of R$300 pushes Veículos' total actual to 1100 — Veículos itself flags EXCEEDED (the soft signal), even though Combustível's own 800 was never touched. If Combustível itself later reaches R$900, *that* subcategory flags EXCEEDED too (the sharp signal) — independently, non-blocking either way (maybe the user just took an extra trip).
+- A category with **no** active row has no ceiling and no alert at that level. Anything spent
+  in an *unbudgeted* subcategory under it is invisible to the budget system. Budgeting is
+  opt-in per line.
+- A category *with* an active row gets its usual `actualAmount` vs. `plannedAmount`. Because
+  `actualAmount` already includes untracked subcategories, this gives two severities for
+  free: the category's own `EXCEEDED` is a *soft* signal (total category spend passed the
+  ceiling); a subcategory's own `EXCEEDED` is a *sharper* one (spend specifically tracked
+  under it passed its own number). Both non-blocking.
 
 ## Budget hierarchy — category vs. subcategory, and the fixed-expense floor
 
-**Decided 2026-08-07, revised 2026-08-08** (`src/services/_shared.ts#reconcileBudgetFloors`/`reconcileFixedExpenseFloors`/`getCategoryBudgetFloor`/`getSubcategoryBudgetFloor`/`deactivateCategoryBudgetIfOverCommitted`, called from `budgets.service.ts` and `fixed-expenses.service.ts`). Fixed Expenses are, functionally, a special case of Budget: a fixed expense is a *committed, non-negotiable slice* of whatever a category is allowed to spend. It makes no sense for a category's budget to be smaller than the fixed expenses already registered under it — that would mean the "plan" contradicts a bill the user has already committed to.
+(`src/services/_shared.ts`.) A fixed expense is functionally a *committed, non-negotiable
+slice* of what a category may spend — a category's budget can't be smaller than the fixed
+expenses already registered under it.
 
-- A budget can be set at the **category** level (`subcategory_id IS NULL`) or at the **subcategory** level (`subcategory_id` set), nested: a category's budget amount must always be `>=` the sum of (a) every subcategory budget under that category *for the same month*, and (b) every fixed expense attached directly to that category (no subcategory — fixed expenses aren't month-scoped, they're perpetual). Symmetrically, a subcategory's budget must be `>=` the sum of fixed expenses attached to that specific subcategory. The gap between a category's budget and the sum of its subcategory budgets is *unallocated* headroom.
-- **Editing a budget downward is a hard block, not a warning** (deliberately inconsistent with the credit-limit soft-enforce pattern — a budget number that contradicts its own committed children is simply wrong, not a "maybe forgot something" judgment call). If the user tries to save a category or subcategory budget below the sum of its children (fixed expenses + subcategory budgets, per the invariant above), the save must fail with a clear validation error naming the floor amount — never silently clamp or partially apply. This direction was never in question and is unchanged.
-- **Registering or editing a fixed expense still auto-reconciles the relevant budget upward, with a notification, never a block** — a fixed expense attached directly to a **category** (no subcategory) still auto-creates/raises that category's own row at the sum of its now-committed fixed expenses, exactly as originally designed. Scoped to **current month always, and next month too if a budget already exists at that same level there** (`reconcileFixedExpenseFloors`) — a fixed expense registered today shouldn't silently skip a month the user already pre-planned.
-- **A fixed expense attached to a *subcategory* only ever raises/creates the subcategory's own row — never the category's (revised 2026-08-10, at the user's request, correcting the original design's blanket "bubble up to the category" behavior).** A subcategory-level fixed expense is a floor on its subcategory, not automatically on the category above it — creating one when no category budget exists must not conjure a category number the user never set (same "category ceilings are never computed" principle as subcategory-budget saves, immediately below). The category is only ever touched afterward via `deactivateCategoryBudgetIfOverCommitted` — the exact same erasure mechanism a subcategory-budget save already used — never via a raise/create. Four cases, all driven by the single `reconcileBudgetFloors` codepath now shared between fixed-expense saves and subcategory-budget saves:
-  1. **Neither the subcategory nor the category has a budget row**: the subcategory row is created at the fixed expense's floor; the category is left alone (`deactivateCategoryBudgetIfOverCommitted` no-ops immediately — there's no category row to touch).
-  2. **The subcategory has a row, the category doesn't**: the subcategory row is raised only if the floor now exceeds it; the category still isn't created.
-  3. **Both have rows**: the subcategory row is raised as needed, then the category row is re-checked — if it still has real headroom over the (possibly just-raised) sum of all the category's subcategory budgets, it's left untouched; if the sum has caught up to or reached the category's amount (no headroom left), the category row is deactivated with a notice — the user still sees standalone subcategory boxes, just no category-level ceiling anymore.
-  4. **The category has a row, the subcategory doesn't**: the subcategory row is created at the floor, then the same category re-check as case 3 runs — deactivate-with-notice if that new subcategory now fills the category exactly (or over), leave the category's row alone if headroom remains.
-- **Fixed, corrected bug (2026-08-08, extended to fixed expenses 2026-08-10): saving a subcategory budget — or raising one via a subcategory-level fixed expense — must never raise or create the parent category's row.** The original implementation reused the exact same auto-raise mechanism for *both* fixed expenses and subcategory budgets — so creating "Delivery: 400" under "Alimentação" with no category budget yet would silently auto-create "Alimentação: 400", and adding "Restaurante: 300" would silently raise it to 700. This directly contradicted the design above ("category ceilings are never computed") and produced budgets the user never actually set. The fix (`deactivateCategoryBudgetIfOverCommitted`) replaces raising with **erasing**: raising a subcategory's floor (from either source) is never blocked by the category, but if the new subcategory total now reaches or exceeds the category's *existing explicit* row — an exact fill counts too, not only strictly passing it (tightened 2026-08-10, see below) — that row is deactivated (with a notice) — the category simply goes back to having no number of its own. Re-creating an explicit category budget afterward still must be `>=` the subcategory sum (the unchanged hard-block above). A category with direct fixed expenses is never auto-deactivated this way — its floor from those expenses must never be silently orphaned (the fixed-expense auto-create guarantees such a category always has a row to begin with).
-  - Worked example (user-supplied): "Alimentação" = R$1000 (explicit). Add "Delivery" = 400, then "Restaurante" = 300 — sum is 700, still under 1000, Alimentação keeps its own row and headroom (nested display). Add "Mercado" = 800 — sum is now 1500, over 1000 — Alimentação's own row is deactivated with a notice, and the category goes back to rendering as a bare label above three standalone subcategory lines (Delivery, Restaurante, Mercado), each still in the database exactly as entered. The same deactivation now also fires on an *exact* fill — e.g. Delivery=400 + Restaurante=300 + Mercado=300 summing to exactly 1000 removes Alimentação's row too, since there's no headroom left to justify a category-level number distinct from its parts.
-- **Tree display** (`src/features/budgets/components/budget-tree.tsx`): a category with an active row renders normally nested (category box + subcategory boxes — real headroom is guaranteed here, by construction). A category with **no** active row and exactly one budgeted subcategory merges into a single box labeled "Categoria · Subcategoria" (avoids a number-less header sitting above one lone child). Two or more subcategories with no category row render as a bare category-name divider above each subcategory's own standalone box.
-- **Tree-based budget-entry screen**: `src/features/budgets/components/budget-tree-editor.tsx` ("Planejar orçamentos", on `/budgets`), reusing the onboarding category-tree-picker's visual pattern — each category/subcategory row gets an amount input, planning a whole tree in one screen. Category rows save before subcategory rows in the same submission, which is what lets a category's ceiling exist before its children get checked against it. Sits alongside the single-row `budget-form-dialog.tsx` (used for one-off edits) and is also reused, via the shared `BudgetTreeFields`, by the first-time onboarding budget step (`src/app/onboarding/budget/page.tsx`) — see "Onboarding hook" below.
-- **The tree editor doubles as a bulk-delete tool (decided 2026-08-08, at the user's request).** Clearing a field that already has a budget doesn't just skip it — it deactivates that row (`deactivateBudgetAction`), same as clicking the single-row trash icon. This is deliberately how "big changes" are meant to be made: instead of hunting down individual trash icons across a large tree, open "Planejar orçamentos," blank out everything you want gone, save once. Goes through the exact same guards as any other delete (see next point), so a blank field on a row with fixed expenses attached fails with a clear inline error instead of silently deleting or crashing.
-- **A budget row that's the committed floor for one or more fixed expenses can never be deleted — only raised (decided 2026-08-08).** Deleting it would orphan that floor. Enforced at the service layer (`budgets.service.ts#deactivateBudget` checks for attached `fixed_expenses` before deactivating, mirroring `deactivateCategoryBudgetIfOverCommitted`'s own guard on the auto-path) so every entry point respects it — the single-row delete button, and the tree editor's blank-field shortcut above. The UI additionally hides the trash icon on any category/subcategory row that has fixed expenses nested under it, so the block is never surprising — the row is still fully editable (can be raised), it just can't be removed while something depends on it. Mirrors the same shape as the category/subcategory deletion routine elsewhere in the app: guided, never silent.
-- This rule applies identically to subcategory budgets — a subcategory is just one level further down the same nesting invariant, not a special case.
+- A budget is set at the **category** level (`subcategory_id IS NULL`) or the **subcategory**
+  level, nested:
+  - a category's amount must be `>=` (Σ every subcategory budget under it *for the same
+    month*) + (Σ every fixed expense attached directly to the category);
+  - a subcategory's amount must be `>=` Σ fixed expenses on that subcategory.
+  The gap between a category budget and its subcategory-budget sum is *unallocated* headroom.
+- **Lowering a budget below its committed children is a HARD BLOCK, not a warning** —
+  deliberately inconsistent with the credit-limit soft-enforce pattern: a budget that
+  contradicts its own committed children is simply wrong. The save fails with a validation
+  error naming the floor. (`getBudgetFloor` / `getBudgetFloorAction` also surfaces the floor
+  as the input's `min` + a pre-submit check, so it isn't only a post-submit error.)
+- **A fixed expense attached directly to a category (no subcategory)** still
+  auto-creates/raises **that category's** row at the sum of its committed fixed expenses,
+  with a notice, never a block. Scoped to the current month always + next month if a budget
+  already exists at that same level there.
+- **A fixed expense attached to a *subcategory*** only ever raises/creates **the
+  subcategory's** row — never the category's (creating one when no category budget exists
+  must not conjure a number the user never set). The category is only ever touched afterward
+  via `deactivateCategoryBudgetIfOverCommitted` — **erase, never raise/create**. Four cases,
+  all through the shared `reconcileBudgetFloors` codepath (fixed-expense saves +
+  subcategory-budget saves):
+  1. Neither has a row → the subcategory row is created at the floor; the category is left
+     alone.
+  2. Subcategory has a row, category doesn't → the subcategory row is raised only if the
+     floor exceeds it; the category still isn't created.
+  3. Both have rows → the subcategory row is raised as needed, then the category row is
+     re-checked: kept if it still has real headroom over the (possibly just-raised)
+     subcategory-budget sum; **deactivated with a notice** if the sum has reached *or*
+     exceeded it (exact fill counts).
+  4. Category has a row, subcategory doesn't → the subcategory row is created at the floor,
+     then the same category re-check as case 3.
+- **Saving a subcategory budget — or raising one via a subcategory-level fixed expense —
+  never raises or creates the parent category's row.** `deactivateCategoryBudgetIfOverCommitted`
+  replaces raising with erasing: if the new subcategory total reaches *or* exceeds the
+  category's existing explicit row, that row is deactivated with a notice — the category goes
+  back to having no number of its own. Re-creating one afterward must still be `>=` the
+  subcategory sum. **A category with direct fixed expenses is never auto-deactivated** — its
+  floor can't be silently orphaned.
+- **A budget row that's the committed floor for one or more fixed expenses can never be
+  deleted, only raised.** Enforced in `deactivateBudget` server-side (every entry point:
+  the single-row trash icon, and the tree editor's blank-field shortcut). The UI also hides
+  the trash icon on any row with fixed expenses nested under it.
 
-## Single unified page — no more Orçamentos/Despesas Fixas tabs
+## Tree display and the tree editor
 
-**Decided and implemented 2026-08-08, at the user's request** ("separar elas em tabs pode estar confundindo mais do que ajudando"). `/budgets` used to split into two tabs — a flat list of budgets, and a separate flat list of fixed-expense cards with their own pay/edit/delete actions. Since a fixed expense is functionally a special case of budget (see above) and already renders nested inside its category/subcategory's tree row, keeping a *second*, separate list of the same fixed expenses was redundant and made the hierarchy harder to see, not easier. Now there is one list — the tree — and two creation buttons at the top: "Novo orçamento" (category/subcategory, month-scoped, gated to the editable window) and "Nova despesa fixa" (always available — fixed expenses are perpetual, not month-owned, so creating one isn't tied to which month is being viewed). Each fixed expense's own row inside the tree carries its actions directly: a payment icon, edit, and delete — same components as before (`PayFixedExpenseDialog`, `FixedExpenseFormDialog`, `DeactivateFixedExpenseButton`), just wired as inline row actions via `BudgetTree`'s `renderFixedExpenseActions` prop instead of living on a standalone card.
+- `src/features/budgets/components/budget-tree.tsx`: a category with an active row renders
+  nested (category box + subcategory boxes). A category with **no** active row and exactly
+  one budgeted subcategory merges into a single box "Categoria · Subcategoria". Two or more
+  subcategories with no category row render as a bare category-name divider above each
+  subcategory's standalone box.
+- **"Planejar orçamentos"** (`budget-tree-editor.tsx`, reusing the onboarding tree-picker's
+  pattern; `BudgetTreeFields` shared with the onboarding budget step): an amount input per
+  category/subcategory row, a whole tree in one screen. Category rows save before subcategory
+  rows in the same submission (so a category's ceiling exists before its children are checked
+  against it).
+- **The tree editor doubles as a bulk-delete tool** — clearing a field that has a budget
+  deactivates that row, through the exact same guards (a blank field on a row with fixed
+  expenses attached fails with an inline error).
 
-**The payment icon is always visible, whether paid or not this month — decided and implemented 2026-08-10, at the user's request, after a test payment left real `/budgets` data stuck "paid" with no way back.** It used to only render when `!isPaidThisMonth`, so once a payment was registered — including by mistake, e.g. wrong test data or the wrong account — there was no in-app way to undo it short of a manual database fix. `PayFixedExpenseDialog` now branches on `expense.isPaidThisMonth`: unpaid opens the same account/amount/date form as before; paid opens a plain-text summary instead — *"{nome} pago no valor de {valor} no dia {data}"* — with "OK" (just closes) and "Cancelar pagamento" (rollback) buttons. "Cancelar pagamento" calls `fixed-expenses.service.ts#cancelFixedExpensePayment(fixedExpenseId, month)`, which deletes whichever real record(s) made that month's `isPaidThisMonth` true — the linked `transactions` row (CASH/BANK) or the linked `card_purchases` row (CREDIT_CARD, installments cascade with it) — scoped strictly to the viewed month, so cancelling one month's payment never touches a different month's separate payment for the same fixed expense. `FixedExpenseDTO.paidDate` (new) carries the date shown in the summary text.
+## Single unified `/budgets` page
 
-**A fixed expense's bar inside the tree reflects real payment status, not the planned placeholder (decided 2026-08-08, at the user's request).** It was showing full/100% even when nothing had been paid yet, because the row was using `projectedAmount` (the planned-amount fallback used elsewhere so a monthly total doesn't look empty before the due day — see "Fixed Expenses" below, unchanged) for its own "actual" figure. Inside the budget tree specifically, a full bar must mean *paid* — `FixedExpenseRow` (`budget-tree.tsx`) now uses `actualAmount` (real linked transactions, 0 when unpaid) instead. This is deliberately different from the placeholder behavior kept elsewhere: the tree is asking "did this get paid," not "what should I expect to owe."
+One list — the tree — and two creation buttons: "Novo orçamento" (category/subcategory,
+month-scoped, gated to the editable window) and "Nova despesa programada" (always available —
+these are perpetual, not month-owned). Each fixed expense's row inside the tree carries its
+own actions (pay / edit / delete) via `BudgetTree`'s `renderFixedExpenseActions` prop (the
+dashboard panel shares `BudgetTree` read-only, passing no action slots).
 
-## Month's transactions shown at the bottom of `/budgets`
-
-**Decided and implemented 2026-08-08, at the user's request** ("quanto mais lugares com informação melhor"). `/budgets` now also renders the same `TransactionExplorer` used on the dashboard, scoped to the viewed month (`getTransactionsFiltered({ periodStart, periodEnd })`), unfiltered by category — so a user can see exactly what they logged (transactions and card purchases alike) without leaving the budget screen, including inline category editing on each row. Shown regardless of whether the viewed month is editable — it's purely informational, same as browsing history.
+- **The payment icon is always visible, paid or not.** `PayFixedExpenseDialog` branches on
+  `expense.isPaidThisMonth`: unpaid → the account/amount/date form; paid → a plain-text
+  summary (`"{nome} pago no valor de {valor} no dia {data}"`) with "OK" and "Cancelar
+  pagamento". "Cancelar pagamento" → `cancelFixedExpensePayment(fixedExpenseId, month)`,
+  which deletes whichever real record(s) made that month's `isPaidThisMonth` true (linked
+  `transactions` row for CASH/BANK, linked `card_purchases` for CREDIT_CARD), **scoped
+  strictly to the viewed month**. `FixedExpenseDTO.paidDate` carries the summary's date.
+- **A fixed expense's bar inside the tree uses `actualAmount`** (real linked transactions,
+  0 when unpaid), **not** the `projectedAmount` placeholder — inside the tree a full bar must
+  mean *paid*.
+- **`/budgets` also renders the month's transactions at the bottom** via the shared
+  `TransactionExplorer` (`getTransactionsFiltered({ periodStart, periodEnd })`, unfiltered by
+  category), regardless of whether the month is editable.
 
 ## Onboarding hook
 
-**Decided and implemented 2026-08-08, reordered 2026-08-24** (see "Onboarding — conta padrão" above — account confirmation now runs before category picking, not after). Right after a first-time signup confirms the wallet balance and picks starter categories in `/onboarding`, `completeOnboarding` redirects to `/onboarding/budget` (outside the `(app)` layout group, same reasoning as `/onboarding` itself — no nav chrome mid-setup) instead of straight to `/dashboard`, to plan the current month's budget while the user is already in a setup mindset. Skipping it is a fully valid, no-op choice — "se ele pular esta etapa não fazemos nada" — the only trace left is that the dashboard's budgets panel shows a "Criar orçamento" CTA instead of an empty message. Re-imports from Settings (`isFirstTime = false`) never trigger this step, only the very first onboarding does.
+Right after a first-time signup confirms the wallet balance and picks starter categories,
+`completeOnboarding` redirects to `/onboarding/budget` (outside the `(app)` layout, no nav
+chrome) instead of straight to the dashboard. Skipping it is a valid no-op — the only trace
+is the dashboard budgets panel showing a "Criar orçamento" CTA. Re-imports from Settings
+(`isFirstTime = false`) never trigger this step.
 
 ---
 
-# Fixed Expenses (recurring)
+# Fixed Expenses (recurring) — displayed as "Despesas Programadas"
 
-**Renamed in the UI to "Despesas Programadas" — decided and implemented 2026-08-25, at the user's request.** Same display-only rename pattern already used for Reservoir → "Receita Programada" (see "Reservoir (Cofre)" above): the route (`/budgets`, unchanged — this feature has no dedicated route), tables (`fixed_expenses`, `fixed_expense_amount_history`), service (`fixed-expenses.service.ts`), DTOs (`FixedExpenseDTO`), and every internal identifier are untouched by design — only user-facing Portuguese strings changed ("Nova despesa fixa" → "Nova despesa programada", etc.). If a future session needs to touch this feature, search the codebase for `fixed_expense`, not "despesa programada."
+**Display-only rename** — route (`/budgets`, no dedicated route), tables (`fixed_expenses`,
+`fixed_expense_amount_history`), service, DTOs (`FixedExpenseDTO`) unchanged. Search the
+codebase for `fixed_expense`.
 
-Functionally a **specialized, committed slice of a Budget** for genuinely fixed recurring bills (rent, streaming, subscriptions) — `fixed_expenses.amount`, `due_day`, optional `default_account_id`. See "Budget hierarchy" above for how the two interact: a fixed expense's amount is always a floor on its category/subcategory's budget, auto-raised on registration, never silently allowed to exceed the budget without reconciling it.
+Functionally a **specialized, committed slice of a Budget** for genuinely fixed recurring
+bills — `fixed_expenses.amount`, `due_day`, optional `default_account_id`. See "Budget
+hierarchy" for how the floor interacts with budgets.
 
-- Before the real payment is registered this month, the dashboard shows the **planned amount as a placeholder** (`projectedAmount = plannedAmount`) so the monthly total reflects the expected expense even before the due day.
-- Once a real `transactions` row is registered and linked via `fixed_expense_id`, the dashboard switches to showing that **real value** (`projectedAmount = actualAmount`) — this avoids ever double-counting the placeholder and the real transaction together. This same transaction is what feeds the parent budget's `actualAmount`, since both aggregate from the same `transactions`/`card_installments` rows for the category/subcategory/month.
-- If the real value ends up higher than planned, it shows the real (larger) number plus an `EXCEEDED` alert.
-- **Exception**: inside the budget tree specifically (`/budgets` and the dashboard panel), a fixed expense's own progress bar uses `actualAmount` directly, not `projectedAmount` — see "Budgets" → "Single unified page" above. A full bar there must mean "paid," never "this is what I expect to owe."
-- **Long-term unpaid/overdue fixed expenses are out of automatic scope.** If a bill goes unpaid across months, the intended path is a manual `Debt` entry — the system does not attempt to auto-roll an unpaid fixed expense forward.
-- Never generates a transaction on its own; the user (or, in the future, an import) always creates the real `transactions` row.
-- The "Registrar pagamento" dialog (`pay-fixed-expense-dialog.tsx`) has no free-text description field — it passes `"Pagamento — {nome da despesa fixa}"` as the transaction's description by default (fixed 2026-08-07), so the row reads clearly in Lançamentos/Dashboard instead of showing blank.
+- Before this month's real payment is registered, the dashboard shows the **planned amount as
+  a placeholder** (`projectedAmount = plannedAmount`).
+- Once a real `transactions` row is registered and linked via `fixed_expense_id`, the
+  dashboard switches to the **real value** (`projectedAmount = actualAmount`) — avoids
+  double-counting placeholder + real transaction. This same transaction feeds the parent
+  budget's `actualAmount`.
+- Real `>` planned → shows the larger number + an `EXCEEDED` alert.
+- **Exception**: inside the budget tree, the progress bar uses `actualAmount` directly (a
+  full bar there means "paid").
+- **Long-term unpaid/overdue fixed expenses are out of automatic scope** — the intended path
+  is a manual `Debt` entry.
+- Never self-generates a transaction. Default "Registrar pagamento" description:
+  `"Pagamento — {nome}"`.
 
-**Paying a fixed expense supports every account type, including `CREDIT_CARD` — decided and implemented 2026-08-10.** A real fixed bill can be settled in more than one way: some are debited monthly straight from a bank/cash balance, some are charged to a credit card's invoice every cycle (a streaming subscription, for instance), and some are handled entirely outside any tracked account (cash handed over within the family) — that last case is just a `CASH` account like any other, not a special case. Previously `/budgets` filtered the account pickers (`FixedExpenseFormDialog`'s "Conta padrão" and `PayFixedExpenseDialog`'s "Conta") down to non-`CREDIT_CARD` accounts only, so a card-billed fixed expense had no correct way to be registered at all. Both pickers now use the shared `AccountSelect` (`src/components/ui/account-select.tsx`), which groups accounts by type in the same `CASH → BANK → CREDIT_CARD` order as the Accounts page and shows each account's type icon next to its name — necessary because a bank account and a credit card can share the exact same name (e.g. both named after the same institution), so the icon is what actually tells them apart, not the label.
+## Paying — every account type, including `CREDIT_CARD`
 
-`payFixedExpense` (`fixed-expenses.service.ts`) decides how to record the payment from the **account's own type, read server-side from the database — never from client input**: a `CASH`/`BANK` account still creates a plain `EXPENSE` transaction linked via `fixed_expense_id`, exactly as before. A `CREDIT_CARD` account instead creates a **single-installment (1x) `card_purchases` row**, also linked via the same `fixed_expense_id` column (added to `card_purchases` in migration `0012`) — this flows the payment through the normal `card_purchases` → `card_installments` pipeline instead of an invalid plain transaction against an account type `transactions` was never meant to touch directly (see "Transactions" above — `CREDIT_CARD_PAYMENT` already owns that account-type slot, for a different purpose). No new competence logic was written for this: `createCardPurchase` already derives the installment's competence month from the card's `closing_day`/`due_day` the same way any manual card purchase does, so a fixed expense paid on, say, the 20th against a card that closes on the 15th automatically lands in the *next* competence month, never the current one. `getFixedExpenses`'s `actualAmount` was extended to match — it now also sums the `card_installments.amount` (by `competence`, never `purchase_date`, same rule as every other credit card analytic) of any `card_purchases` linked to the fixed expense, alongside the pre-existing `transactions` sum.
+`payFixedExpense` (`fixed-expenses.service.ts`) decides from the **account's own `type`, read
+server-side, never from client input**:
+- `CASH`/`BANK` → a plain `EXPENSE` transaction linked via `fixed_expense_id`.
+- `CREDIT_CARD` → a **1x `card_purchases` row**, also linked via `card_purchases.fixed_expense_id`
+  (migration `0012`) — flows through the normal `card_purchases` → `card_installments`
+  pipeline. Competence is derived the normal way (a fixed expense paid on the 20th against a
+  card closing on the 15th lands in the *next* competence month).
 
-## Despesas fixas — histórico de valor
+`getFixedExpenses`'s `actualAmount` sums both linked `transactions` (by `date`) and linked
+`card_installments` (by `competence`, never `purchase_date`). Both pickers use the shared
+`AccountSelect` (grouped `CASH → BANK → CREDIT_CARD` with the type icon — a bank account and a
+card can share a name, the icon is what tells them apart).
 
-**Corrigido 2026-08-23, a pedido do usuário**, depois de um teste real expor o bug: `fixed_expenses.amount` era um único valor pra vida inteira da despesa, então editar o aluguel de R$1.500 pra R$2.000 reescrevia retroativamente **todo mês já visto** no orçamento — exatamente o mesmo erro, e o mesmo raciocínio, que já tinha motivado `budgets` virar month-scoped na migration `0009` ("subir um orçamento sobrescrevia silenciosamente o histórico"). O usuário foi explícito: "hoje meu aluguel pode ser de 1500 e daqui um ano vira 2000 — se eu alterar o valor ele deve ser modificado daqui em diante, e não retroativo."
+## Value history — `fixed_expense_amount_history` (migration `0023`)
 
-Migration `0023` adiciona `fixed_expense_amount_history` (`{fixed_expense_id, amount, effective_from}`, único por `(fixed_expense_id, effective_from)`). `fixed_expenses.amount` **continua existindo** — não foi removida — mas passou a ser só um cache do valor mais recente, usado onde "o valor atual" já bastava (pré-preencher o form de edição; o piso de orçamento em `_shared.ts#getCategoryBudgetFloor`/`getSubcategoryBudgetFloor`, que por construção só olha pro mês atual/próximo, nunca um passado). `getFixedExpenses(month)` — chamada pra qualquer mês, incluindo passado — resolve `plannedAmount` a partir do histórico: a linha com o `effective_from` mais recente que ainda seja `<= o mês pedido`.
+`fixed_expenses.amount` is a **cache of the latest value only** — used where "the current
+value" suffices (pre-filling the edit form; the budget floor in `_shared.ts`, which only
+looks at the current/next month). The real per-month value comes from
+`fixed_expense_amount_history` (`{fixed_expense_id, amount, effective_from}`, unique per
+`(fixed_expense_id, effective_from)`).
 
-- `createFixedExpense` grava a 1ª linha do histórico com `effective_from = '1970-01-01'` ("vale desde sempre") — junto com o backfill que a migration `0023` já fez pra toda despesa fixa existente, isso preserva exatamente o que já era exibido até aqui. Nada muda visualmente até a primeira edição de valor.
-- `updateFixedExpense`, quando `amount` muda, grava (upsert, pra suportar corrigir um typo sem duplicar) uma nova linha com `effective_from` = **o mês real corrente** — nunca um mês passado, nunca pedido ao usuário. `FixedExpenseFormDialog` mostra um aviso no campo Valor, em modo edição, deixando isso explícito ("Vale a partir de {mês atual} — meses anteriores mantêm o valor de antes").
-- Meses **futuros** além do mês corrente também passam a mostrar o novo valor (não existe hoje um jeito de agendar um aumento pra daqui a 3 meses especificamente — a edição sempre vale "a partir de agora").
+- `createFixedExpense` writes the first history row at `effective_from = '1970-01-01'`
+  ("since forever").
+- `updateFixedExpense`, when `amount` changes, upserts a new row at `effective_from =` **the
+  current real month** — never a past month, never asked. The form shows a notice ("Vale a
+  partir de {mês atual} — meses anteriores mantêm o valor de antes"). Future months beyond
+  the current one also show the new value.
+- `getFixedExpenses(month)` — callable for any month, including past — resolves
+  `plannedAmount` from the history row with the most recent `effective_from <= month`. This
+  is why editing rent R$1500 → R$2000 never rewrites a past month's planned-vs-actual.
 
-## Despesas fixas — vincular pagamento já lançado
+## Competence window — `start_competence` / `end_competence` (migration `0026`)
 
-**Decidido e implementado 2026-08-23, a pedido do usuário**, depois de um acidente real: o usuário apagou por engano a despesa fixa "Claude" (que tinha um pagamento de agosto já registrado) querendo só ajustar o valor a partir de setembro. Recriar a despesa fixa do zero geraria uma NOVA `fixed_expenses` row, sem nenhuma ligação com a `transactions` que já pagou agosto — perdendo o rastro.
+- `start_competence` (required, backfilled `'1970-01-01'`) / `end_competence` (optional, `NULL`
+  = still active). Both a competence month ("YYYY-MM" client, 1st day DB). `CHECK
+  (end_competence IS NULL OR end_competence >= start_competence)`.
+- `getFixedExpenses(month)` only returns a fixed expense whose `start_competence <= month <=
+  (end_competence or infinity)` — outside the window it doesn't appear in that month's budget
+  tree **and doesn't impose a floor** (`_shared.ts` floor functions gained the same filter;
+  `getSubcategoryBudgetFloor` gained a `month` parameter it didn't have before).
+- **"Fim" is a direct month picker** (`<input type="month">`), never auto-computed from a
+  cancellation date — an explicit user choice. A hint text explains the reasoning
+  (cancellation day vs. due day) to help the user pick the right month.
+- **No extra blocking anywhere** — an out-of-window expense simply doesn't appear in that
+  month's UI, so there's no path to try to pay something that "isn't there".
+- `start_competence`/`end_competence` are freely editable after creation (unlike `amount`,
+  they're not a protected monetary value — just "since when this counts").
+- **Why `fixed_expense_amount_history` still exists alongside this**: the window answers
+  "does the expense exist this month?" (existence); the history answers "how much did it cost
+  this month, given it existed?" (amount). Different questions, no overlap. Deleting and
+  recreating the expense loses the trace regardless — the history serves the case where the
+  user *keeps* the same expense and only adjusts its value over time.
 
-`PayFixedExpenseDialog`, no estado "ainda não paga", ganhou um segundo modo ("Já lancei isso manualmente", alternável a qualquer momento antes de confirmar): em vez de criar um pagamento novo, lista despesas (`EXPENSE`) do usuário **ainda sem nenhuma despesa fixa vinculada** (`transactions.fixed_expense_id IS NULL`), filtradas pela categoria da despesa fixa quando ela tem uma — "o sistema pode ter inteligência aqui... procurar só as [transações] da categoria específica", como o usuário pediu — com uma busca por descrição por cima. Escolher uma e confirmar só faz `UPDATE transactions SET fixed_expense_id = ...`; a transaction em si (valor/data/categoria) não é tocada. `getUnlinkedExpenseCandidates`/`linkExistingTransaction` (`fixed-expenses.service.ts`) são lidos/chamados via Server Action a partir do client (mesmo padrão de leitura sob demanda que `getBudgetFloorAction` já usa), não pré-carregados na página — a lista só é buscada quando o usuário abre esse modo.
+## Deletion — hard delete, no `active` (migration `0028`)
 
-## Despesas Programadas — janela de competência
+`fixed_expenses` is the **only table in the Budget/Fixed-Expense domain without the `active`
+convention.** `deleteFixedExpense` (renamed from `deactivateFixedExpense`) runs a real
+`DELETE`. This never touches the linked transaction/purchase —
+`transactions.fixed_expense_id`/`card_purchases.fixed_expense_id` were always `ON DELETE SET
+NULL`, so the `DELETE` just clears the link, leaving the real record intact and available to
+re-link (via `getUnlinkedExpenseCandidates`/`linkExistingTransaction`).
+`fixed_expense_amount_history` cascades (`ON DELETE CASCADE`).
 
-**Decidido e implementado 2026-08-25, a pedido do usuário**, junto com a renomeação "Despesas Fixas" → "Despesas Programadas" acima. Até então uma despesa fixa era perpétua por construção — sem nenhuma noção de "desde quando" ou "até quando" ela vale, ela sempre empurrava o piso do orçamento em **todo mês**, inclusive um mês em que ela nem deveria contar ainda (uma assinatura nova, cadastrada com antecedência pro mês que vem) ou um mês em que ela já não existe mais (uma assinatura cancelada). O usuário deu o exemplo real: a assinatura do Claude "vai ficar até o usuário cancelar... se eu cancelar no mês seguinte vou dizer que o fim da assinatura deu nesta data, a cobrança vai ter sido feita dependendo do dia que a cobrança era feita normalmente."
+(Different from `budgets`, which keeps soft-delete because a budget row can be a fixed
+expense's floor and must stay recoverable; different from `reservoirs`' hard delete, which
+happened for a different reason.)
 
-Migration `0026` adiciona `fixed_expenses.start_competence` (obrigatório) e `fixed_expenses.end_competence` (opcional — ausente/`NULL` = ainda vigente), ambos um mês de competência ("YYYY-MM" no client, primeiro dia do mês no banco — mesma convenção de `card_purchases.paid_through_competence`). `getFixedExpenses(month)` só devolve uma despesa cujo `start_competence <= month <= (end_competence ou infinito)` — fora dessa janela, a despesa simplesmente não aparece na árvore de orçamento daquele mês, nem entra no piso que ela impõe sobre a categoria/subcategoria (`_shared.ts#getCategoryBudgetFloor`/`getSubcategoryBudgetFloor`, que ganhou o mesmo filtro; `getSubcategoryBudgetFloor` passou a exigir `month` como parâmetro, que antes não tinha porque despesas fixas eram perpétuas por padrão).
+## Link an already-registered payment
 
-- **Toda despesa já cadastrada foi backfilled com `start_competence = '1970-01-01'`** (mesmo sentinela "desde sempre" já usado em `fixed_expense_amount_history.effective_from`, migration `0023`) **e `end_competence = NULL`** — preserva exatamente o comportamento perpétuo que já tinham, sem nenhuma mudança visível até a próxima edição.
-- **"Fim" é um seletor de mês/ano direto** (`<Input type="month">`, mesmo padrão já usado pra `paidThroughCompetence`/`firstCompetenceMonth` no formulário de compra no cartão) — **não** existe um campo separado de "data de cancelamento" nem nenhum cálculo automático a partir dele. Decisão explícita do usuário ao ser perguntado: o formulário só tem um seletor de mês, e um texto de dica ao lado explica o raciocínio (dia do cancelamento vs. dia de vencimento) pra ajudar o usuário a decidir o mês certo na cabeça — mas quem decide o valor final é sempre o usuário, nunca uma fórmula.
-- **Nenhum bloqueio extra foi adicionado em lugar nenhum.** Cogitou-se impedir "Registrar pagamento" pra um mês fora da janela, mas o próprio usuário apontou que isso é redundante: como a despesa nem aparece na UI daquele mês, não existe caminho pelo qual o usuário chegaria a tentar pagar algo que "nem existe" ali. `payFixedExpense`/`cancelFixedExpensePayment` continuam sem nenhuma validação de janela.
-- Editar `start_competence`/`end_competence` depois de criada a despesa é livre (sem histórico protegido, diferente do `amount` — ver "Despesas fixas — histórico de valor" acima) — não é um valor monetário com efeito retroativo a proteger, é só "desde quando isso conta".
-
-## Por que `fixed_expense_amount_history` continua existindo mesmo com `start_competence`/`end_competence`
-
-**Esclarecido 2026-08-25, depois de o usuário questionar se a tabela de histórico de valor não teria ficado redundante** ("creio que seja um pouco inútil ver que a UNIMED está subindo... tanto que eu posso deletar o plano e criar outro e vou perder o histórico do mesmo jeito"). As duas tabelas resolvem problemas diferentes, e não se sobrepõem:
-
-- `start_competence`/`end_competence` respondem **"a despesa existe neste mês?"** — um booleano de existência. Uma assinatura cancelada em outubro simplesmente para de aparecer a partir de novembro; uma nova, cadastrada em agosto pra só começar em outubro, não aparece antes disso.
-- `fixed_expense_amount_history` responde **"quanto ela custava neste mês, dado que ela existia?"** — sem essa tabela, editar o valor da Unimed de R$400 pra R$450 hoje reescreveria retroativamente `plannedAmount` de **todo** mês passado (o mesmo bug que motivou `budgets` virar month-scoped na migration `0009`) — o orçamento de março passaria a mostrar "planejado: 450" mesmo tendo sido planejado (e cumprido) a 400. `getFixedExpenses(month)` só existe pra qualquer mês, incluindo passado, porque o usuário pode navegar pra lá e comparar planejado vs. realizado daquele mês específico — e esse número só é correto se refletir o valor que valia *naquela época*.
-- O ponto do usuário — "eu poderia só apagar e recriar a despesa, perderia o histórico do mesmo jeito" — é verdadeiro, mas descreve uma ação diferente: apagar e recriar cria uma **nova entidade**, sem nenhum vínculo com a antiga (nem com suas parcelas antigas, nem com a leitura de "quanto ela custava em março" enquanto essa despesa existia). `fixed_expense_amount_history` serve exatamente o caso em que o usuário **mantém a mesma despesa** e só ajusta o valor dela ao longo do tempo (o exemplo do próprio usuário: "hoje meu aluguel pode ser de 1500 e daqui um ano vira 2000... se eu alterar o valor ele deve ser modificado daqui em diante, e não retroativo") — sem essa tabela, essa correção mensal comum reescreveria a história.
-- Na prática, os dois mecanismos convivem sem se cruzar: `start_competence`/`end_competence` decidem **se** a despesa aparece num mês; `fixed_expense_amount_history`, dado que ela aparece, decide **por quanto**. Cancelar uma assinatura (`end_competence`) não apaga nem precisa mexer no histórico de valor dela — os meses anteriores ao cancelamento continuam corretos por conta própria.
-
-## Exclusão — hard delete, sem `active` (migration `0028`)
-
-**Corrigido 2026-08-25, a pedido do usuário, depois de um bug real encontrado em produção.** `fixed_expenses` era a única tabela do domínio "Budget hierarchy" que tinha `active` mas nunca deveria ter tido, na prática: excluir uma despesa programada só rodava `UPDATE fixed_expenses SET active = false`, nunca um `DELETE` de verdade. Isso parecia inofensivo — a linha some de `getFixedExpenses()` do mesmo jeito — mas deixava um rastro problemático: qualquer `transactions`/`card_purchases` que já tivesse sido paga através daquela despesa continuava com `fixed_expense_id` apontando pra uma linha "excluída" que, por baixo dos panos, ainda existia. `getUnlinkedExpenseCandidates` (ver "Despesas fixas — vincular pagamento já lançado" acima) só lista candidatas com `fixed_expense_id IS NULL` — então essa transação/compra nunca reaparecia como candidata pra "Vincular lançamento existente" se o usuário recriasse a despesa fixa do zero (exatamente o cenário que motivou aquele recurso: apagar "Claude" sem querer e precisar linkar de volta a compra do cartão que já tinha sido paga).
-
-A correção: `fixed_expenses` perdeu a coluna `active` (migration `0028`) e `deleteFixedExpense` (`fixed-expenses.service.ts`, renomeada de `deactivateFixedExpense`) agora roda um `DELETE` real. Isso nunca apaga nem afeta a compra/transação vinculada — `transactions.fixed_expense_id`/`card_purchases.fixed_expense_id` já eram `ON DELETE SET NULL` desde sempre (schema.sql), então o `DELETE` só solta o vínculo, deixando o registro real intacto e "limpo" (sem `fixed_expense_id`), pronto pra ser linkado de novo a uma despesa programada recriada. `fixed_expense_amount_history` cascateia junto (`ON DELETE CASCADE`, já era assim) — faz sentido, já que aquele histórico só tinha significado em relação a essa despesa específica.
-
-Toda linha que já estava com `active = false` no banco no momento da migração foi de fato apagada (não só teve a coluna removida por baixo dela) — inclusive uma despesa "Claude" real do usuário, cujo `card_purchases` vinculado ficou automaticamente sem `fixed_expense_id`, disponível pra ser relinkado.
-
-`fixed_expenses` é agora a única tabela do domínio de Orçamento/Despesa Programada sem o convênio `active` — decisão deliberada, diferente de `budgets` (que continua soft-delete, já que uma linha de orçamento pode ser o piso de uma despesa programada e precisa ficar recuperável) e diferente de `reservoirs` (que já virou hard-delete antes, mas por um motivo diferente — ver "Reservoir deletion" acima).
+`PayFixedExpenseDialog`, in the "not yet paid" state, has a "Já lancei isso manualmente" mode:
+instead of creating a payment it lists the user's `EXPENSE` rows with `fixed_expense_id IS
+NULL`, filtered by the fixed expense's category when it has one, with a description search.
+Choosing one does `UPDATE transactions SET fixed_expense_id = …` and nothing else (the
+transaction's value/date/category are untouched). `getUnlinkedExpenseCandidates`/
+`linkExistingTransaction`, read/called via Server Action on demand (not pre-loaded). For
+recreating a fixed expense deleted by mistake without losing the trace of a payment already
+logged.
 
 ---
 
 # Money Reality Rules
 
-Only these affect financial totals: `transactions`, `card_installments`, `card_payments` (via their linked transaction), `card_refunds` (counts as INCOME for the month of `refund_date`, and reduces the card's outstanding balance like a payment — see "Estorno").
+**Only these affect financial totals**: `transactions`, `card_installments`, `card_payments`
+(via their linked transaction), `card_refunds` (counts as INCOME for the month of
+`refund_date`, and reduces the card's outstanding balance like a payment — see "Estorno").
 
-Never affect totals directly: `reservoirs`/`reservoir_transactions`, `debts`/`debt_transactions`, `budgets`, `fixed_expenses`, `goals`. They may appear in informational panels, but only the real transactions they eventually link to move the needle on analytics.
+**Never affect totals directly**: `reservoirs`/`reservoir_transactions`,
+`debts`/`debt_transactions`, `budgets`, `fixed_expenses`, `goals`. They may appear in
+informational panels; only the real transactions they eventually link to move analytics.
 
-`TRANSFER`, `CREDIT_CARD_PAYMENT`, `RESERVE` and `REDEEM` transactions still never count as INCOME/EXPENSE — the analytics queries filter `type in ('INCOME','EXPENSE')`. A `CREDIT_CARD_PAYMENT` carrying the `is_system` `EXPENSE` category `Pagamento de Cartão` (migration `0031`), and a `REDEEM` carrying `Resgate de Meta Concluída`/`Antecipado` (migration `0036`), do **not** change this — the category is a label, the `type` filter is what excludes the row. `RESERVE`/`REDEEM` (aporte/resgate de Meta, see "Metas") do move CASH/BANK account balances (like TRANSFER), just not income/expense totals.
+`TRANSFER`, `CREDIT_CARD_PAYMENT`, `RESERVE`, `REDEEM` never count as INCOME/EXPENSE — the
+queries filter `type in ('INCOME','EXPENSE')`. A `CREDIT_CARD_PAYMENT` carrying `Pagamento de
+Cartão`, or a `REDEEM` carrying `Resgate de Meta Concluída`/`Antecipado`, doesn't change this
+— the category is a label, the `type` filter excludes the row. `RESERVE`/`REDEEM` do move
+CASH/BANK account balances (like `TRANSFER`), just not income/expense totals.
 
-**Goal yields count as INCOME.** `goal_yields` (rendimento de uma Meta) is real earned money — it's emitted by `fetchPeriodEntries` as synthetic INCOME under the `is_system` "Rendimentos" category (no `transactions` row — same shape as "Compras retroativas"), so it shows in the income donut, the RECEITAS total and the monthly-evolution income. See "Metas".
+**Goal yields count as INCOME** — `goal_yields` is real earned money, emitted by
+`fetchPeriodEntries` as synthetic INCOME under `is_system` "Rendimentos" (no `transactions`
+row — same shape as "Compras retroativas").
 
-**One deliberate, documented exception (2026-08-28):** the **dashboard's expense side** — the "Despesas por categoria" donut, the DESPESAS summary card (and therefore the Balanço Mensal), and the viewed-month bar of Evolução mensal — projects the viewed month's **unpaid** `fixed_expenses` and `PAYABLE` `OVERDUE_BILL`/`INSTALLMENT_PLAN` `debts` as synthetic EXPENSE entries, matching the "Despesas do mês" card. This is dashboard-presentation only (via `dashboard.service.ts#fetchUnpaidObligationEntries` — no `transactions` rows are created) and does not extend to the Explorador de Lançamentos, account balances, budgets' `actualAmount`, or anything else. See "Despesas projetadas no resto do dashboard".
+**One deliberate, documented exception**: the **dashboard's expense side** — the "Despesas
+por categoria" donut, the DESPESAS summary card (and therefore Balanço Mensal), and the
+viewed-month bar of Evolução mensal — projects the viewed month's **unpaid** `fixed_expenses`
+and `PAYABLE` `OVERDUE_BILL`/`INSTALLMENT_PLAN` `debts` as synthetic EXPENSE entries, matching
+the "Despesas de {mês}" card. Via `dashboard.service.ts#fetchUnpaidObligationEntries` (no
+`transactions` rows created), passed through `fetchPeriodEntries`'s `obligationsMonth?` param.
+Does **not** extend to the Explorador de Lançamentos, account balances, budgets'
+`actualAmount`, or anything else. Skipped when an account filter is active, when the
+`liquid`/`cards` expense-source toggle is set, or in an INCOME-only view;
+category/subcategory/`uncategorizedOnly` filters are honored (debts have no subcategory → a
+subcategory filter drops them).
 
 ---
 
 # Money Precision
 
-`numeric(14,2)` throughout. All arithmetic goes through `src/lib/utils/money.ts`. Installment rounding remainder always applied to the first installment.
+`numeric(14,2)` throughout. All arithmetic goes through `src/lib/utils/money.ts`. Installment
+rounding remainder always applied to the first installment.
 
 ---
 
 # LGPD (basic hygiene)
 
-No sensitive data category (LGPD's `dado sensível` list: health, biometrics, political/religious/sexual orientation, etc.) is stored. Financial data is still personal data under LGPD in the general sense — RLS isolation, HTTPS, and not storing any third-party bank credentials cover the practical risk for a closed friend group. A proper Terms of Use / Privacy Notice is recommended before the user base grows beyond close friends; this is not a substitute for actual legal review.
+No LGPD `dado sensível` category (health, biometrics, political/religious/sexual orientation,
+etc.) is stored. Financial data is still personal data in the general sense — RLS isolation,
+HTTPS, and not storing third-party bank credentials cover the practical risk for a closed
+friend group. A proper Terms of Use / Privacy Notice is recommended before the user base
+grows beyond close friends; not a substitute for legal review.
 
 ---
 
 # Design Goal
 
-The system should let the user answer: Where am I spending the most? How did spending evolve? Which categories are growing? What changed vs. last month? Designed for financial exploration and insight, not just bookkeeping.
+The system should let the user answer: Where am I spending the most? How did spending evolve?
+Which categories are growing? What changed vs. last month? Designed for financial exploration
+and insight, not just bookkeeping.
