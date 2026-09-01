@@ -112,6 +112,13 @@ not to rediscover whether a feature exists.
   seconds, and can be replayed from Settings → "Rever dicas das telas".
 - **Settings** — category/subcategory CRUD with guided deletion, curated emoji icon picker,
   "Rever dicas das telas" (resets the `HelpHint` first-visit flags).
+- **PWA / instalável** — `src/app/manifest.ts` (`MetadataRoute.Manifest`, served at
+  `/manifest.webmanifest`, `start_url: /dashboard`, `display: standalone`, steel-blue
+  `#2c455d` theme), `public/sw.js` (deliberately no-op fetch handler — install criteria only,
+  never caches routes; this app is always-online and data-heavy), `src/components/pwa-register.tsx`
+  (`"use client"`, mounted in the root layout, registers `/sw.js` **only in production**).
+  Icons in `public/icons/` (192/512 `any` + `maskable`, `apple-touch-icon.png`). Install needs
+  HTTPS (prod) or localhost.
 
 ## Deviations from the original MER spec
 
