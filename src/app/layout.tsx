@@ -37,6 +37,16 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="pt-BR" className={`${barlow.variable} ${barlowCondensed.variable} h-full antialiased`}>
+      <head>
+        {/* Chrome fires `beforeinstallprompt` before React hydrates — stash it so the
+            in-app "Instalar app" banner can still use it. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__installPrompt=e;window.dispatchEvent(new Event('installpromptready'))});",
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">
         <PwaRegister />
         {children}

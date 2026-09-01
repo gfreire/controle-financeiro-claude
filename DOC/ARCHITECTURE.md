@@ -119,6 +119,13 @@ not to rediscover whether a feature exists.
   (`"use client"`, mounted in the root layout, registers `/sw.js` **only in production**).
   Icons in `public/icons/` (192/512 `any` + `maskable`, `apple-touch-icon.png`). Install needs
   HTTPS (prod) or localhost.
+  In-app affordance: `src/components/layout/install-app-banner.tsx` (`InstallAppBanner`,
+  mounted between `Header` and `<main>` in `(app)/layout.tsx`) — a dismissible bar that on
+  Chrome captures `beforeinstallprompt` (stashed pre-hydration by an inline script in the root
+  layout as `window.__installPrompt`) and offers one-tap install, and on iOS Safari shows the
+  manual "Compartilhar → Adicionar à Tela de Início" steps. Hidden when already installed
+  (`display-mode: standalone`), on localhost, or after dismissal (`localStorage`
+  `pwa-install-dismissed`).
 
 ## Deviations from the original MER spec
 
