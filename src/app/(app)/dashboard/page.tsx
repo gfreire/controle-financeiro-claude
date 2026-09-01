@@ -25,6 +25,7 @@ import { BudgetsPanel } from "@/features/dashboard/components/budgets-panel";
 import { MonthObligationsCard } from "@/features/dashboard/components/month-obligations-card";
 import { GoalsOverview } from "@/features/dashboard/components/goals-overview";
 import { HelpButton } from "@/components/ui/help-button";
+import { HelpHint } from "@/components/ui/help-hint";
 import { TransactionExplorer } from "@/features/dashboard/components/transaction-explorer";
 
 export default async function DashboardPage({
@@ -146,7 +147,13 @@ export default async function DashboardPage({
           {showExpensePie && (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="font-heading text-lg font-semibold">Despesas por categoria</h2>
+                <div className="flex items-center gap-1.5">
+                  <h2 className="font-heading text-lg font-semibold">Despesas por categoria</h2>
+                  <HelpHint id="dashboard.expense-donut" title="Despesas por categoria">
+                    <p>Pra onde o dinheiro foi no mês. Clique numa fatia pra filtrar a tela inteira por ela.</p>
+                    <p>O botão Dinheiro+Banco / Cartões separa o gasto por tipo de conta.</p>
+                  </HelpHint>
+                </div>
                 <ExpenseSourceToggle />
               </div>
               <CategoryPie data={expenseDistribution} title="Distribuição de despesas" />
@@ -155,7 +162,13 @@ export default async function DashboardPage({
 
           {showIncomePie && (
             <div className="flex flex-col gap-2">
-              <h2 className="font-heading text-lg font-semibold">Receitas por categoria</h2>
+              <div className="flex items-center gap-1.5">
+                <h2 className="font-heading text-lg font-semibold">Receitas por categoria</h2>
+                <HelpHint id="dashboard.income-donut" title="Receitas por categoria">
+                  <p>De onde o dinheiro veio no mês.</p>
+                  <p>Rendimento de conta ou de meta, estorno e compras retroativas também entram aqui, cada um na sua categoria.</p>
+                </HelpHint>
+              </div>
               <CategoryPie data={incomeDistribution} title="Distribuição de receitas" />
             </div>
           )}

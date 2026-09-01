@@ -255,6 +255,34 @@ CREATE TABLE public.fixed_expense_amount_history (
 );
 CREATE INDEX fixed_expense_amount_history_lookup_idx ON public.fixed_expense_amount_history (fixed_expense_id, effective_from DESC);
 
+-- NOVO (0038): recurring_incomes — o espelho de fixed_expenses para entradas previsíveis
+-- (salário, mesada). É só um template + checklist do mês: NÃO gera lançamento sintético no
+-- dashboard, NÃO projeta em gráfico, NÃO impõe piso de orçamento. O ganho previsível só vira
+-- número quando registerReceipt cria a transação INCOME real (ligada por
+-- transactions.recurring_income_id). day_of_month 1-28. active = soft-delete (como reservoirs/
+-- budgets). category_id é ON DELETE SET NULL (NÃO RESTRICT como fixed_expenses/reservoirs): a
+-- receita programada não carrega histórico próprio — o histórico vive nas transações que ela
+-- gera, e essas mantêm a categoria delas. Ver AI_CONTEXT.md "Receitas Programadas".
+CREATE TABLE public.recurring_incomes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  name text NOT NULL,
+  amount numeric(14,2) NOT NULL CHECK (amount > 0), -- cache do valor atual (sem histórico por mês na v1)
+  day_of_month integer NOT NULL CHECK (day_of_month BETWEEN 1 AND 28),
+  default_account_id uuid,
+  category_id uuid,
+  start_competence date NOT NULL DEFAULT '1970-01-01', -- janela de vigência (primeiro dia do mês)
+  end_competence date, -- NULL = ainda vigente
+  active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT recurring_incomes_pkey PRIMARY KEY (id),
+  CONSTRAINT recurring_incomes_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT recurring_incomes_default_account_id_fkey FOREIGN KEY (default_account_id) REFERENCES public.accounts(id) ON DELETE SET NULL,
+  CONSTRAINT recurring_incomes_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id) ON DELETE SET NULL,
+  CONSTRAINT recurring_incomes_competence_window CHECK (end_competence IS NULL OR end_competence >= start_competence)
+);
+CREATE INDEX recurring_incomes_user_id_idx ON public.recurring_incomes (user_id);
+
 -- ============================================================
 -- TRANSACTIONS
 -- origin_account_id + destination_account_id no mesmo registro cobrem
@@ -280,6 +308,9 @@ CREATE TABLE public.transactions (
   goal_id uuid, -- NOVO (0035): setado só em RESERVE/REDEEM — liga o aporte/resgate à Meta. ON
                 -- DELETE SET NULL: apagar a meta deixa o histórico de dinheiro real intacto em
                 -- Movimentações, só solta o vínculo. Ver AI_CONTEXT.md "Metas".
+  recurring_income_id uuid, -- NOVO (0038): setado na transação INCOME criada por registerReceipt —
+                            -- liga o recebimento real à Receita Programada. ON DELETE SET NULL,
+                            -- mesma ideia de fixed_expense_id/goal_id. Ver AI_CONTEXT.md "Receitas Programadas".
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT transactions_pkey PRIMARY KEY (id),
   CONSTRAINT transactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
@@ -289,7 +320,8 @@ CREATE TABLE public.transactions (
   CONSTRAINT transactions_subcategory_id_fkey FOREIGN KEY (subcategory_id) REFERENCES public.subcategories(id),
   CONSTRAINT transactions_fixed_expense_id_fkey FOREIGN KEY (fixed_expense_id) REFERENCES public.fixed_expenses(id) ON DELETE SET NULL,
   CONSTRAINT transactions_refund_of_transaction_id_fkey FOREIGN KEY (refund_of_transaction_id) REFERENCES public.transactions(id) ON DELETE SET NULL,
-  CONSTRAINT transactions_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id) ON DELETE SET NULL
+  CONSTRAINT transactions_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id) ON DELETE SET NULL,
+  CONSTRAINT transactions_recurring_income_id_fkey FOREIGN KEY (recurring_income_id) REFERENCES public.recurring_incomes(id) ON DELETE SET NULL
 );
 
 -- ============================================================
@@ -551,6 +583,7 @@ CREATE INDEX IF NOT EXISTS transactions_origin_account_id_idx ON public.transact
 CREATE INDEX IF NOT EXISTS transactions_destination_account_id_idx ON public.transactions (destination_account_id) WHERE destination_account_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS transactions_fixed_expense_id_idx ON public.transactions (fixed_expense_id) WHERE fixed_expense_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS transactions_goal_id_idx ON public.transactions (goal_id) WHERE goal_id IS NOT NULL; -- NOVO (0035)
+CREATE INDEX IF NOT EXISTS transactions_recurring_income_id_idx ON public.transactions (recurring_income_id) WHERE recurring_income_id IS NOT NULL; -- NOVO (0038)
 
 CREATE INDEX IF NOT EXISTS card_purchases_credit_card_id_idx ON public.card_purchases (credit_card_id);
 CREATE INDEX IF NOT EXISTS card_purchases_category_id_idx ON public.card_purchases (category_id) WHERE category_id IS NOT NULL;
@@ -670,6 +703,10 @@ ALTER TABLE public.fixed_expense_amount_history ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "own fixed expense amount history" ON public.fixed_expense_amount_history
   FOR ALL USING (EXISTS (SELECT 1 FROM public.fixed_expenses fe WHERE fe.id = fixed_expense_amount_history.fixed_expense_id AND fe.user_id = auth.uid()))
   WITH CHECK (EXISTS (SELECT 1 FROM public.fixed_expenses fe WHERE fe.id = fixed_expense_amount_history.fixed_expense_id AND fe.user_id = auth.uid()));
+
+ALTER TABLE public.recurring_incomes ENABLE ROW LEVEL SECURITY; -- NOVO (0038)
+CREATE POLICY "own recurring incomes" ON public.recurring_incomes
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "own transactions" ON public.transactions

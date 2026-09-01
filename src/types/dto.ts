@@ -302,6 +302,28 @@ export type FixedExpenseDTO = {
   status: "OK" | "EXCEEDED";
 };
 
+/**
+ * Receitas Recorrentes (migration 0038) — the mirror of FixedExpenseDTO for predictable income.
+ * A template + a per-month "já recebi?" checklist row on /budgets; `registerReceipt` turns it
+ * into a real INCOME transaction. It is NEVER projected into analytics (unlike unpaid fixed
+ * expenses / obligations) — the predictable amount only becomes a number once actually received.
+ * See AI_CONTEXT.md "Receitas Recorrentes".
+ */
+export type RecurringIncomeDTO = {
+  id: string;
+  name: string;
+  plannedAmount: number; // recurring_incomes.amount
+  dayOfMonth: number; // 1-28
+  defaultAccountId?: string;
+  categoryId?: string;
+  categoryName?: string;
+  startCompetence: string; // "YYYY-MM"
+  endCompetence?: string; // "YYYY-MM", absent = still active
+  receivedThisMonth: boolean; // a linked INCOME transaction is dated in the queried month
+  receivedAmount: number; // Σ linked transactions in the month (0 when not received)
+  receivedDate?: string; // set only when receivedThisMonth — for the "já recebi" summary text
+};
+
 // Tree-shaped, grouped read used by /budgets and the dashboard panel (AI_CONTEXT.md "Budgets").
 // A category's `budget` is null whenever there's no active row for it this month — this is never
 // a computed stand-in (e.g. "sum of subcategories"): an implicit total would create false alerts,

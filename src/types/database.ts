@@ -118,6 +118,25 @@ export interface TransactionRow {
   fixed_expense_id: string | null;
   goal_id: string | null; // migration 0035 — set only on RESERVE/REDEEM
   refund_of_transaction_id: string | null; // migration 0019 — traceability only, ON DELETE SET NULL; set on the INCOME row created by refundTransaction
+  recurring_income_id: string | null; // migration 0038 — set on the INCOME row created by registerReceipt; ON DELETE SET NULL
+  created_at: string;
+}
+
+// migration 0038 — a template + monthly checklist for predictable income (salary, allowance).
+// Never a synthetic analytics entry; only the real INCOME transactions it spawns (linked via
+// transactions.recurring_income_id) count. Mirror of FixedExpenseRow. See AI_CONTEXT.md
+// "Receitas Programadas".
+export interface RecurringIncomeRow {
+  id: string;
+  user_id: string;
+  name: string;
+  amount: number; // cache of the current value — no per-month history in v1 (the real per-month value lives in the spawned transaction)
+  day_of_month: number; // 1-28
+  default_account_id: string | null; // ON DELETE SET NULL — pure convenience default
+  category_id: string | null; // ON DELETE SET NULL — see the 0038 migration comment (not RESTRICT, unlike fixed_expenses)
+  start_competence: string;
+  end_competence: string | null;
+  active: boolean;
   created_at: string;
 }
 

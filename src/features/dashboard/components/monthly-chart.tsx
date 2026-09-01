@@ -1,7 +1,8 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Card, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { CardTitleWithHelp } from "@/components/ui/help-hint";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils/currency";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import type { MonthlyEvolutionDTO } from "@/types/dto";
@@ -9,7 +10,19 @@ import type { MonthlyEvolutionDTO } from "@/types/dto";
 export function MonthlyChart({ data }: { data: MonthlyEvolutionDTO[] }) {
   return (
     <Card elevation="sm" className="min-h-[320px]">
-      <CardTitle>Evolução mensal</CardTitle>
+      <CardTitleWithHelp
+        id="dashboard.monthly-evolution"
+        helpTitle="Evolução mensal"
+        help={
+          <>
+            <p>Receitas (verde) e despesas (vermelho) mês a mês — 12 meses atrás e 3 à frente.</p>
+            <p>A barra do mês atual já soma o que ainda falta pagar (faturas, despesas programadas); os outros meses são só o que de fato aconteceu.</p>
+            <p>A barra roxa, quando aparece, é quanto você guardou em Metas naquele mês.</p>
+          </>
+        }
+      >
+        Evolução mensal
+      </CardTitleWithHelp>
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>

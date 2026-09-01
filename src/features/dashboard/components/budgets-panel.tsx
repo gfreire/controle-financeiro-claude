@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Card, CardTitle } from "@/components/ui/card";
+import { CardTitleWithHelp } from "@/components/ui/help-hint";
 import { Button } from "@/components/ui/button";
 import { BudgetTree } from "@/features/budgets/components/budget-tree";
 import { PlusCircle } from "lucide-react";
@@ -25,7 +26,18 @@ export function BudgetsPanel({ categories }: { categories: BudgetTreeCategoryDTO
 
   return (
     <Card elevation="sm" className="gap-4">
-      <CardTitle>Orçamentos e despesas programadas</CardTitle>
+      <CardTitleWithHelp
+        id="dashboard.budgets-panel"
+        helpTitle="Orçamentos e despesas programadas"
+        help={
+          <>
+            <p>Quanto você planejou gastar por categoria neste mês, versus o que já gastou. É só um alerta — nunca bloqueia nada.</p>
+            <p>As despesas programadas (aluguel, streaming) aparecem aninhadas na categoria delas. Edite tudo na tela de Orçamentos.</p>
+          </>
+        }
+      >
+        Orçamentos e despesas programadas
+      </CardTitleWithHelp>
       <BudgetTree categories={categories} />
     </Card>
   );

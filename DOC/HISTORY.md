@@ -16,6 +16,70 @@ like this?" has an answer that isn't "git blame across 200 commits".
 
 ---
 
+# Per-screen help hints — `HelpHint` (2026-08-31)
+
+The page-level `HelpButton` ("?" in every header) is opt-in and easy to never notice — a lay
+user rarely clicks the small grey circle. Added `src/components/ui/help-hint.tsx`: a `HelpHint`
+that (a) sits on every chart and (planned) the trickier form fields, and (b) **auto-opens once**
+on the first visit to a screen, then auto-closes after ~10s (charts) / ~7s (fields).
+
+Decisions along the way:
+- **One auto-open per screen visit, not all at once.** The Dashboard has ~5 chart hints; five
+  popovers firing together is unreadable on mobile. `HelpTourProvider` (mounted in
+  `(app)/layout.tsx`) hands the auto-open "slot" to the first unseen hint that mounts; the rest
+  wait for a future visit — a gentle drip. Considered "all at once with auto-close"; rejected as
+  worse on a 375px screen.
+- **"Seen" is `localStorage` (`help-seen:<id>`), synchronous.** `markSeen` writing before a
+  second hint with the same `id` (the two debt pies) runs its own effect is what dedupes them —
+  no module-level Set needed (an early version had one; it broke replay-after-reset and was
+  removed).
+- **Auto-close in a *separate* effect from the auto-open decision.** First cut put the
+  `setTimeout` in the decision effect; StrictMode's mount→cleanup→mount ran the cleanup
+  (`clearTimeout`) and then bailed the second mount on a ref guard, leaving the popover open
+  forever. Split into a decision effect (guarded once) + a timer effect keyed on `armed && open`
+  that re-arms cleanly.
+- **Any manual interaction disarms the auto-close** — a popover the user opened by tapping the
+  "?" stays until they dismiss it.
+- Settings gained **"Rever dicas das telas"** (`resetHelpHints()`), clearing every `help-seen:*`
+  key so the drip replays.
+
+---
+
+# Receitas Recorrentes (recurring income) — migration 0038 (2026-08-31)
+
+The user has "Despesas Programadas" for fixed *outflows* but re-typed salary/allowance by hand
+every month. Added a small mirror feature for predictable *income*.
+
+- **Why a new table, not `fixed_expenses` + a direction column.** `fixed_expenses` is woven
+  through the budget-floor logic in `_shared.ts` — an income row would need a `direction = OUT`
+  guard in `getCategoryBudgetFloor`, `getSubcategoryBudgetFloor`, `reconcileBudgetFloors`,
+  `deactivateCategoryBudgetIfOverCommitted`, `BudgetTreeFields`, and the tree editor. The user
+  explicitly wanted "algo simples"; an isolated table touches none of that.
+- **Template-only — never projected.** The user's own framing: "o ganho previsível não vai pro
+  gráfico até receber de verdade… só deixa mais simples o insert de sempre." So `recurring_incomes`
+  is deliberately *not* wired into `fetchPeriodEntries` the way unpaid `fixed_expenses` are
+  (that dashboard expense-side projection is a documented exception; this feature does not extend
+  it). It's a template + a monthly "Registrar recebimento" button; the money only counts when
+  `registerReceipt` writes a real `INCOME` transaction (linked by `transactions.recurring_income_id`).
+- **`category_id` / `default_account_id` are `SET NULL`, not `RESTRICT`** — unlike
+  `fixed_expenses`/`reservoirs`. A recurring income holds no history itself (the spawned
+  transactions keep their own category), so an orphaned *default* is harmless; wiring it into the
+  guided category-deletion flow (`getCategoryUsage`, `reassignCategory`, `CategoryUsageDTO`)
+  wasn't worth it.
+- **Placed on `/budgets`** as a sibling block to Despesas Programadas — that page is already
+  "Orçamentos e despesas programadas" and is where month planning lives. It is *not* inside the
+  budget hierarchy/tree.
+- Migration written and code shipped in the same pass; the migration itself must be applied by
+  the user (`supabase db push`, or the SQL in `supabase/migrations/0038_recurring_incomes.sql`
+  pasted into the SQL Editor) — an MCP `apply_migration` attempt was correctly blocked as an
+  unapproved outward action.
+- **Temporary bridge**: `getRecurringIncomes` swallows the "table not found" error (`42P01` /
+  `PGRST205`, `isMissingTableError`) and returns `[]` so `/budgets` doesn't 500 in the window
+  between shipping the code and running 0038. **Remove that guard once 0038 is applied** — it's
+  a bridge, not a permanent tolerance.
+
+---
+
 # Documentation split (2026-08-31)
 
 `AI_CONTEXT.md` and `ARCHITECTURE.md` had grown to ~89k tokens combined, auto-loaded every

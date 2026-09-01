@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { RotateCcw } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/card";
+import { HelpHint } from "@/components/ui/help-hint";
 import { formatCurrency } from "@/lib/utils/currency";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import type { DebtDTO } from "@/types/dto";
@@ -61,6 +62,10 @@ function DebtPie({
           </button>
         )}
         <CardTitle>{title}</CardTitle>
+        <HelpHint id="debts.pie" title={title}>
+          <p>Cada fatia é uma dívida ativa, pelo tamanho do saldo que ainda falta.</p>
+          <p>Clique numa dívida (fatia ou legenda) pra tirá-la do gráfico e do total — é só um recorte visual, não apaga nada.</p>
+        </HelpHint>
       </div>
       <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_auto]">
         <div className="relative h-48 w-full">

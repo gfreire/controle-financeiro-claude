@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { BottomNavigation } from "@/components/layout/bottom-navigation";
 import { NavigationProgressProvider } from "@/components/providers/navigation-progress";
+import { HelpTourProvider } from "@/components/ui/help-hint";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getUser();
@@ -24,7 +25,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <Header userName={profile.name} userEmail={user.email ?? null} />
-          <main className="flex-1 overflow-x-hidden p-4 pb-20 md:p-6 md:pb-6">{children}</main>
+          <main className="flex-1 overflow-x-hidden p-4 pb-20 md:p-6 md:pb-6">
+            <HelpTourProvider>{children}</HelpTourProvider>
+          </main>
         </div>
         <BottomNavigation />
       </div>

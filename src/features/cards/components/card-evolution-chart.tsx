@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, CardTitle } from "@/components/ui/card";
+import { HelpHint } from "@/components/ui/help-hint";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils/currency";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import { CategoryCheckboxFilter } from "@/components/ui/category-checkbox-filter";
@@ -38,7 +39,13 @@ export function CardEvolutionChart({ data, categories }: { data: CardMonthlyEvol
   return (
     <Card elevation="sm" className="min-h-[320px]">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <CardTitle>Evolução mensal do cartão</CardTitle>
+        <div className="flex items-center gap-1.5">
+          <CardTitle>Evolução mensal do cartão</CardTitle>
+          <HelpHint id="cards.evolution" title="Evolução mensal do cartão">
+            <p>Quanto foi faturado por mês (6 meses pra trás e pra frente), dividido em já pago (verde) e a pagar (vermelho).</p>
+            <p>Com um filtro de categoria ativo, as barras passam a se dividir por categoria em vez de pago/a pagar.</p>
+          </HelpHint>
+        </div>
         <CategoryCheckboxFilter
           groups={[{ label: "Categorias", items: expenseCategories }]}
           activeIds={activeIds}

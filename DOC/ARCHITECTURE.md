@@ -102,8 +102,16 @@ not to rediscover whether a feature exists.
   hard block; a budget that's a fixed-expense floor can't be deleted, only raised). One
   unified tree (shared read-only by the dashboard panel); "Planejar orçamentos" plans /
   bulk-deletes a whole tree for one month; the page lists the month's transactions at the
-  bottom.
-- **Settings** — category/subcategory CRUD with guided deletion, curated emoji icon picker.
+  bottom. Also carries a **"Receitas Recorrentes"** block (migration 0038) — predictable-income
+  templates with a per-month "Registrar recebimento", the mirror of the fixed-expense rows;
+  purely a convenience, never projected into any analytic (AI_CONTEXT.md "Receitas Recorrentes").
+  (Named "Receita Recorrente", NOT "Receita Programada" — that label is the reservoirs feature's.)
+- **Per-screen help** — a page-level `HelpButton` ("?") in every header, plus granular `HelpHint`
+  ("?") on every chart (and, planned, on the trickier form fields). A `HelpHint` auto-opens once
+  on the first visit to a screen (one per visit, `localStorage`-tracked), auto-closes after a few
+  seconds, and can be replayed from Settings → "Rever dicas das telas".
+- **Settings** — category/subcategory CRUD with guided deletion, curated emoji icon picker,
+  "Rever dicas das telas" (resets the `HelpHint` first-visit flags).
 
 ## Deviations from the original MER spec
 
@@ -195,6 +203,8 @@ Applied in order; each additive (a new file corrects an old one, never a rewrite
 | 0035 | `goals` | `goals` + `goal_yields` + `transactions.goal_id`; RLS `auth.uid() = user_id` on both new tables |
 | 0036 | `goal_redeem_categories` | data-only: 2 `is_system` INCOME categories — "Resgate de Meta Concluída" / "Antecipado" |
 | 0037 | `reload_schema_cache` | as `0020`, for the `goals` tables |
+| 0038 | `recurring_incomes` | `recurring_incomes` (predictable-income template) + `transactions.recurring_income_id` (`ON DELETE SET NULL`); RLS `auth.uid() = user_id`. `category_id`/`default_account_id` are `SET NULL`, not `RESTRICT` — a template carries no history of its own |
+| 0039 | `reload_schema_cache` | as `0020`, for `recurring_incomes` |
 
 ---
 
@@ -265,8 +275,8 @@ src
  │                 be .partial()'d; keep a plain base object schema alongside the refined one,
  │                 e.g. accounts.ts / transactions.ts)
  ├ services (one per domain: dashboard, transactions, accounts, categories, cards, reservoirs,
- │           goals, debts, budgets, fixed-expenses, profile; _shared.ts holds the
- │           budget/fixed-expense actualAmount + floor aggregation both reuse)
+ │           goals, debts, budgets, fixed-expenses, recurring-incomes, profile; _shared.ts holds
+ │           the budget/fixed-expense actualAmount + floor aggregation both reuse)
  ├ features
  │  ├ dashboard/components (dashboard-filters [MonthPicker + account-type icons +
  │  │   category-multi-select]; use-category-filter.ts; filters.ts [parseDashboardFilters —
@@ -314,6 +324,11 @@ src
  │  │   fixed expenses depend on the row], delete-fixed-expense-button [hard delete],
  │  │   pay-fixed-expense-dialog [branches on isPaidThisMonth: pay form / summary +
  │  │   "Cancelar pagamento"; also a "Já lancei isso manualmente" link-existing mode])
+ │  ├ recurring-incomes/components (recurring-incomes-section [block on /budgets],
+ │  │   recurring-income-form-dialog [create+edit], register-receipt-dialog [branches on
+ │  │   receivedThisMonth: receipt form / summary + "Cancelar recebimento"],
+ │  │   delete-recurring-income-button) — migration 0038, mirror of the fixed-expense flow;
+ │  │   template-only, never projected (AI_CONTEXT.md "Receitas Recorrentes")
  │  └ categories/components (category-form-dialog, subcategory-form-dialog, category-tree-item
  │     [full is_default catalog, already-imported checked+disabled], category-select
  │     [CategorySelect/SubcategorySelect — standard picker, "Nova …" item in the dropdown,
@@ -328,7 +343,10 @@ src
  │  │   loading-overlay [full-screen "Carregando…"], chart-tooltip [chartTooltipStyle],
  │  │   category-checkbox-filter [generic additive multi-select popover; optional
  │  │   onToggleGroup for the group select-all], donut-with-total.tsx, invoice-paid-badge.tsx,
- │  │   help-button.tsx [static per-page "?" popover], confirm-delete-dialog, corner-marks)
+ │  │   help-button.tsx [static per-page "?" popover], help-hint.tsx [HelpHint + HelpTourProvider
+ │  │   + CardTitleWithHelp + resetHelpHints — granular per-chart/per-field "?"; auto-opens once
+ │  │   per screen visit (localStorage `help-seen:<id>`), auto-closes after a few seconds],
+ │  │   confirm-delete-dialog, corner-marks)
  │  ├ layout (sidebar, header, bottom-navigation, nav-items)
  │  └ providers (navigation-progress.tsx — NavigationProgressProvider/useNavigationProgress,
  │     mounted once in (app)/layout.tsx; every filter/month-nav calls navigate() from this
@@ -370,7 +388,7 @@ category has no subcategory") live in `src/lib/validations` (Zod).
      /debts                 ("Dívidas Pessoais" — debts.kind = PERSONAL)
      /overdue-bills         ("Contas em Atraso" — debts.kind = OVERDUE_BILL)
      /installment-plans     ("Parcelamento Programado" — debts.kind = INSTALLMENT_PLAN)
-     /budgets               (includes Despesas Programadas)
+     /budgets               (includes Despesas Programadas + Receitas Recorrentes)
      /settings
 ```
 
@@ -711,6 +729,28 @@ cancelFixedExpensePayment(fixedExpenseId, month)   -- deletes the record(s) that
   -- the month). The inverse of whichever branch payFixedExpense took.
 ```
 
+## recurring-incomes.service.ts (migration 0038)
+```
+-- Receitas Recorrentes (UI label "Receita Recorrente" — NOT "Receita Programada", which is the
+-- reservoirs feature) — the mirror of fixed-expenses for predictable income (salary, allowance).
+-- Deliberately isolated: NEVER feeds dashboard.service's fetchPeriodEntries, NEVER a budget floor
+-- (_shared.ts), NEVER a synthetic entry. Only the real INCOME transactions registerReceipt
+-- creates (linked via transactions.recurring_income_id) ever move a number. See AI_CONTEXT.md
+-- "Receitas Recorrentes".
+getRecurringIncomes(month) → RecurringIncomeDTO[]
+  -- competence-window filtered (start_competence <= month <= end_competence or ∞), same rule as
+  -- getFixedExpenses. receivedThisMonth/receivedAmount/receivedDate derived from linked INCOME
+  -- transactions dated in the month (never a stored flag).
+createRecurringIncome(data) → id / updateRecurringIncome(id, data)
+  -- category must be INCOME-typed (asserted server-side, like categories.service#createSubcategory).
+deactivateRecurringIncome(id)   -- soft delete (active = false), like reservoirs/budgets
+registerReceipt(data)   -- creates a plain INCOME transaction linked via recurring_income_id.
+  -- Account type read server-side, must be CASH/BANK (never "onto a card"). description default
+  -- "Recebimento — {nome}"; categoryId falls back to the template's category_id.
+cancelReceipt(recurringIncomeId, month)   -- deletes the linked INCOME transaction(s) dated in
+  -- the month. Mirror of cancelFixedExpensePayment.
+```
+
 ## _shared.ts
 ```
 getActualAmountForCategory(...)   -- reused by budgets and fixed-expenses for the month's actualAmount
@@ -903,6 +943,16 @@ type FixedExpenseDTO = {
   isPaidThisMonth: boolean      // actualAmount > 0
   paidDate?: string             // set only when isPaidThisMonth — for the "já pago" summary text
   status: "OK" | "EXCEEDED"
+}
+type RecurringIncomeDTO = {     // migration 0038 — mirror of FixedExpenseDTO for predictable income; NEVER projected into analytics
+  id: string; name: string
+  plannedAmount: number; dayOfMonth: number   // dayOfMonth 1-28
+  defaultAccountId?: string; categoryId?: string; categoryName?: string
+  startCompetence: string       // "YYYY-MM", required
+  endCompetence?: string        // "YYYY-MM", optional; absent = still active
+  receivedThisMonth: boolean    // a linked INCOME transaction is dated in the queried month
+  receivedAmount: number        // Σ linked transactions in the month (0 when not received)
+  receivedDate?: string         // set only when receivedThisMonth — for the "já recebi" summary text
 }
 type BudgetTreeSubcategoryDTO = {
   budgetId: string; subcategoryId: string; subcategoryName: string

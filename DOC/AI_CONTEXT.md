@@ -1131,6 +1131,53 @@ logged.
 
 ---
 
+# Receitas Recorrentes (recurring income) — migration `0038`
+
+The mirror of "Despesas Programadas" for **predictable *income*** (salary, allowance, rent
+received). A brand-new, deliberately tiny domain: table `recurring_incomes`, service
+`recurring-incomes.service.ts`, `RecurringIncomeDTO`, one section on `/budgets`.
+
+**Display name is "Receita Recorrente"**, *not* "Receita Programada" — that label already belongs
+to the reservoirs feature (`/reservoirs`). All internal identifiers stay `recurring_incomes` /
+`recurring-incomes`.
+
+**It is a template + a monthly checklist, nothing more.**
+
+- **Never projected into any analytic.** Unlike the dashboard's *unpaid-obligation* projection
+  for the expense side (a documented break from "Money Reality Rules"), a recurring income is
+  **not** emitted by `fetchPeriodEntries`, does **not** appear on any chart, does **not** move
+  `getFinancialSummary`. The predictable amount only becomes a real number when the money
+  actually arrives — `registerReceipt` creates a plain `INCOME` `transactions` row linked via
+  `transactions.recurring_income_id` (migration `0038`, `ON DELETE SET NULL` — same shape as
+  `fixed_expense_id` / `goal_id`). This keeps "Money Reality Rules" fully intact for the income
+  side and is *simpler* than the expense-side exception.
+- **Not a `fixed_expenses` row with a direction.** `fixed_expenses` is entangled with the
+  budget-floor machinery (`_shared.ts`); an income row would have to be guarded out of every
+  floor function / the tree / the reconcile. A separate isolated table touches none of that.
+- `recurring_incomes`: `name`, `amount` (`> 0` — a cache of the current value; **no per-month
+  history in v1** — the real per-month value lives in the spawned transaction), `day_of_month`
+  (1-28, same range as card closing/due day and `debts.due_day`), `default_account_id`,
+  `category_id` (must be an **INCOME** category — asserted in
+  `createRecurringIncome`/`updateRecurringIncome`, like `categories.service#createSubcategory`'s
+  INCOME-parent guard), `start_competence` / `end_competence` (vigency window — outside it the
+  row doesn't show for that month, same rule as `getFixedExpenses`), `active` (soft-delete, like
+  `reservoirs`/`budgets`).
+- **`category_id` / `default_account_id` are `ON DELETE SET NULL`, NOT `RESTRICT`** — a
+  deliberate departure from the `fixed_expenses`/`reservoirs` rule. A recurring income carries no
+  history of its own (the history is in the `transactions` it spawns, which keep their own
+  category), so orphaning a *default hint* is harmless and not worth wiring into the guided
+  category-deletion flow. `getCategoryUsage` / `reassignCategory` are **not** extended for it.
+- **`registerReceipt`** reads the account `type` server-side; it must be `CASH`/`BANK` (income
+  lands in a real spendable account, never "onto a card"). Default description `"Recebimento —
+  {nome}"`; `categoryId` falls back to the template's `category_id`. **`cancelReceipt`** deletes
+  the linked `INCOME` transaction(s) dated in the month — the exact mirror of
+  `cancelFixedExpensePayment`.
+- **`RecurringIncomeDTO.receivedThisMonth` / `receivedAmount` / `receivedDate`** are all derived
+  from linked transactions dated in the queried month — never a stored flag. `getRecurringIncomes(month)`
+  drives the `/budgets` section's per-row "Registrar recebimento" / "Recebido" state.
+
+---
+
 # Money Reality Rules
 
 **Only these affect financial totals**: `transactions`, `card_installments`, `card_payments`
@@ -1138,8 +1185,10 @@ logged.
 `refund_date`, and reduces the card's outstanding balance like a payment — see "Estorno").
 
 **Never affect totals directly**: `reservoirs`/`reservoir_transactions`,
-`debts`/`debt_transactions`, `budgets`, `fixed_expenses`, `goals`. They may appear in
-informational panels; only the real transactions they eventually link to move analytics.
+`debts`/`debt_transactions`, `budgets`, `fixed_expenses`, `goals`, `recurring_incomes`. They may
+appear in informational panels; only the real transactions they eventually link to move
+analytics. (`recurring_incomes` is also **never projected** — unlike unpaid `fixed_expenses`,
+which the dashboard expense side does project. See "Receitas Recorrentes".)
 
 `TRANSFER`, `CREDIT_CARD_PAYMENT`, `RESERVE`, `REDEEM` never count as INCOME/EXPENSE — the
 queries filter `type in ('INCOME','EXPENSE')`. A `CREDIT_CARD_PAYMENT` carrying `Pagamento de

@@ -9,6 +9,7 @@ import { SubcategoryFormDialog } from "@/features/categories/components/subcateg
 import { DeleteCategoryDialog } from "@/features/categories/components/delete-category-dialog";
 import { User, PackagePlus, Pencil } from "lucide-react";
 import { HelpButton } from "@/components/ui/help-button";
+import { ResetHelpHintsButton } from "@/features/settings/components/reset-help-hints-button";
 
 export default async function SettingsPage() {
   const [categories, profile] = await Promise.all([getCategories(), getProfile()]);
@@ -30,6 +31,14 @@ export default async function SettingsPage() {
         <CardTitle>{profile.name ?? "Sem nome"}</CardTitle>
         <p className="text-sm opacity-70">{profile.email}</p>
       </Card>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="font-heading text-lg font-semibold">Ajuda</h2>
+        <p className="text-xs opacity-60">
+          Cada gráfico e alguns campos têm um &quot;?&quot; que abre sozinho na primeira vez que você vê a tela. Reative se quiser rever as explicações do começo.
+        </p>
+        <ResetHelpHintsButton />
+      </section>
 
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

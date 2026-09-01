@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { RotateCcw } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/card";
+import { CardTitleWithHelp, HelpHint } from "@/components/ui/help-hint";
 import { formatCurrency } from "@/lib/utils/currency";
 import { CATEGORY_COLORS } from "@/components/ui/color-picker";
 import { DonutWithTotal, type DonutEntry } from "@/components/ui/donut-with-total";
@@ -75,6 +76,10 @@ function CardLimitDonut({ cardEntries }: { cardEntries: { account: AccountDTO; s
           </button>
         )}
         <CardTitle>Limite usado nos cartões</CardTitle>
+        <HelpHint id="accounts.card-limit" title="Limite usado nos cartões">
+          <p>Quanto do limite de cada cartão já está comprometido — incluindo parcelas futuras ainda não faturadas, como um banco de verdade calcula.</p>
+          <p>Clique num cartão pra ver só ele.</p>
+        </HelpHint>
       </div>
       <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_auto]">
         <div className="relative h-56 w-full">
@@ -165,7 +170,18 @@ export function AccountsOverviewCharts({
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
       <Card elevation="sm" className={cn(balanceData.length > 0 && "min-h-[320px]")}>
-        <CardTitle>Total em contas</CardTitle>
+        <CardTitleWithHelp
+          id="accounts.total"
+          helpTitle="Total em contas"
+          help={
+            <>
+              <p>Soma do saldo de todas as contas de dinheiro e banco. Cartão de crédito não entra aqui.</p>
+              <p>Cada fatia do anel é uma conta.</p>
+            </>
+          }
+        >
+          Total em contas
+        </CardTitleWithHelp>
         <DonutWithTotal
           data={balanceData}
           total={pieTotal}

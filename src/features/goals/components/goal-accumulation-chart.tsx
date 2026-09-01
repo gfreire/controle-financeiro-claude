@@ -1,7 +1,8 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Card, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { CardTitleWithHelp } from "@/components/ui/help-hint";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils/currency";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
 import type { GoalAccumulationDTO } from "@/types/dto";
@@ -14,7 +15,18 @@ export function GoalAccumulationChart({ data }: { data: GoalAccumulationDTO }) {
 
   return (
     <Card elevation="sm">
-      <CardTitle>Acumulado guardado</CardTitle>
+      <CardTitleWithHelp
+        id="goals.accumulation"
+        helpTitle="Acumulado guardado"
+        help={
+          <>
+            <p>Total guardado somando todas as metas, no fim de cada um dos últimos 13 meses.</p>
+            <p>A linha tracejada é a soma de todos os valores-alvo.</p>
+          </>
+        }
+      >
+        Acumulado guardado
+      </CardTitleWithHelp>
       <div className="h-56 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data.points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>

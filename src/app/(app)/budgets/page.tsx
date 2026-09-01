@@ -1,5 +1,6 @@
 import { getBudgets, getBudgetTree, getBudgetMonthWindow } from "@/services/budgets.service";
 import { getFixedExpenses } from "@/services/fixed-expenses.service";
+import { getRecurringIncomes } from "@/services/recurring-incomes.service";
 import { getCategories } from "@/services/categories.service";
 import { getAccounts } from "@/services/accounts.service";
 import { getTransactionsFiltered } from "@/services/dashboard.service";
@@ -15,7 +16,10 @@ import { DeactivateBudgetButton } from "@/features/budgets/components/deactivate
 import { DeleteFixedExpenseButton } from "@/features/budgets/components/delete-fixed-expense-button";
 import { MonthNav } from "@/features/cards/components/month-nav";
 import { CreditCard } from "lucide-react";
+import { Card } from "@/components/ui/card";
 import { HelpButton } from "@/components/ui/help-button";
+import { CardTitleWithHelp } from "@/components/ui/help-hint";
+import { RecurringIncomesSection } from "@/features/recurring-incomes/components/recurring-incomes-section";
 
 export default async function BudgetsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const resolvedSearchParams = await searchParams;
@@ -24,11 +28,12 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
   // `month` itself stays "YYYY-MM" for the MonthNav/searchParams and window comparisons below.
   const monthDate = `${month}-01`;
 
-  const [fixedExpenses, categories, accounts, monthWindow] = await Promise.all([
+  const [fixedExpenses, categories, accounts, monthWindow, recurringIncomes] = await Promise.all([
     getFixedExpenses(monthDate),
     getCategories(),
     getAccounts(),
     getBudgetMonthWindow(),
+    getRecurringIncomes(monthDate),
   ]);
   const [tree, budgets, transactions] = await Promise.all([
     getBudgetTree(monthDate, fixedExpenses),
@@ -77,65 +82,89 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
         {isEditableMonth && <BudgetFormDialog categories={categories} month={monthDate} />}
       </div>
 
-      <BudgetTree
-        categories={tree}
-        transactions={transactions}
-        renderCategoryActions={
-          isEditableMonth
-            ? (c) => (
-                <div className="flex items-center gap-2">
-                  <BudgetFormDialog
-                    categories={categories}
-                    month={monthDate}
-                    budget={{ id: c.budget!.id, categoryId: c.categoryId, subcategoryId: undefined, plannedAmount: c.budget!.plannedAmount }}
-                  />
-                  {/* A budget with direct fixed expenses can't be deleted, only raised — deleting it would orphan their floor (AI_CONTEXT.md "Budget hierarchy"). */}
-                  {c.directFixedExpenses.length === 0 && (
-                    <DeactivateBudgetButton budgetId={c.budget!.id} label={c.categoryName} />
-                  )}
-                </div>
-              )
-            : undefined
-        }
-        renderSubcategoryActions={
-          isEditableMonth
-            ? (c, s) => (
-                <div className="flex items-center gap-2">
-                  <BudgetFormDialog
-                    categories={categories}
-                    month={monthDate}
-                    budget={{ id: s.budgetId, categoryId: c.categoryId, subcategoryId: s.subcategoryId, plannedAmount: s.plannedAmount }}
-                  />
-                  {s.fixedExpenses.length === 0 && (
-                    <DeactivateBudgetButton budgetId={s.budgetId} label={`${c.categoryName} · ${s.subcategoryName}`} />
-                  )}
-                </div>
-              )
-            : undefined
-        }
-        renderFixedExpenseActions={(f) => (
-          <div className="flex items-center gap-2">
-            <PayFixedExpenseDialog
-              expense={f}
-              accounts={accounts}
-              month={monthDate}
-              trigger={
-                <button
-                  className={cn(
-                    "p-1.5 -m-1.5",
-                    f.isPaidThisMonth ? "text-success-600 hover:text-success-600/70" : "text-text/40 hover:text-accent"
-                  )}
-                  aria-label={f.isPaidThisMonth ? "Ver pagamento" : "Registrar pagamento"}
-                >
-                  <CreditCard className="size-3.5" strokeWidth={1.5} />
-                </button>
-              }
-            />
-            <FixedExpenseFormDialog categories={categories} accounts={accounts} expense={f} />
-            <DeleteFixedExpenseButton fixedExpenseId={f.id} name={f.name} />
-          </div>
+      <Card elevation="sm" className="gap-3">
+        <CardTitleWithHelp
+          id="budgets.tree"
+          helpTitle="Orçamentos por categoria"
+          help={
+            <>
+              <p>Um teto de gasto planejado por categoria/mês — só serve de alerta, nunca bloqueia.</p>
+              <p>Use &quot;Planejar orçamentos&quot; para preencher a árvore inteira de uma vez, ou &quot;Novo orçamento&quot; para uma linha só.</p>
+            </>
+          }
+        >
+          Orçamentos por categoria
+        </CardTitleWithHelp>
+        {tree.length === 0 ? (
+          <p className="text-sm opacity-60">
+            {isEditableMonth
+              ? "Nenhum orçamento definido para este mês. Use os botões acima para planejar."
+              : "Nenhum orçamento foi definido para este mês."}
+          </p>
+        ) : (
+          <BudgetTree
+            categories={tree}
+            transactions={transactions}
+            renderCategoryActions={
+              isEditableMonth
+                ? (c) => (
+                    <div className="flex items-center gap-2">
+                      <BudgetFormDialog
+                        categories={categories}
+                        month={monthDate}
+                        budget={{ id: c.budget!.id, categoryId: c.categoryId, subcategoryId: undefined, plannedAmount: c.budget!.plannedAmount }}
+                      />
+                      {/* A budget with direct fixed expenses can't be deleted, only raised — deleting it would orphan their floor (AI_CONTEXT.md "Budget hierarchy"). */}
+                      {c.directFixedExpenses.length === 0 && (
+                        <DeactivateBudgetButton budgetId={c.budget!.id} label={c.categoryName} />
+                      )}
+                    </div>
+                  )
+                : undefined
+            }
+            renderSubcategoryActions={
+              isEditableMonth
+                ? (c, s) => (
+                    <div className="flex items-center gap-2">
+                      <BudgetFormDialog
+                        categories={categories}
+                        month={monthDate}
+                        budget={{ id: s.budgetId, categoryId: c.categoryId, subcategoryId: s.subcategoryId, plannedAmount: s.plannedAmount }}
+                      />
+                      {s.fixedExpenses.length === 0 && (
+                        <DeactivateBudgetButton budgetId={s.budgetId} label={`${c.categoryName} · ${s.subcategoryName}`} />
+                      )}
+                    </div>
+                  )
+                : undefined
+            }
+            renderFixedExpenseActions={(f) => (
+              <div className="flex items-center gap-2">
+                <PayFixedExpenseDialog
+                  expense={f}
+                  accounts={accounts}
+                  month={monthDate}
+                  trigger={
+                    <button
+                      className={cn(
+                        "p-1.5 -m-1.5",
+                        f.isPaidThisMonth ? "text-success-600 hover:text-success-600/70" : "text-text/40 hover:text-accent"
+                      )}
+                      aria-label={f.isPaidThisMonth ? "Ver pagamento" : "Registrar pagamento"}
+                    >
+                      <CreditCard className="size-3.5" strokeWidth={1.5} />
+                    </button>
+                  }
+                />
+                <FixedExpenseFormDialog categories={categories} accounts={accounts} expense={f} />
+                <DeleteFixedExpenseButton fixedExpenseId={f.id} name={f.name} />
+              </div>
+            )}
+          />
         )}
-      />
+      </Card>
+
+      <RecurringIncomesSection incomes={recurringIncomes} categories={categories} accounts={accounts} month={monthDate} />
     </div>
   );
 }

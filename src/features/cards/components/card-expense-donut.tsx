@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { CardTitleWithHelp } from "@/components/ui/help-hint";
 import { formatCurrency } from "@/lib/utils/currency";
 import { CATEGORY_COLORS } from "@/components/ui/color-picker";
 import { DonutWithTotal, type DonutEntry } from "@/components/ui/donut-with-total";
@@ -26,7 +27,18 @@ export function CardExpenseDonut({ cardEntries }: { cardEntries: { account: Acco
 
   return (
     <Card elevation="sm" className={cn(data.length > 0 && "min-h-[320px]")}>
-      <CardTitle>Gastos do mês por cartão</CardTitle>
+      <CardTitleWithHelp
+        id="cards.expense-donut"
+        helpTitle="Gastos do mês por cartão"
+        help={
+          <>
+            <p>A fatura do mês visualizado, somando todos os cartões e separando por cartão.</p>
+            <p>É o valor cheio faturado no mês, mesmo que parte já esteja paga.</p>
+          </>
+        }
+      >
+        Gastos do mês por cartão
+      </CardTitleWithHelp>
       <DonutWithTotal
         data={data}
         total={total}

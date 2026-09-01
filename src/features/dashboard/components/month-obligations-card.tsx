@@ -1,7 +1,8 @@
 "use client";
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { Card, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { CardTitleWithHelp } from "@/components/ui/help-hint";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
@@ -138,7 +139,18 @@ export function MonthObligationsCard({
 
   return (
     <Card elevation="sm" className="gap-3">
-      <CardTitle>Despesas de {formatMonthLabel(data.month)}</CardTitle>
+      <CardTitleWithHelp
+        id="dashboard.month-obligations"
+        helpTitle={`Despesas de ${formatMonthLabel(data.month)}`}
+        help={
+          <>
+            <p>Tudo que este mês tem pra pagar: a fatia cheia é o que você já pagou, o resto é o que falta.</p>
+            <p>Fatura de cartão entra pela competência das parcelas. Despesa programada e parcelamento entram pelo valor previsto, até você tocar em &quot;Pagar&quot;.</p>
+          </>
+        }
+      >
+        Despesas de {formatMonthLabel(data.month)}
+      </CardTitleWithHelp>
 
       <div className="relative h-56 w-full">
         <ResponsiveContainer width="100%" height="100%">

@@ -15,6 +15,7 @@ const transactionBaseSchema = z.object({
   categoryId: z.string().uuid().optional().nullable(),
   subcategoryId: z.string().uuid().optional().nullable(),
   fixedExpenseId: z.string().uuid().optional().nullable(),
+  recurringIncomeId: z.string().uuid().optional().nullable(), // migration 0038 — set by registerReceipt on the INCOME row
 });
 
 export const transactionSchema = transactionBaseSchema.superRefine((data, ctx) => {

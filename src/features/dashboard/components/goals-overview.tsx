@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Card, CardTitle } from "@/components/ui/card";
+import { HelpHint } from "@/components/ui/help-hint";
 import { Badge } from "@/components/ui/badge";
 import { DonutWithTotal } from "@/components/ui/donut-with-total";
 import { formatCurrency } from "@/lib/utils/currency";
@@ -31,7 +32,13 @@ export function GoalsOverview({ data }: { data: GoalsOverviewDTO }) {
   return (
     <Card elevation="sm" className="gap-3">
       <div className="flex items-center justify-between gap-2">
-        <CardTitle className="flex items-center gap-1.5"><Target className="size-4" strokeWidth={1.5} /> Metas</CardTitle>
+        <div className="flex items-center gap-1.5">
+          <CardTitle className="flex items-center gap-1.5"><Target className="size-4" strokeWidth={1.5} /> Metas</CardTitle>
+          <HelpHint id="dashboard.goals-overview" title="Metas">
+            <p>Progresso de cada meta: a parte verde é quanto já foi guardado do valor-alvo.</p>
+            <p>O selo diz se você está adiantado, em dia ou atrasado em relação ao aporte mensal combinado.</p>
+          </HelpHint>
+        </div>
         <Link href="/goals" className="text-xs text-accent underline hover:opacity-80">Ver metas</Link>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

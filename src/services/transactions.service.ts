@@ -30,6 +30,7 @@ export async function createTransaction(input: TransactionInput): Promise<string
       category_id: input.categoryId ?? null,
       subcategory_id: input.subcategoryId ?? null,
       fixed_expense_id: input.fixedExpenseId ?? null,
+      recurring_income_id: input.recurringIncomeId ?? null,
     })
     .select("id")
     .single();
