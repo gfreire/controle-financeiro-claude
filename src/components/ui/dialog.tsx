@@ -9,6 +9,19 @@ export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
 
+// On a touch device, when a field inside the dialog gains focus the software keyboard slides
+// up and can cover it (worst on iOS Safari, which never shrinks the layout viewport). Once
+// the keyboard has finished animating, pull the focused field to the middle of whatever
+// space is left. Guarded to coarse pointers so desktop scrolling is untouched.
+function scrollFocusedFieldIntoView(e: React.FocusEvent<HTMLDivElement>) {
+  if (typeof window === "undefined" || !window.matchMedia?.("(pointer: coarse)").matches) return;
+  const target = e.target as HTMLElement | null;
+  if (!target?.matches("input, textarea, select, [contenteditable='true']")) return;
+  window.setTimeout(() => {
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, 300);
+}
+
 export function DialogContent({
   className,
   children,
@@ -30,7 +43,9 @@ export function DialogContent({
               own corner-tl/tr/bl/br decorations sit at negative offsets (see globals.css), and a
               scrollable ancestor counts that bleed as real overflow, producing phantom
               horizontal+vertical scrollbars on every dialog even when content fits. */}
-          <div className="flex flex-col gap-3 overflow-y-auto p-4">{children}</div>
+          <div className="flex flex-col gap-3 overflow-y-auto p-4" onFocus={scrollFocusedFieldIntoView}>
+            {children}
+          </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Overlay>
     </DialogPrimitive.Portal>

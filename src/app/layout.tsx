@@ -33,6 +33,12 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#2c455d",
+  // Chrome/Android otherwise leaves the layout viewport full-height when the software
+  // keyboard opens, so a vertically-centered dialog (100dvh-based) ends up hidden behind
+  // it. "resizes-content" shrinks the viewport (and `dvh`) to the space above the keyboard,
+  // re-centering dialogs into what's actually visible. iOS Safari ignores this today — the
+  // focusin scroll-into-view in DialogContent covers that case.
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
