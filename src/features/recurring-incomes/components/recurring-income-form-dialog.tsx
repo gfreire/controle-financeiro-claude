@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, Dialo
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { CategorySelect } from "@/features/categories/components/category-select";
-import { AccountSelect } from "@/components/ui/account-select";
+import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
 import { Plus, Pencil } from "lucide-react";
 import { createRecurringIncomeAction, updateRecurringIncomeAction } from "../actions";
 import { recurringIncomeSchema } from "@/lib/validations/recurring-incomes";
@@ -144,6 +144,7 @@ export function RecurringIncomeFormDialog({
             noneValue={NONE}
             noneLabel="Nenhuma"
           />
+          <AccountBalanceHint accounts={accounts} accountId={defaultAccountId} />
         </Field>
         <FieldError>{error}</FieldError>
         <DialogActions>

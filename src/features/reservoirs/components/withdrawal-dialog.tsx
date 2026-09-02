@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { AccountSelect } from "@/components/ui/account-select";
+import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { withdrawReservoirAction } from "../actions";
@@ -68,6 +68,7 @@ export function WithdrawalDialog({
         <Field>
           <Label>Conta de destino</Label>
           <AccountSelect accounts={accounts} value={destinationAccountId} onChange={setDestinationAccountId} />
+          <AccountBalanceHint accounts={accounts} accountId={destinationAccountId} />
         </Field>
         <div className="grid grid-cols-2 gap-2">
           <Field>

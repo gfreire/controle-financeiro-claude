@@ -2,6 +2,7 @@
 
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AccountTypeIcon, ACCOUNT_TYPE_LABEL } from "@/components/ui/account-type-icon";
+import { formatCurrency } from "@/lib/utils/currency";
 import type { AccountDTO } from "@/types/dto";
 import type { AccountType } from "@/types/database";
 
@@ -55,4 +56,22 @@ export function AccountSelect({
       </SelectContent>
     </Select>
   );
+}
+
+/**
+ * "Saldo: R$ X" line shown right under an account picker once an account is chosen. Renders
+ * nothing when `accountId` doesn't match any account in `accounts` (e.g. still on a "none"
+ * sentinel, or the picker is filtered so the selected id isn't present). Pass the same list
+ * given to the picker so the lookup always resolves.
+ */
+export function AccountBalanceHint({
+  accounts,
+  accountId,
+}: {
+  accounts: AccountDTO[];
+  accountId: string | null | undefined;
+}) {
+  const account = accounts.find((a) => a.id === accountId);
+  if (!account) return null;
+  return <p className="mt-1 text-[11px] opacity-60">Saldo: {formatCurrency(account.balance)}</p>;
 }

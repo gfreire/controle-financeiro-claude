@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { AccountSelect } from "@/components/ui/account-select";
+import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { Plus } from "lucide-react";
@@ -174,6 +174,7 @@ export function GoalFormDialog({
               <Field>
                 <Label>Conta de onde sai</Label>
                 <AccountSelect accounts={accounts} value={initialReserveAccountId} onChange={setInitialReserveAccountId} noneValue={NONE} noneLabel="Nenhuma" />
+                <AccountBalanceHint accounts={accounts} accountId={initialReserveAccountId} />
               </Field>
               <Field>
                 <Label>Valor já guardado</Label>

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { AccountSelect } from "@/components/ui/account-select";
+import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { CategorySelect } from "@/features/categories/components/category-select";
@@ -122,6 +122,7 @@ export function ReservoirFormDialog({
               noneValue={NONE}
               noneLabel="Nenhuma"
             />
+            <AccountBalanceHint accounts={accounts} accountId={defaultDestinationAccountId} />
           </Field>
         </div>
         <FieldError>{error}</FieldError>

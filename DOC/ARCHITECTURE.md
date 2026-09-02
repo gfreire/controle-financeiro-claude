@@ -358,7 +358,9 @@ src
  │  │   bleed must not count as overflow], select [+ SelectGroup/SelectLabel; SelectTrigger
  │  │   truncates], tabs, checkbox [+ indeterminate glyph], switch, dropdown-menu, popover,
  │  │   table, badge, icon-picker + icon-set, color-picker.tsx, account-type-icon,
- │  │   account-select [grouped CASH→BANK→CREDIT_CARD with type icon], month-picker
+ │  │   account-select [grouped CASH→BANK→CREDIT_CARD with type icon; also exports
+  │   AccountBalanceHint — the "Saldo: R$ X" line rendered under every account picker
+  │   once an account is chosen], month-picker
  │  │   [click-anywhere-on-label showPicker(); shared by Dashboard/Cards/Transactions],
  │  │   loading-overlay [full-screen "Carregando…"], chart-tooltip [chartTooltipStyle],
  │  │   category-checkbox-filter [generic additive multi-select popover; optional

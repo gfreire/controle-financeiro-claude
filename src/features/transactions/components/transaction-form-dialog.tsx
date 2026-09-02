@@ -7,8 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, Textarea, FieldError } from "@/components/ui/input";
 import { CategorySelect, SubcategorySelect } from "@/features/categories/components/category-select";
-import { AccountSelect } from "@/components/ui/account-select";
-import { formatCurrency } from "@/lib/utils/currency";
+import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
 import { Plus, Pencil } from "lucide-react";
 import { createTransactionAction, updateTransactionAction } from "../actions";
 import { transactionSchema, type TransactionType } from "@/lib/validations/transactions";
@@ -66,8 +65,6 @@ export function TransactionFormDialog({
   const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
   const relevantCategories = useMemo(() => categories.filter((c) => c.type === type), [categories, type]);
   const selectedCategory = relevantCategories.find((c) => c.id === categoryId);
-  const originAccount = liquidAccounts.find((a) => a.id === originAccountId);
-  const destinationAccount = liquidAccounts.find((a) => a.id === destinationAccountId);
 
   function reset() {
     setAmount(""); setDescription(""); setOriginAccountId(NONE); setDestinationAccountId(NONE); setCategoryId(NONE); setSubcategoryId(NONE);
@@ -150,9 +147,7 @@ export function TransactionFormDialog({
           <Field>
             <Label>Conta de origem</Label>
             <AccountSelect accounts={liquidAccounts} value={originAccountId} onChange={setOriginAccountId} />
-            {originAccount && (
-              <p className="mt-1 text-[11px] opacity-60">Saldo: {formatCurrency(originAccount.balance)}</p>
-            )}
+            <AccountBalanceHint accounts={liquidAccounts} accountId={originAccountId} />
           </Field>
         )}
 
@@ -160,9 +155,7 @@ export function TransactionFormDialog({
           <Field>
             <Label>Conta de destino</Label>
             <AccountSelect accounts={liquidAccounts} value={destinationAccountId} onChange={setDestinationAccountId} />
-            {destinationAccount && (
-              <p className="mt-1 text-[11px] opacity-60">Saldo: {formatCurrency(destinationAccount.balance)}</p>
-            )}
+            <AccountBalanceHint accounts={liquidAccounts} accountId={destinationAccountId} />
           </Field>
         )}
 

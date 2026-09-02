@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { AccountSelect } from "@/components/ui/account-select";
+import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
@@ -223,6 +223,7 @@ export function DebtTransactionDialog({
           <Field>
             <Label>Conta</Label>
             <AccountSelect accounts={accounts} value={linkedAccountId} onChange={setLinkedAccountId} />
+            <AccountBalanceHint accounts={accounts} accountId={linkedAccountId} />
           </Field>
         )}
         {showLinkedFields && (

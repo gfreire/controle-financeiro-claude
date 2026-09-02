@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { AccountSelect } from "@/components/ui/account-select";
+import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { payFixedExpenseAction, cancelFixedExpensePaymentAction, getUnlinkedExpenseCandidatesAction, linkExistingTransactionAction } from "../actions";
@@ -194,6 +194,7 @@ export function PayFixedExpenseDialog({ expense, accounts, month, trigger }: { e
         <Field>
           <Label>Conta</Label>
           <AccountSelect accounts={accounts} value={accountId} onChange={setAccountId} />
+          <AccountBalanceHint accounts={accounts} accountId={accountId} />
         </Field>
         <div className="grid grid-cols-2 gap-2">
           <Field>

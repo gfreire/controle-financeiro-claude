@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { AccountSelect } from "@/components/ui/account-select";
+import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { registerReceiptAction, cancelReceiptAction } from "../actions";
@@ -103,6 +103,7 @@ export function RegisterReceiptDialog({
             <Field>
               <Label>Conta</Label>
               <AccountSelect accounts={liquidAccounts} value={accountId} onChange={setAccountId} />
+              <AccountBalanceHint accounts={liquidAccounts} accountId={accountId} />
             </Field>
             <div className="grid grid-cols-2 gap-2">
               <Field>

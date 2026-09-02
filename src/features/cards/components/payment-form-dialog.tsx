@@ -10,6 +10,7 @@ import { registerCardPaymentAction } from "../actions";
 import { cardPaymentSchema } from "@/lib/validations/cards";
 import { todayIso } from "@/lib/utils/date";
 import { formatCurrency } from "@/lib/utils/currency";
+import { AccountBalanceHint } from "@/components/ui/account-select";
 import type { AccountDTO } from "@/types/dto";
 
 export function PaymentFormDialog({
@@ -78,6 +79,7 @@ export function PaymentFormDialog({
               {payerAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
             </SelectContent>
           </Select>
+          <AccountBalanceHint accounts={payerAccounts} accountId={accountId} />
         </Field>
         <div className="grid grid-cols-2 gap-2">
           <Field>

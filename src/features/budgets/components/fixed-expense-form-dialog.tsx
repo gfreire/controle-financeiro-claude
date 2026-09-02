@@ -7,7 +7,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { CategorySelect, SubcategorySelect } from "@/features/categories/components/category-select";
-import { AccountSelect } from "@/components/ui/account-select";
+import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
 import { Plus, Pencil } from "lucide-react";
 import { createFixedExpenseAction, updateFixedExpenseAction } from "../actions";
 import { fixedExpenseSchema } from "@/lib/validations/fixed-expenses";
@@ -192,6 +192,7 @@ export function FixedExpenseFormDialog({
               noneValue={NONE}
               noneLabel="Nenhuma"
             />
+            <AccountBalanceHint accounts={accounts} accountId={defaultAccountId} />
             <p className="mt-1 text-[11px] opacity-50">Se for uma conta de cartão de crédito, o pagamento é lançado como uma compra de 1x, na competência da fatura.</p>
           </Field>
           <FieldError>{error}</FieldError>
