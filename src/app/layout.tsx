@@ -21,7 +21,8 @@ export const metadata: Metadata = {
   applicationName: "Finanças",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
+    // Default status-bar style keeps the webview *below* the iOS status bar (clock/battery).
+    // "black-translucent" would push content under it — the header ended up over the clock.
     title: "Finanças",
   },
   icons: {
@@ -32,8 +33,6 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#2c455d",
-  // Required for `env(safe-area-inset-*)` to report real values on notched iOS devices.
-  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 /* `standalone:` — styles that apply only when the app runs installed (PWA),
-   not in a normal browser tab. Used for safe-area breathing room on the bottom nav. */
+   not in a normal browser tab. Used to give the bottom nav a little extra
+   breathing room in app mode (iOS already reserves the home-indicator area). */
 @custom-variant standalone (@media (display-mode: standalone));
 
 /* ============================================================

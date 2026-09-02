@@ -27,7 +27,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="flex min-w-0 flex-1 flex-col">
           <Header userName={profile.name} userEmail={user.email ?? null} />
           <InstallAppBanner />
-          <main className="flex-1 overflow-x-hidden p-4 pb-20 standalone:max-md:pb-[calc(5rem+env(safe-area-inset-bottom))] md:p-6 md:pb-6">
+          <main className="flex-1 overflow-x-hidden p-4 pb-20 standalone:max-md:pb-24 md:p-6 md:pb-6">
             <HelpTourProvider>{children}</HelpTourProvider>
           </main>
         </div>

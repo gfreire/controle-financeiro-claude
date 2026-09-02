@@ -127,10 +127,11 @@ not to rediscover whether a feature exists.
   (`display-mode: standalone`), on localhost, or after dismissal (`localStorage`
   `pwa-install-dismissed`).
   `globals.css` defines a `standalone:` Tailwind variant (`@custom-variant standalone
-  (@media (display-mode: standalone))`); the mobile `BottomNavigation` and the `(app)` `<main>`
-  add `env(safe-area-inset-bottom)` padding (plus a small `standalone:` bump) so the bar clears
-  the iOS home indicator when installed. `viewport.viewportFit = "cover"` (root layout) is what
-  makes the inset report real values.
+  (@media (display-mode: standalone))`); the mobile `BottomNavigation` gets `standalone:pb-2`
+  and the `(app)` `<main>` `standalone:max-md:pb-24` — a small fixed breathing room only when
+  installed. No `viewport-fit: cover` / `env(safe-area-*)` — that was tried and reverted (it
+  put the header under the iOS clock and made the nav jump on the loading screen); the default
+  iOS PWA behaviour already reserves the status-bar and home-indicator areas.
 
 ## Deviations from the original MER spec
 
