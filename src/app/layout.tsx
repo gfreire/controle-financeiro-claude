@@ -32,6 +32,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#2c455d",
+  // Required for `env(safe-area-inset-*)` to report real values on notched iOS devices.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

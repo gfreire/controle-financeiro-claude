@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* `standalone:` — styles that apply only when the app runs installed (PWA),
+   not in a normal browser tab. Used for safe-area breathing room on the bottom nav. */
+@custom-variant standalone (@media (display-mode: standalone));
+
 /* ============================================================
    Design tokens — adapted from the "Industry" Claude Design
    system (steel-blue blueprint aesthetic) into Tailwind v4's

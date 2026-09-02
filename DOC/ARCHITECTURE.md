@@ -126,6 +126,11 @@ not to rediscover whether a feature exists.
   manual "Compartilhar → Adicionar à Tela de Início" steps. Hidden when already installed
   (`display-mode: standalone`), on localhost, or after dismissal (`localStorage`
   `pwa-install-dismissed`).
+  `globals.css` defines a `standalone:` Tailwind variant (`@custom-variant standalone
+  (@media (display-mode: standalone))`); the mobile `BottomNavigation` and the `(app)` `<main>`
+  add `env(safe-area-inset-bottom)` padding (plus a small `standalone:` bump) so the bar clears
+  the iOS home indicator when installed. `viewport.viewportFit = "cover"` (root layout) is what
+  makes the inset report real values.
 
 ## Deviations from the original MER spec
 
