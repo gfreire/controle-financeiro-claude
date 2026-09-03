@@ -9,10 +9,45 @@ export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
 
-// On a touch device, when a field inside the dialog gains focus the software keyboard slides
-// up and can cover it (worst on iOS Safari, which never shrinks the layout viewport). Once
-// the keyboard has finished animating, pull the focused field to the middle of whatever
-// space is left. Guarded to coarse pointers so desktop scrolling is untouched.
+// When the mobile software keyboard opens, a vertically-centered dialog can end up behind it.
+// iOS Safari never shrinks the layout viewport (so `inset-0` / `dvh` / `interactive-widget`
+// don't help) — only `window.visualViewport` reflects the space the keyboard took. We watch
+// it and, while a keyboard-sized inset exists, pad the overlay's bottom (so `place-items-center`
+// re-centers into what's visible) and cap the dialog's height to that visible band.
+function useKeyboardAwareViewport(
+  overlayRef: React.RefObject<HTMLDivElement | null>,
+  contentRef: React.RefObject<HTMLDivElement | null>
+) {
+  React.useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const apply = () => {
+      const overlay = overlayRef.current;
+      const content = contentRef.current;
+      // Height of whatever is covering the bottom of the layout viewport (the keyboard).
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      const keyboardOpen = inset > 80;
+      if (overlay) overlay.style.paddingBottom = keyboardOpen ? `${inset + 16}px` : "";
+      if (content) content.style.maxHeight = keyboardOpen ? `${vv.height - 32}px` : "";
+    };
+
+    const overlayAtMount = overlayRef.current;
+    const contentAtMount = contentRef.current;
+    apply();
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    return () => {
+      vv.removeEventListener("resize", apply);
+      vv.removeEventListener("scroll", apply);
+      if (overlayAtMount) overlayAtMount.style.paddingBottom = "";
+      if (contentAtMount) contentAtMount.style.maxHeight = "";
+    };
+  }, [overlayRef, contentRef]);
+}
+
+// Once the keyboard has animated in, pull the focused field to the middle of the space that's
+// left (helps long forms that scroll internally). Guarded to coarse pointers — desktop untouched.
 function scrollFocusedFieldIntoView(e: React.FocusEvent<HTMLDivElement>) {
   if (typeof window === "undefined" || !window.matchMedia?.("(pointer: coarse)").matches) return;
   const target = e.target as HTMLElement | null;
@@ -27,10 +62,18 @@ export function DialogContent({
   children,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
+  const overlayRef = React.useRef<HTMLDivElement>(null);
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  useKeyboardAwareViewport(overlayRef, contentRef);
+
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-neutral-900/50 p-4 data-[state=open]:animate-in data-[state=open]:fade-in data-[state=closed]:animate-out data-[state=closed]:fade-out">
+      <DialogPrimitive.Overlay
+        ref={overlayRef}
+        className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-neutral-900/50 p-4 data-[state=open]:animate-in data-[state=open]:fade-in data-[state=closed]:animate-out data-[state=closed]:fade-out"
+      >
         <DialogPrimitive.Content
+          ref={contentRef}
           className={cn(
             "relative my-8 flex w-full max-w-[440px] max-h-[calc(100dvh-4rem)] flex-col border border-divider bg-surface shadow-lg",
             "data-[state=open]:animate-in data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:zoom-out-95",
