@@ -16,7 +16,7 @@ export function MonthlyChart({ data }: { data: MonthlyEvolutionDTO[] }) {
         help={
           <>
             <p>Receitas (verde) e despesas (vermelho) mês a mês — 12 meses atrás e 3 à frente.</p>
-            <p>A barra do mês atual já soma o que ainda falta pagar (faturas, despesas programadas); os outros meses são só o que de fato aconteceu.</p>
+            <p>Toda barra soma também as despesas programadas e os parcelamentos ainda não pagos daquele mês, além do que já foi lançado.</p>
             <p>A barra roxa, quando aparece, é quanto você guardou em Metas naquele mês.</p>
           </>
         }

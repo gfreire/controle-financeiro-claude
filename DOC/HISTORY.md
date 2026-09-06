@@ -440,6 +440,18 @@ does — it kept returning "Could not find the table 'public.card_refunds'".
 - **`getDefaultDashboardMonth`** (2026-08-28) — mirrors `getDefaultCardsMonth`: without
   `?month=`, opens on next month if today's obligations are all paid and next month has
   something to show.
+- **Evolução mensal projects every bar, not just the viewed month** (2026-09-06) — "Grafico de
+  evolucao mensal no dashboard so conta despesas fixas no mes corrente... tem q sempre ter o
+  mesmo calculo, ou seja ser sempre completo". Before, `getMonthlyEvolution` passed a single
+  `obligationsMonth` to `fetchPeriodEntries`, so only the viewed-month bar folded in unpaid
+  fixed expenses / `INSTALLMENT_PLAN` — every other bar (incl. the 3 future months, which only
+  had scheduled card installments) looked artificially short. Now the param is
+  `obligationsMonths?: string[]`; `getMonthlyEvolution` passes its whole 15-month window and
+  `fetchUnpaidObligationEntries` loops per month (`getFixedExpenses` per month in parallel,
+  `getDebts()` once). `OVERDUE_BILL` is a one-off lump with no competence, so it's projected
+  only into the current real month — repeating it across 15 bars would just add the same figure
+  everywhere. Still a dashboard-presentation-only break from "Money Reality Rules"; the DESPESAS
+  card / Balanço / expense donut still project the single viewed month via `[viewedMonth]`.
 
 # Performance pass (2026-08-10, migration `0013`)
 

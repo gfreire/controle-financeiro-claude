@@ -41,12 +41,14 @@ async function fetchPeriodEntries(
   userId: string,
   filters: DashboardFilters,
   /**
-   * When set ("YYYY-MM"), the unpaid projected obligations of that month (despesas programadas /
-   * INSTALLMENT_PLAN / OVERDUE_BILL not yet paid) are appended as EXPENSE entries — see
-   * `fetchUnpaidObligationEntries`. Callers pass the single viewed month; for the 15-month
-   * evolution window the entries' competence date buckets them into that one month's bar.
+   * When set, the unpaid projected obligations of each listed month ("YYYY-MM") — despesas
+   * programadas / INSTALLMENT_PLAN not yet paid, plus OVERDUE_BILL in the current real month —
+   * are appended as EXPENSE entries dated `${month}-01`, so they bucket into that month's bar.
+   * See `fetchUnpaidObligationEntries`. `getFinancialSummary`/`getCategoryDistribution` pass the
+   * single viewed month; `getMonthlyEvolution` passes every month of its 15-month window so every
+   * bar uses the same calculation (not just the viewed one).
    */
-  obligationsMonth?: string
+  obligationsMonths?: string[]
 ): Promise<Entry[]> {
   const entries: Entry[] = [];
   // "liquid" = only CASH/BANK transactions; "cards" = only card_installments. A plain EXPENSE
@@ -273,24 +275,137 @@ async function fetchPeriodEntries(
     }
   }
 
-  if (obligationsMonth) {
-    entries.push(...(await fetchUnpaidObligationEntries(supabase, filters, obligationsMonth)));
+  if (obligationsMonths?.length) {
+    entries.push(...(await fetchUnpaidObligationEntries(supabase, filters, obligationsMonths)));
   }
 
   return entries;
 }
 
 /**
- * Unpaid projected obligations for a single month, returned as EXPENSE `Entry`s so they flow
- * into the dashboard's expense totals (DESPESAS card, Balanço Mensal, "Despesas por categoria"
- * donut, and the viewed-month bar of Evolução mensal) exactly like a real transaction would.
+ * Per-month unpaid fixed-expense projections for a whole span of months, in a fixed handful of
+ * queries — the batched equivalent of calling `getFixedExpenses(month)` once per month, which
+ * the 15-month evolution window made far too slow. Mirrors `getFixedExpenses` exactly on the
+ * three things that matter here: the competence-window filter (`start_competence <= monthStart
+ * <= end_competence`), the `fixed_expense_amount_history` resolution (latest `effective_from <=
+ * monthStart`, falling back to `fixed_expenses.amount`), and `isPaidThisMonth` (a linked real
+ * transaction dated in the month, or a linked card installment with competence in the month).
+ * An expense already paid for a month is omitted for that month.
+ */
+async function fetchUnpaidFixedExpensesByMonth(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  months: string[]
+): Promise<Array<{ month: string; amount: number; categoryId: string | null; subcategoryId: string | null }>> {
+  if (!months.length) return [];
+  const user = await getUser();
+
+  const { data: fixedExpensesData, error: feError } = await supabase
+    .from("fixed_expenses")
+    .select("id, amount, category_id, subcategory_id, start_competence, end_competence")
+    .eq("user_id", user.id);
+  if (feError) throw new Error(feError.message);
+  const fixedExpenses = (fixedExpensesData ?? []) as Array<{
+    id: string;
+    amount: number;
+    category_id: string | null;
+    subcategory_id: string | null;
+    start_competence: string;
+    end_competence: string | null;
+  }>;
+  if (!fixedExpenses.length) return [];
+
+  const feIds = fixedExpenses.map((f) => f.id);
+  const windowStart = `${months[0]}-01`;
+  const windowEnd = endOfMonth(`${months[months.length - 1]}-01`);
+
+  const [historyRes, linkedTxRes, purchasesRes] = await Promise.all([
+    supabase
+      .from("fixed_expense_amount_history")
+      .select("fixed_expense_id, amount, effective_from")
+      .in("fixed_expense_id", feIds)
+      .order("effective_from", { ascending: false }),
+    supabase
+      .from("transactions")
+      .select("fixed_expense_id, date")
+      .in("fixed_expense_id", feIds)
+      .gte("date", windowStart)
+      .lte("date", windowEnd),
+    supabase.from("card_purchases").select("id, fixed_expense_id").in("fixed_expense_id", feIds),
+  ]);
+  if (historyRes.error) throw new Error(historyRes.error.message);
+  if (linkedTxRes.error) throw new Error(linkedTxRes.error.message);
+  if (purchasesRes.error) throw new Error(purchasesRes.error.message);
+
+  const purchaseToFe = new Map(
+    ((purchasesRes.data ?? []) as Array<{ id: string; fixed_expense_id: string | null }>)
+      .filter((p) => p.fixed_expense_id)
+      .map((p) => [p.id, p.fixed_expense_id as string])
+  );
+  let installments: Array<{ purchase_id: string; competence: string }> = [];
+  if (purchaseToFe.size) {
+    const { data, error } = await supabase
+      .from("card_installments")
+      .select("purchase_id, competence")
+      .in("purchase_id", [...purchaseToFe.keys()])
+      .gte("competence", windowStart)
+      .lte("competence", windowEnd);
+    if (error) throw new Error(error.message);
+    installments = (data ?? []) as Array<{ purchase_id: string; competence: string }>;
+  }
+
+  // "{feId}|{YYYY-MM}" is present when that fixed expense has a real payment landing in that month.
+  const paidKeys = new Set<string>();
+  for (const t of (linkedTxRes.data ?? []) as Array<{ fixed_expense_id: string | null; date: string }>) {
+    if (t.fixed_expense_id) paidKeys.add(`${t.fixed_expense_id}|${monthKey(t.date)}`);
+  }
+  for (const inst of installments) {
+    const feId = purchaseToFe.get(inst.purchase_id);
+    if (feId) paidKeys.add(`${feId}|${monthKey(inst.competence)}`);
+  }
+
+  const historyByFe = new Map<string, Array<{ amount: number; effective_from: string }>>();
+  for (const row of (historyRes.data ?? []) as Array<{ fixed_expense_id: string; amount: number; effective_from: string }>) {
+    const arr = historyByFe.get(row.fixed_expense_id) ?? [];
+    arr.push({ amount: row.amount, effective_from: row.effective_from });
+    historyByFe.set(row.fixed_expense_id, arr);
+  }
+  const plannedFor = (fe: { id: string; amount: number }, monthStart: string): number =>
+    historyByFe.get(fe.id)?.find((r) => r.effective_from <= monthStart)?.amount ?? fe.amount;
+
+  const out: Array<{ month: string; amount: number; categoryId: string | null; subcategoryId: string | null }> = [];
+  for (const month of months) {
+    const monthStart = `${month}-01`;
+    for (const fe of fixedExpenses) {
+      if (fe.start_competence > monthStart) continue;
+      if (fe.end_competence && fe.end_competence < monthStart) continue;
+      if (paidKeys.has(`${fe.id}|${month}`)) continue;
+      out.push({
+        month,
+        amount: plannedFor(fe, monthStart),
+        categoryId: fe.category_id,
+        subcategoryId: fe.subcategory_id,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Unpaid projected obligations for each listed month, returned as EXPENSE `Entry`s dated
+ * `${month}-01` so they flow into the dashboard's expense totals (DESPESAS card, Balanço Mensal,
+ * "Despesas por categoria" donut, and every bar of Evolução mensal) exactly like a real
+ * transaction would.
  *
- * Mirrors the "Despesas do mês" card's rule (`getCurrentMonthObligations`): every despesa
- * programada not yet paid this month (`plannedAmount`), every INSTALLMENT_PLAN debt whose
- * competence for `month` isn't covered by payments (`monthlyAmount`), every OVERDUE_BILL debt
- * (`remainingBalance`). This is a
+ * Mirrors the "Despesas do mês" card's rule (`getCurrentMonthObligations`): per month, every
+ * despesa programada not yet paid that month (`plannedAmount`), every INSTALLMENT_PLAN debt
+ * whose competence for that month isn't covered by payments (`monthlyAmount`). This is a
  * deliberate, documented break from "Money Reality Rules" for the dashboard's expense side —
- * decided 2026-08-28, see AI_CONTEXT.md "Despesas do mês (dashboard)".
+ * decided 2026-08-28, extended to every evolution bar 2026-09-06, see AI_CONTEXT.md "Despesas do
+ * mês (dashboard)".
+ *
+ * OVERDUE_BILL is a one-off lump (`remainingBalance`, no competence concept), so it's projected
+ * only into the current real month among `months` — repeating it in every bar would just add the
+ * same figure 15 times.
  *
  * Card invoices are NOT projected here — real `card_installments` already carry the full invoice
  * by competence, paid or not, so the DESPESAS card ends up reconciling exactly with the
@@ -304,33 +419,39 @@ async function fetchPeriodEntries(
 async function fetchUnpaidObligationEntries(
   supabase: Awaited<ReturnType<typeof createClient>>,
   filters: DashboardFilters,
-  month: string
+  months: string[]
 ): Promise<Entry[]> {
   if (filters.transactionType === "INCOME") return [];
   if (filters.accounts?.length) return [];
   if (filters.source === "liquid" || filters.source === "cards") return [];
+  if (!months.length) return [];
 
-  const [fixedExpenses, debts] = await Promise.all([getFixedExpenses(`${month}-01`), getDebts()]);
+  const currentMonth = monthKey(todayIso());
 
-  type Raw = { amount: number; categoryId: string | null; subcategoryId: string | null };
-  const raws: Raw[] = [];
+  // Fixed expenses per month come from one batched query set (not 15 × `getFixedExpenses`, which
+  // made the evolution window's dashboard load take 6-12s); `getDebts()` is month-independent.
+  const [fixedRaws, debts] = await Promise.all([
+    fetchUnpaidFixedExpensesByMonth(supabase, months),
+    getDebts(),
+  ]);
 
-  for (const fe of fixedExpenses) {
-    if (fe.isPaidThisMonth) continue;
-    raws.push({ amount: fe.plannedAmount, categoryId: fe.categoryId, subcategoryId: fe.subcategoryId ?? null });
-  }
-  for (const debt of debts) {
-    if (debt.side !== "PAYABLE" || debt.kind === "PERSONAL") continue;
-    if (debt.kind === "INSTALLMENT_PLAN") {
-      // Competence-anchored, not calendar-month: an installment counts as owed for `month` only
-      // once the plan has started and that competence isn't already covered by payments
-      // (oldest-first). See AI_CONTEXT.md "Parcelamento Programado — competência e adiantado/atrasado".
-      if (debt.startCompetence && month < debt.startCompetence) continue;
-      if (debt.paidThroughCompetence && month <= debt.paidThroughCompetence) continue;
-      raws.push({ amount: debt.monthlyAmount ?? debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null });
-    } else {
-      // OVERDUE_BILL — always outstanding
-      raws.push({ amount: debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null });
+  type Raw = { month: string; amount: number; categoryId: string | null; subcategoryId: string | null };
+  const raws: Raw[] = [...fixedRaws];
+
+  for (const month of months) {
+    for (const debt of debts) {
+      if (debt.side !== "PAYABLE" || debt.kind === "PERSONAL") continue;
+      if (debt.kind === "INSTALLMENT_PLAN") {
+        // Competence-anchored, not calendar-month: an installment counts as owed for `month` only
+        // once the plan has started and that competence isn't already covered by payments
+        // (oldest-first). See AI_CONTEXT.md "Parcelamento Programado — competência e adiantado/atrasado".
+        if (debt.startCompetence && month < debt.startCompetence) continue;
+        if (debt.paidThroughCompetence && month <= debt.paidThroughCompetence) continue;
+        raws.push({ month, amount: debt.monthlyAmount ?? debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null });
+      } else if (month === currentMonth) {
+        // OVERDUE_BILL — a single outstanding lump; projected only into the current real month.
+        raws.push({ month, amount: debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null });
+      }
     }
   }
 
@@ -350,12 +471,11 @@ async function fetchUnpaidObligationEntries(
     }
   }
 
-  const date = `${month}-01`;
   return filtered.map((r) => {
     const cat = r.categoryId ? catById.get(r.categoryId) : undefined;
     return {
       amount: r.amount,
-      date,
+      date: `${r.month}-01`,
       type: "EXPENSE" as const,
       categoryId: r.categoryId,
       categoryName: cat?.name ?? "Sem categoria",
@@ -415,7 +535,12 @@ export async function getFinancialSummary(
 ): Promise<FinancialSummaryDTO> {
   const supabase = await createClient();
   const user = await getUser();
-  const entries = await fetchPeriodEntries(supabase, user.id, filters, obligationsMonth);
+  const entries = await fetchPeriodEntries(
+    supabase,
+    user.id,
+    filters,
+    obligationsMonth ? [obligationsMonth] : undefined
+  );
 
   const income = sumMoney(entries.filter((e) => e.type === "INCOME").map((e) => e.amount));
   const expense = sumMoney(entries.filter((e) => e.type === "EXPENSE").map((e) => e.amount));
@@ -451,10 +576,26 @@ export async function getMonthlyEvolution(
 ): Promise<MonthlyEvolutionDTO[]> {
   const supabase = await createClient();
   const user = await getUser();
-  // Obligation entries carry `${obligationsMonth}-01` as their date, so they bucket into that
-  // single month's bar (the viewed month) — the other months in the 15-month window stay
-  // actuals-only, which keeps the viewed month's bar reconciled with the category donut.
-  const entries = await fetchPeriodEntries(supabase, user.id, filters, obligationsMonth);
+
+  const months: string[] = [];
+  let cursor = filters.periodStart.slice(0, 7);
+  const endMonth = filters.periodEnd.slice(0, 7);
+  while (cursor <= endMonth) {
+    months.push(cursor);
+    cursor = monthKey(addMonthsToIsoDate(`${cursor}-01`, 1));
+  }
+
+  // Every bar projects its own month's unpaid obligations (despesas programadas + parcelamentos,
+  // por competência), not just the viewed month — assim o cálculo é o mesmo em toda a janela e
+  // uma barra futura não aparece "menor" só por ainda não ter os lançamentos fixos. Cada entrada
+  // carrega `${mês}-01` como data, então cai na barra do seu mês. `obligationsMonth` funciona
+  // aqui só como flag "projetar obrigações"; quando setado, projeta em todos os `months`.
+  const entries = await fetchPeriodEntries(
+    supabase,
+    user.id,
+    filters,
+    obligationsMonth ? months : undefined
+  );
 
   // Reserved flow (Meta aporte/resgate) per month — a third bar, same unit as income/expense.
   // Net Σ RESERVE − Σ REDEEM dated in each month; goal-linked rows only (an orphaned RESERVE from
@@ -474,14 +615,6 @@ export async function getMonthlyEvolution(
   }
   const { data: reservedRows, error: reservedError } = await reservedQuery;
   if (reservedError) throw new Error(reservedError.message);
-
-  const months: string[] = [];
-  let cursor = filters.periodStart.slice(0, 7);
-  const endMonth = filters.periodEnd.slice(0, 7);
-  while (cursor <= endMonth) {
-    months.push(cursor);
-    cursor = monthKey(addMonthsToIsoDate(`${cursor}-01`, 1));
-  }
 
   return months.map((month) => {
     const monthEntries = entries.filter((e) => monthKey(e.date) === month);
@@ -506,7 +639,12 @@ export async function getCategoryDistribution(
   const supabase = await createClient();
   const user = await getUser();
   const effectiveFilters: DashboardFilters = { ...filters, transactionType: filters.transactionType ?? "EXPENSE" };
-  const entries = await fetchPeriodEntries(supabase, user.id, effectiveFilters, obligationsMonth);
+  const entries = await fetchPeriodEntries(
+    supabase,
+    user.id,
+    effectiveFilters,
+    obligationsMonth ? [obligationsMonth] : undefined
+  );
 
   const byCategory = new Map<string, { categoryId: string; categoryName: string; color: string; icon: string | null; amounts: number[] }>();
   for (const entry of entries) {

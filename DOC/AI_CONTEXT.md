@@ -1201,14 +1201,20 @@ CASH/BANK account balances (like `TRANSFER`), just not income/expense totals.
 row — same shape as "Compras retroativas").
 
 **One deliberate, documented exception**: the **dashboard's expense side** — the "Despesas
-por categoria" donut, the DESPESAS summary card (and therefore Balanço Mensal), and the
-viewed-month bar of Evolução mensal — projects the viewed month's **unpaid** `fixed_expenses`
-and `PAYABLE` `OVERDUE_BILL`/`INSTALLMENT_PLAN` `debts` as synthetic EXPENSE entries, matching
-the "Despesas de {mês}" card. Via `dashboard.service.ts#fetchUnpaidObligationEntries` (no
-`transactions` rows created), passed through `fetchPeriodEntries`'s `obligationsMonth?` param.
-Does **not** extend to the Explorador de Lançamentos, account balances, budgets'
-`actualAmount`, or anything else. Skipped when an account filter is active, when the
-`liquid`/`cards` expense-source toggle is set, or in an INCOME-only view;
+por categoria" donut, the DESPESAS summary card (and therefore Balanço Mensal), and **every
+bar** of Evolução mensal — projects each relevant month's **unpaid** `fixed_expenses` and
+`PAYABLE` `INSTALLMENT_PLAN` `debts` (by competence) as synthetic EXPENSE entries, matching
+the "Despesas de {mês}" card. The donut / DESPESAS card / Balanço project the single viewed
+month; **Evolução mensal projects every month of its 15-month window** so all bars use the
+same calculation and a future bar isn't artificially short for lacking its recurring bills
+(changed 2026-09-06 — before, only the viewed-month bar projected). `OVERDUE_BILL` (a one-off
+lump, no competence) is projected only into the current real month, never repeated across
+bars. Via `dashboard.service.ts#fetchUnpaidObligationEntries` (no `transactions` rows
+created), passed through `fetchPeriodEntries`'s `obligationsMonths?: string[]` param — one
+month from `getFinancialSummary`/`getCategoryDistribution`, the whole window from
+`getMonthlyEvolution`. Does **not** extend to the Explorador de Lançamentos, account
+balances, budgets' `actualAmount`, or anything else. Skipped when an account filter is
+active, when the `liquid`/`cards` expense-source toggle is set, or in an INCOME-only view;
 category/subcategory/`uncategorizedOnly` filters are honored (debts have no subcategory → a
 subcategory filter drops them).
 

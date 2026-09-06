@@ -52,9 +52,10 @@ not to rediscover whether a feature exists.
   `ExpenseSourceToggle`). A "Despesas de {mês}" card (`MonthObligationsCard`): donut +
   actionable list of what's still to pay (card invoices by competence, fixed expenses,
   `OVERDUE_BILL`/`INSTALLMENT_PLAN` debts, each with a "Pagar" button). The DESPESAS/Balanço
-  cards, the expense donut, and the viewed-month evolution bar fold in that same
-  unpaid-obligations projection (a documented break from "Money Reality Rules" — see
-  `AI_CONTEXT.md`). Budgets/fixed-expenses panel scoped to the viewed month. Transaction
+  cards and the expense donut fold in that same unpaid-obligations projection for the viewed
+  month; **every bar of the evolution chart** projects its own month's unpaid fixed
+  expenses / `INSTALLMENT_PLAN` competence (a documented break from "Money Reality Rules" —
+  see `AI_CONTEXT.md`). Budgets/fixed-expenses panel scoped to the viewed month. Transaction
   Explorer with inline category edit + a full-edit dialog (`source: "transaction"` rows only)
   + delete + account-type icon per row; below `sm:` it renders a stacked card list. A "Metas"
   block of compact donuts + a "Guardado (metas)" evolution bar + a "guardado em metas" Saldo
@@ -458,8 +459,10 @@ Layout:
    the viewed month's unpaid projected obligations.
 1b. "Despesas de {mês}" card (`MonthObligationsCard`) — donut (`total` in the center) +
    actionable list. Follows the viewed month. Hidden when a category filter is active.
-2. Monthly Evolution (bar) — 12 months back + 3 forward from the viewed month. The viewed
-   month's bar folds in that month's unpaid projected obligations; the rest are actuals-only.
+2. Monthly Evolution (bar) — 12 months back + 3 forward from the viewed month. **Every** bar
+   folds in its own month's unpaid projected obligations (unpaid fixed expenses +
+   `INSTALLMENT_PLAN` by competence; `OVERDUE_BILL` only in the current real month), so all
+   bars use the same calculation — changed 2026-09-06, before only the viewed-month bar did.
 3. Category Distribution — EXPENSE (segmentable by account type via `ExpenseSourceToggle`) and
    INCOME donuts side by side (each forces its own `transactionType` per-call). When a
    category filter produces no data for one side while the other has data, that empty side's
@@ -486,7 +489,9 @@ flow.
 getFinancialSummary(filters, obligationsMonth?) → FinancialSummaryDTO
 getMonthlyEvolution(filters, obligationsMonth?) → MonthlyEvolutionDTO[]
   -- page.tsx overrides periodStart/periodEnd to 11 months before + the reference month + 3
-  -- months after; MonthlyChart is always this 15-month window.
+  -- months after; MonthlyChart is always this 15-month window. obligationsMonth here is only a
+  -- "project obligations" flag — when set, EVERY month of the window projects its own unpaid
+  -- obligations (not just that month), so all bars share one calculation.
 getCategoryDistribution(filters, obligationsMonth?) → CategoryDistributionDTO[]
   -- filters.source ("liquid"/"cards") narrows fetchPeriodEntries to one query — expense
   -- donut's account-type toggle only.
@@ -510,14 +515,16 @@ getDefaultDashboardMonth() → string
 amounts (INCOME, `is_system` "Compras retroativas", via cached `getRetroactiveIncomeCategory`),
 and `goal_yields` (INCOME, `is_system` "Rendimentos", via cached `getRendimentosCategory`).
 The last two are income-side only, skip `uncategorizedOnly`/subcategory filters, and their
-category filter matches the system-category id (not a spending category). `obligationsMonth?`,
-when set, appends that month's unpaid projected obligations via
-`fetchUnpaidObligationEntries(supabase, filters, month)` — synthetic EXPENSE entries for
+category filter matches the system-category id (not a spending category). `obligationsMonths?:
+string[]`, when non-empty, appends each listed month's unpaid projected obligations via
+`fetchUnpaidObligationEntries(supabase, filters, months)` — synthetic EXPENSE entries for
 unpaid fixed expenses (`plannedAmount`, own category) + `PAYABLE` `INSTALLMENT_PLAN` whose
-competence isn't covered (`monthlyAmount`, `default_category_id`) + `OVERDUE_BILL`
-(`remainingBalance`, `default_category_id`), each dated `"${month}-01"`. Skipped for an
-account filter, `source=liquid/cards`, or an INCOME-only view. None of these last three are
-added to `getTransactionsFiltered` (no real row).
+competence for that month isn't covered (`monthlyAmount`, `default_category_id`) +
+`OVERDUE_BILL` (`remainingBalance`, `default_category_id`) **only for the current real month**,
+each dated `"${month}-01"`. `getFinancialSummary`/`getCategoryDistribution` pass `[viewedMonth]`;
+`getMonthlyEvolution` passes its whole 15-month window so every bar projects (changed
+2026-09-06). Skipped for an account filter, `source=liquid/cards`, or an INCOME-only view.
+None of these are added to `getTransactionsFiltered` (no real row).
 
 ## transactions.service.ts
 ```
@@ -816,8 +823,9 @@ type FinancialSummaryDTO = {
 }
 
 type MonthlyEvolutionDTO = { month: string; income: number; expense: number; reserved: number }
-// the viewed month's `expense` also includes that month's unpaid projected obligations; the
-// other 14 months are actuals-only. `reserved` = net Σ RESERVE − Σ REDEEM dated in that month
+// every month's `expense` includes that month's own unpaid projected obligations (unpaid fixed
+// expenses + INSTALLMENT_PLAN by competence; OVERDUE_BILL only in the current real month) — all
+// 15 bars share the same calculation (changed 2026-09-06). `reserved` = net Σ RESERVE − Σ REDEEM dated in that month
 // (a monthly flow, not cumulative).
 
 type MonthObligationItemDTO = {
