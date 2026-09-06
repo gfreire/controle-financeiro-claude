@@ -48,7 +48,7 @@ export async function GoalCard({
   const saved = Math.max(0, Math.min(goal.currentBalance, goal.goalTarget));
   const remaining = Math.max(0, goal.goalTarget - goal.currentBalance);
   const donutData = [
-    { id: "saved", name: "Guardado", value: saved, color: "var(--color-success-500)" },
+    { id: "saved", name: "Guardado", value: saved, color: "var(--color-accent-500)" },
     { id: "left", name: "Falta", value: remaining, color: "var(--color-divider)" },
   ];
 

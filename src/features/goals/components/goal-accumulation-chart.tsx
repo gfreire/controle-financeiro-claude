@@ -43,13 +43,13 @@ export function GoalAccumulationChart({ data }: { data: GoalAccumulationDTO }) {
             {data.targetTotal > 0 && (
               <ReferenceLine
                 y={data.targetTotal}
-                stroke="var(--color-accent)"
+                stroke="var(--color-warning-500)"
                 strokeDasharray="4 4"
                 ifOverflow="extendDomain"
-                label={{ value: "Alvo total", position: "insideTopRight", fontSize: 10, fill: "var(--color-accent)" }}
+                label={{ value: "Alvo total", position: "insideTopRight", fontSize: 10, fill: "var(--color-warning-500)" }}
               />
             )}
-            <Bar dataKey="total" name="Guardado" fill="var(--color-success-500)" radius={[1, 1, 0, 0]} />
+            <Bar dataKey="total" name="Guardado" fill="var(--color-accent-500)" radius={[1, 1, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

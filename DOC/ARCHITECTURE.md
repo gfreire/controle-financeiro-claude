@@ -47,7 +47,9 @@ not to rediscover whether a feature exists.
 - **Dashboard** — single month only (period presets removed), navigated by the shared
   `MonthPicker`. Filters: category (multi-select, grouped under Receitas/Despesas with a
   per-group select-all — this replaced the standalone "Tipo" dropdown) + account (with type
-  icons). Charts: monthly evolution (always 12 months back + 3 forward) + expense/income
+  icons). Charts: monthly evolution (6-month window: 2 months back + viewed month + 3 forward;
+  per-month value labels drawn above the bars with a responsive font + an "Exibir lista"
+  toggle to a exact-values table) + expense/income
   category donuts side by side (the expense donut segmentable by account type via
   `ExpenseSourceToggle`). A "Despesas de {mês}" card (`MonthObligationsCard`): donut +
   actionable list of what's still to pay (card invoices by competence, fixed expenses,
@@ -302,7 +304,9 @@ src
  │  ├ dashboard/components (dashboard-filters [MonthPicker + account-type icons +
  │  │   category-multi-select]; use-category-filter.ts; filters.ts [parseDashboardFilters —
  │  │   always single-month]; month-obligations-card.tsx ["Despesas de {mês}"];
- │  │   summary-cards; monthly-chart [15-month window]; category-pie [expense + income donuts,
+ │  │   summary-cards; monthly-chart [6-month window; per-month value labels above the bars with a
+ │  │   width-derived responsive font (ResizeObserver on the container) + "Exibir lista" toggle
+ │  │   to an exact-values table]; category-pie [expense + income donuts,
  │  │   additive multi-select]; expense-source-toggle; goals-overview.tsx; budgets-panel
  │  │   [shares BudgetTree read-only]; transaction-explorer [table above sm:, stacked cards
  │  │   below]; editable-category-cell)
@@ -451,15 +455,17 @@ passes `onToggleGroup` (the dashboard does; the Cards page doesn't). Not identic
 accepted.
 
 Period: **single month only**, navigated by the shared `MonthPicker`. `getDefaultDashboardMonth()`
-decides the initial month without `?month=`. The Monthly Evolution chart's own 15-month
-window is built separately in `dashboard/page.tsx`.
+decides the initial month without `?month=`. The Monthly Evolution chart's own 6-month
+window (2 back + viewed + 3 forward) is built separately in `dashboard/page.tsx`.
 
 Layout:
 1. Financial Summary cards (balance, income, expense, result) — `expense`/`result` include
    the viewed month's unpaid projected obligations.
 1b. "Despesas de {mês}" card (`MonthObligationsCard`) — donut (`total` in the center) +
    actionable list. Follows the viewed month. Hidden when a category filter is active.
-2. Monthly Evolution (bar) — 12 months back + 3 forward from the viewed month. **Every** bar
+2. Monthly Evolution (bar) — 2 months back + 3 forward from the viewed month (6 bars; window
+   shrunk from 15 on 2026-09-07). Per-month value labels sit above the bars (responsive font,
+   see `monthly-chart.tsx`) with an "Exibir lista" toggle to an exact-values table. **Every** bar
    folds in its own month's unpaid projected obligations (unpaid fixed expenses +
    `INSTALLMENT_PLAN` by competence; `OVERDUE_BILL` only in the current real month), so all
    bars use the same calculation — changed 2026-09-06, before only the viewed-month bar did.
@@ -488,8 +494,8 @@ flow.
 ```
 getFinancialSummary(filters, obligationsMonth?) → FinancialSummaryDTO
 getMonthlyEvolution(filters, obligationsMonth?) → MonthlyEvolutionDTO[]
-  -- page.tsx overrides periodStart/periodEnd to 11 months before + the reference month + 3
-  -- months after; MonthlyChart is always this 15-month window. obligationsMonth here is only a
+  -- page.tsx overrides periodStart/periodEnd to 2 months before + the reference month + 3
+  -- months after; MonthlyChart is always this 6-month window. obligationsMonth here is only a
   -- "project obligations" flag — when set, EVERY month of the window projects its own unpaid
   -- obligations (not just that month), so all bars share one calculation.
 getCategoryDistribution(filters, obligationsMonth?) → CategoryDistributionDTO[]
@@ -522,7 +528,7 @@ unpaid fixed expenses (`plannedAmount`, own category) + `PAYABLE` `INSTALLMENT_P
 competence for that month isn't covered (`monthlyAmount`, `default_category_id`) +
 `OVERDUE_BILL` (`remainingBalance`, `default_category_id`) **only for the current real month**,
 each dated `"${month}-01"`. `getFinancialSummary`/`getCategoryDistribution` pass `[viewedMonth]`;
-`getMonthlyEvolution` passes its whole 15-month window so every bar projects (changed
+`getMonthlyEvolution` passes its whole 6-month window so every bar projects (changed
 2026-09-06). Skipped for an account filter, `source=liquid/cards`, or an INCOME-only view.
 None of these are added to `getTransactionsFiltered` (no real row).
 
@@ -825,7 +831,7 @@ type FinancialSummaryDTO = {
 type MonthlyEvolutionDTO = { month: string; income: number; expense: number; reserved: number }
 // every month's `expense` includes that month's own unpaid projected obligations (unpaid fixed
 // expenses + INSTALLMENT_PLAN by competence; OVERDUE_BILL only in the current real month) — all
-// 15 bars share the same calculation (changed 2026-09-06). `reserved` = net Σ RESERVE − Σ REDEEM dated in that month
+// 6 bars share the same calculation (2026-09-06; window shrunk 15→6 on 2026-09-07). `reserved` = net Σ RESERVE − Σ REDEEM dated in that month
 // (a monthly flow, not cumulative).
 
 type MonthObligationItemDTO = {

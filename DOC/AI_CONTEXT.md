@@ -698,6 +698,24 @@ contribution).
 - **Evolução mensal** gets a 3rd bar "Guardado (metas)" = the month's **flow** (`Σ RESERVE −
   Σ REDEEM` dated in the month, `MonthlyEvolutionDTO.reserved`) — same unit as the other
   bars, not cumulative. Only renders if some month has flow `> 0`.
+- **Cor de Metas — padronizada em azul `--color-accent-500`** (2026-09-07). Toda
+  representação de "guardado em meta" usa esse azul: o donut de cada meta (bloco "Metas" do
+  dashboard **e** `/goals`), a barra do gráfico "Acumulado guardado", e a barra "Guardado
+  (metas)" da Evolução mensal (barra + rótulo de valor). "Falta" continua `--color-divider`
+  (cinza); a linha "Alvo total" do "Acumulado guardado" é âmbar `--color-warning-500` pra não
+  se confundir com a barra azul. Antes os donuts/acumulado usavam verde
+  (`--color-success-500`) — conflitava com a cor de receita e não era consistente entre as
+  telas. A barra de Metas nunca foi roxa no código (era `--color-accent`); o texto de ajuda
+  que dizia "roxa" foi corrigido pra "azul".
+- **Evolução mensal — janela e leitura dos valores** (`monthly-chart.tsx`, revisto
+  2026-09-07): janela de **6 meses** (2 atrás + o mês visualizado + 3 à frente). Os valores de
+  cada mês são desenhados **em cima das barras** (bloco de 3 linhas — receita verde / despesa
+  vermelha / Metas azul — um por mês, centralizado na banda, na margem superior do gráfico), com
+  **fonte responsiva**: derivada da largura de cada banda mensal (piso ~7,5px no celular, teto
+  13px no desktop) via `ResizeObserver` no container — o número mais largo sempre cabe na coluna
+  do seu mês. Abaixo do gráfico, um botão **"Exibir lista" / "Ocultar lista"** revela a mesma
+  informação numa tabela de valores exatos (`R$` completo). Nenhum dado novo — só apresentação;
+  o serviço `getMonthlyEvolution` continua agnóstico ao tamanho da janela.
 - **Saldo card** gets a sub-line "R$ X guardado em metas" (`FinancialSummaryDTO.reservedTotal`
   = Σ balance of every active goal; global, not scoped by the account filter).
 - **`/goals`**: an "Acumulado guardado" chart (`getGoalAccumulation` — total saved at the end
@@ -1205,7 +1223,8 @@ por categoria" donut, the DESPESAS summary card (and therefore Balanço Mensal),
 bar** of Evolução mensal — projects each relevant month's **unpaid** `fixed_expenses` and
 `PAYABLE` `INSTALLMENT_PLAN` `debts` (by competence) as synthetic EXPENSE entries, matching
 the "Despesas de {mês}" card. The donut / DESPESAS card / Balanço project the single viewed
-month; **Evolução mensal projects every month of its 15-month window** so all bars use the
+month; **Evolução mensal projects every month of its window** (2 meses atrás + o mês
+visualizado + 3 à frente = 6 barras — encolhido de 15 em 2026-09-07) so all bars use the
 same calculation and a future bar isn't artificially short for lacking its recurring bills
 (changed 2026-09-06 — before, only the viewed-month bar projected). `OVERDUE_BILL` (a one-off
 lump, no competence) is projected only into the current real month, never repeated across

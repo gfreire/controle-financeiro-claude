@@ -35,7 +35,7 @@ export function GoalsOverview({ data }: { data: GoalsOverviewDTO }) {
         <div className="flex items-center gap-1.5">
           <CardTitle className="flex items-center gap-1.5"><Target className="size-4" strokeWidth={1.5} /> Metas</CardTitle>
           <HelpHint id="dashboard.goals-overview" title="Metas">
-            <p>Progresso de cada meta: a parte verde é quanto já foi guardado do valor-alvo.</p>
+            <p>Progresso de cada meta: a parte azul é quanto já foi guardado do valor-alvo.</p>
             <p>O selo diz se você está adiantado, em dia ou atrasado em relação ao aporte mensal combinado.</p>
           </HelpHint>
         </div>
@@ -53,7 +53,7 @@ export function GoalsOverview({ data }: { data: GoalsOverviewDTO }) {
               </div>
               <DonutWithTotal
                 data={[
-                  { id: "saved", name: "Guardado", value: saved, color: "var(--color-success-500)" },
+                  { id: "saved", name: "Guardado", value: saved, color: "var(--color-accent-500)" },
                   { id: "left", name: "Falta", value: remaining, color: "var(--color-divider)" },
                 ]}
                 total={g.goalTarget}

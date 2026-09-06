@@ -45,15 +45,15 @@ export default async function DashboardPage({
   );
   const viewedMonth = monthKey(filters.periodEnd);
 
-  // Evolução mensal sempre mostra 12 meses no passado + 3 no futuro (a partir do mês
-  // visualizado) — um único mês de barra não conta uma evolução, e os 3 meses futuros mostram
-  // parcelas de cartão já agendadas (competence futura já existe em card_installments). Herda o
-  // mesmo filtro de categoria/conta/tipo do resto da página. As despesas projetadas não pagas
-  // (ver `viewedMonth` passado aos serviços abaixo) entram só na barra do mês visualizado.
+  // Evolução mensal mostra 2 meses no passado + o mês visualizado + 3 no futuro (janela de 6) —
+  // um único mês de barra não conta uma evolução, e os meses futuros mostram parcelas de cartão
+  // já agendadas (competence futura já existe em card_installments). Herda o mesmo filtro de
+  // categoria/conta/tipo do resto da página. As despesas projetadas não pagas (ver `viewedMonth`
+  // passado aos serviços abaixo) entram só na barra do mês visualizado.
   const referenceMonthStart = startOfMonth(filters.periodEnd);
   const monthlyEvolutionFilters: DashboardFiltersType = {
     ...filters,
-    periodStart: startOfMonth(addMonthsToIsoDate(referenceMonthStart, -11)),
+    periodStart: startOfMonth(addMonthsToIsoDate(referenceMonthStart, -2)),
     periodEnd: endOfMonth(addMonthsToIsoDate(referenceMonthStart, 3)),
   };
 

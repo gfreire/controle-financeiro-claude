@@ -452,6 +452,30 @@ does — it kept returning "Could not find the table 'public.card_refunds'".
   only into the current real month — repeating it across 15 bars would just add the same figure
   everywhere. Still a dashboard-presentation-only break from "Money Reality Rules"; the DESPESAS
   card / Balanço / expense donut still project the single viewed month via `[viewedMonth]`.
+- **Evolução mensal — janela 15→6, valores no gráfico, cor da barra de Metas** (2026-09-07) —
+  "exibir menos meses... 3 meses no passado o mes corrente e 3 no futuro" e depois "tire mais
+  um mes do passado assim exibimos apenas 6 meses". `monthlyEvolutionFilters` em
+  `dashboard/page.tsx` passou de `-11 / +3` para `-2 / +3` (6 barras). O serviço
+  `getMonthlyEvolution` nunca teve tamanho de janela fixo — só itera `periodStart→periodEnd` —
+  então a mudança foi só na página. Pedido paralelo: "ver os valores todos... no celular pra ver
+  isso é mais difícil". Testadas 3 alternativas (tabela sempre visível / rótulo por barra —
+  encavalava / barras horizontais — descartada). Ficou: **um bloco de 3 valores por mês
+  desenhado acima das barras** (`MonthValueLabels`, via `useXAxisScale`/`usePlotArea` do
+  recharts 3.x — `Customized` não injeta mais `xAxisMap`), **fonte responsiva** derivada da
+  largura de cada banda por um `ResizeObserver` no container (piso 7,5px, teto 13px), e um botão
+  **"Exibir lista"/"Ocultar lista"** que revela a tabela de valores exatos (era "Ver valores
+  exatos", trocado porque os valores já são exatos no gráfico). Valores no bloco vão sem o
+  prefixo `R$` (não cabe com ele em 6 meses no celular); a tabela mantém o `R$` completo. A
+  barra de Metas e seu rótulo passaram de `--color-accent` para `--color-accent-500` e o texto
+  de ajuda de "barra roxa" para "barra azul" (o usuário lia a cor anterior como roxa).
+- **Cor de Metas padronizada em azul** (2026-09-07, mesmo turno) — "podemos padronizar para
+  sempre este mesmo azul". Os donuts de meta (`goal-card.tsx`, `goals-overview.tsx`) e a barra
+  do "Acumulado guardado" (`goal-accumulation-chart.tsx`) usavam `--color-success-500` (verde),
+  o que o usuário mesmo notou depois: verde é a cor de receita e não batia com a barra de Metas
+  da Evolução mensal. Todos passaram a `--color-accent-500`. A `ReferenceLine` "Alvo total" do
+  "Acumulado guardado", que era `--color-accent`, virou `--color-warning-500` (âmbar) pra não
+  encostar na cor da barra. Sem token semântico novo (`--color-goal` etc.) — o projeto usa os
+  tokens de escala direto no código, então ficou `--color-accent-500` literal nos 4 pontos.
 
 # Performance pass (2026-08-10, migration `0013`)
 
