@@ -750,6 +750,16 @@ reduced it.
 Paying a debt with the user's own money **always** creates a linked transaction. Debts never
 affect dashboard totals directly — only their linked transactions do.
 
+- **Optional opening money movement (PERSONAL, create form only).** `DebtFormDialog`
+  ("Nova dívida pessoal") has a "Movimentar uma conta agora" toggle: when on, the debt's
+  opening amount also moves real money through a chosen CASH/BANK account. `createDebt` then
+  stores `initial_balance = 0` and posts the opening amount as a linked `debt_transactions`
+  "increase" entry (description `"Abertura da dívida {agent}"`, via `addDebtTransaction`) —
+  **not** as the seed `initial_balance`, since `remainingBalance` counts both and would
+  double it. `addDebtTransaction` picks the linked transaction's type from `side`: `PAYABLE`
+  (borrowed) → INCOME into the account; `RECEIVABLE` (lent) → EXPENSE out of it. The toggle
+  is absent in edit mode and on `/overdue-bills` / `/installment-plans` (those pages don't
+  pass `accounts`). `createDebtAction` revalidates `/dashboard` + `/accounts` for this case.
 - **Default description** (when blank): `"Movimentação da dívida {agent}"`, on the ledger row
   and its linked transaction; `DebtTransactionDialog` also pre-fills it.
 - **Settling to zero is an automatic soft delete.** `addDebtTransaction` recomputes the real

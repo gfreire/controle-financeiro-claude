@@ -27,6 +27,12 @@ const debtBaseSchema = z.object({
   // usado pra calcular adiantado/atrasado. "YYYY-MM" (o service normaliza pra primeiro dia do
   // mês). Ver AI_CONTEXT.md "Parcelamento Programado — competência e adiantado/atrasado".
   startCompetence: z.string().optional().nullable(),
+  // Create-only (PERSONAL). Quando preenchido, a abertura da dívida também movimenta dinheiro
+  // numa conta rastreada: o `initialBalance` vira um lançamento de abertura no razão (linkado a
+  // uma `transactions`) em vez do seed `initial_balance`, senão o saldo contaria o valor duas
+  // vezes. `addDebtTransaction` decide INCOME/EXPENSE pelo `side`. Ignorado no update.
+  openingAccountId: z.string().uuid().optional().nullable(),
+  openingDate: z.string().optional().nullable(),
 });
 
 export const debtSchema = debtBaseSchema.superRefine((data, ctx) => {
@@ -40,6 +46,9 @@ export const debtSchema = debtBaseSchema.superRefine((data, ctx) => {
     if (!data.startCompetence) {
       ctx.addIssue({ code: "custom", path: ["startCompetence"], message: "Mês de competência inicial é obrigatório para parcelamento" });
     }
+  }
+  if (data.openingAccountId && !(data.initialBalance > 0)) {
+    ctx.addIssue({ code: "custom", path: ["initialBalance"], message: "Informe um valor maior que zero para movimentar a conta" });
   }
 });
 export type DebtInput = z.infer<typeof debtSchema>;

@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle, DialogActions, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { CategorySelect } from "@/features/categories/components/category-select";
@@ -11,7 +13,7 @@ import { Plus } from "lucide-react";
 import { createDebtAction, updateDebtAction } from "../actions";
 import { debtSchema, updateDebtSchema } from "@/lib/validations/debts";
 import { monthKey, todayIso } from "@/lib/utils/date";
-import type { CategoryDTO, DebtDTO } from "@/types/dto";
+import type { AccountDTO, CategoryDTO, DebtDTO } from "@/types/dto";
 import type { DebtKind } from "@/types/database";
 
 const NONE = "NONE";
@@ -48,12 +50,15 @@ const KIND_COPY: Record<DebtKind, { newTitle: string; editTitle: string; newButt
 export function DebtFormDialog({
   categories: initialCategories,
   kind: fixedKind = "PERSONAL",
+  accounts = [],
   debt,
   trigger,
 }: {
   categories: CategoryDTO[];
   /** Fixed kind for create mode — set by the screen this dialog lives on. Ignored in edit mode. */
   kind?: DebtKind;
+  /** Liquid accounts (CASH/BANK) — only used by the create-mode "move money now" option (PERSONAL). */
+  accounts?: AccountDTO[];
   /** Present → edit mode: prefills from this debt and saves via updateDebtAction. */
   debt?: DebtDTO;
   trigger?: React.ReactNode;
@@ -73,6 +78,9 @@ export function DebtFormDialog({
   const [monthlyAmount, setMonthlyAmount] = useState(debt?.monthlyAmount !== undefined ? String(debt.monthlyAmount) : "");
   const [dueDay, setDueDay] = useState(debt?.dueDay !== undefined ? String(debt.dueDay) : "10");
   const [startCompetence, setStartCompetence] = useState(debt?.startCompetence ?? monthKey(todayIso()));
+  const [moveMoney, setMoveMoney] = useState(false);
+  const [movementAccountId, setMovementAccountId] = useState(accounts[0]?.id ?? "");
+  const [movementDate, setMovementDate] = useState(todayIso());
 
   // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
   // not an Effect: the dialog stays mounted across parent re-renders, so the useState
@@ -89,6 +97,9 @@ export function DebtFormDialog({
       setMonthlyAmount(debt?.monthlyAmount !== undefined ? String(debt.monthlyAmount) : "");
       setDueDay(debt?.dueDay !== undefined ? String(debt.dueDay) : "10");
       setStartCompetence(debt?.startCompetence ?? monthKey(todayIso()));
+      setMoveMoney(false);
+      setMovementAccountId(accounts[0]?.id ?? "");
+      setMovementDate(todayIso());
     }
   }
 
@@ -103,6 +114,11 @@ export function DebtFormDialog({
   // in), see debts.service.ts#addDebtTransaction.
   const categoryType = effectiveSide === "PAYABLE" ? "EXPENSE" : "INCOME";
 
+  // "Movimentar uma conta agora" — só faz sentido numa dívida pessoal nova (emprestei / peguei
+  // emprestado e o dinheiro passou por uma conta). A abertura vira um lançamento linkado no razão.
+  const canMoveMoney = kind === "PERSONAL" && !isEdit && accounts.length > 0;
+  const willMoveMoney = canMoveMoney && moveMoney && !!movementAccountId;
+
   function handleSubmit() {
     setError(null);
     const payload = {
@@ -114,6 +130,8 @@ export function DebtFormDialog({
       monthlyAmount: isInstallmentPlan ? Number(monthlyAmount) : null,
       dueDay: isInstallmentPlan ? Number(dueDay) : null,
       startCompetence: isInstallmentPlan ? startCompetence : null,
+      openingAccountId: willMoveMoney ? movementAccountId : null,
+      openingDate: willMoveMoney ? movementDate : null,
     };
     if (isEdit) {
       const parsed = updateDebtSchema.safeParse({ id: debt!.id, ...payload });
@@ -143,7 +161,7 @@ export function DebtFormDialog({
         await createDebtAction(parsed.data);
         router.refresh();
         setOpen(false);
-        setAgent(""); setInitialBalance(""); setDefaultCategoryId(NONE); setMonthlyAmount(""); setDueDay("10"); setStartCompetence(monthKey(todayIso()));
+        setAgent(""); setInitialBalance(""); setDefaultCategoryId(NONE); setMonthlyAmount(""); setDueDay("10"); setStartCompetence(monthKey(todayIso())); setMoveMoney(false);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao criar dívida");
       }
@@ -177,6 +195,32 @@ export function DebtFormDialog({
           <Label>Valor inicial</Label>
           <Input type="number" step="0.01" value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} />
         </Field>
+        {canMoveMoney && (
+          <>
+            <label className="flex items-center gap-2 text-sm">
+              <Switch checked={moveMoney} onCheckedChange={setMoveMoney} />
+              Movimentar uma conta agora
+            </label>
+            {moveMoney && (
+              <>
+                <Field>
+                  <Label>Conta</Label>
+                  <AccountSelect accounts={accounts} value={movementAccountId} onChange={setMovementAccountId} />
+                  <AccountBalanceHint accounts={accounts} accountId={movementAccountId} />
+                  <p className="mt-1 text-[11px] opacity-50">
+                    {effectiveSide === "PAYABLE"
+                      ? "Peguei emprestado — o dinheiro entra nessa conta."
+                      : "Emprestei — o dinheiro sai dessa conta."}
+                  </p>
+                </Field>
+                <Field>
+                  <Label>Data</Label>
+                  <Input type="date" value={movementDate} onChange={(e) => setMovementDate(e.target.value)} />
+                </Field>
+              </>
+            )}
+          </>
+        )}
         {isInstallmentPlan && (
           <>
             <div className="grid grid-cols-2 gap-2">

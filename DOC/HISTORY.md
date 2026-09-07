@@ -16,6 +16,40 @@ like this?" has an answer that isn't "git blame across 200 commits".
 
 ---
 
+# Optional opening money movement on a new PERSONAL debt (2026-09-06)
+
+User request: "Dívida pessoal pode opcionalmente ao cadastrar dívida nova retirar ou
+adicionar dinheiro a uma conta." So `DebtFormDialog` on `/debts` got a "Movimentar uma conta
+agora" toggle (create mode, PERSONAL only) — account picker + date — that opens the debt with
+a real linked transaction, the mirror of the Goals form's optional "reserva inicial".
+
+The one design knot was double-counting. `remainingBalance = initial_balance +
+Σ debt_transactions.amount`, and a `transactions` row can only be linked to a debt *through* a
+`debt_transactions` row (there is no `transactions.debt_id`). So the opening cash movement
+*must* be a ledger entry — which means `initial_balance` has to be 0 when the toggle is on,
+or the opening amount is counted twice. Chosen: toggle on → `createDebt` stores
+`initial_balance = 0` and calls `addDebtTransaction({ amount: +initialBalance,
+createLinkedTransaction: true, … })` for an "Abertura da dívida {agent}" entry.
+`addDebtTransaction`'s existing side/sign→type logic already produces the right direction
+(PAYABLE/borrowed → INCOME in; RECEIVABLE/lent → EXPENSE out), so no new money logic.
+
+Consequence accepted: for such a debt `DebtDTO.originalAmount` (= `initial_balance`) is 0. It
+has no UI consumer for PERSONAL (the card shows only `remainingBalance`; the edit form's
+"Valor inicial" field would show 0, which is odd but harmless and already true for any debt
+whose balance has moved). Adding `transactions.debt_id` to keep `originalAmount` meaningful
+was considered and rejected as disproportionate to a small convenience toggle.
+
+Rejected alternative: keep `initial_balance = enteredAmount` and create a bare linked
+`transactions` row with no `debt_transactions` entry — leaves an untraceable transaction that
+`deleteDebt` (soft delete only) never cleans up, against the codebase's linked-records
+discipline.
+
+Not extended to `/overdue-bills` / `/installment-plans` (those pages don't pass `accounts` to
+the dialog) or to edit mode. `createDebtAction` now also revalidates `/dashboard` +
+`/accounts`. No schema change — reuses `debt_transactions` + `transactions` as-is.
+
+---
+
 # Per-screen help hints — `HelpHint` (2026-08-31)
 
 The page-level `HelpButton` ("?" in every header) is opt-in and easy to never notice — a lay

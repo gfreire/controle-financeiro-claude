@@ -1,4 +1,5 @@
 import { getCategories } from "@/services/categories.service";
+import { getAccounts } from "@/services/accounts.service";
 import { DebtFormDialog } from "@/features/debts/components/debt-form-dialog";
 import { DebtsView } from "@/features/debts/components/debts-view";
 import { DebtSideFilter } from "@/features/debts/components/debt-side-filter";
@@ -19,7 +20,8 @@ export default async function DebtsPage({
   const sideFilter =
     resolvedSearchParams.side === "PAYABLE" || resolvedSearchParams.side === "RECEIVABLE" ? resolvedSearchParams.side : null;
 
-  const categories = await getCategories();
+  const [categories, accounts] = await Promise.all([getCategories(), getAccounts()]);
+  const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
 
   return (
     <div className="flex flex-col gap-4">
@@ -32,7 +34,7 @@ export default async function DebtsPage({
             <p>&quot;Novo valor&quot; aumenta a dívida (com calculadora de juros opcional); &quot;Pagamento&quot; reduz.</p>
           </HelpButton>
         </div>
-        <DebtFormDialog kind="PERSONAL" categories={categories} />
+        <DebtFormDialog kind="PERSONAL" categories={categories} accounts={liquidAccounts} />
       </div>
 
       <DebtSideFilter />

@@ -90,6 +90,15 @@ export async function getDebts(): Promise<DebtDTO[]> {
 export async function createDebt(input: DebtInput): Promise<string> {
   const supabase = await createClient();
   const user = await getUser();
+
+  // Optionally (PERSONAL only, from the form) the debt's opening also moves real money through a
+  // tracked account — a friend hands over the cash, or the user lends it out. That opening amount
+  // then lives as a linked ledger entry (`addDebtTransaction` below), NOT as the seed
+  // `initial_balance`: `remainingBalance` is `initial_balance + Σ debt_transactions`, so keeping
+  // both would double-count it. `addDebtTransaction` reads the debt's `side` to post the linked
+  // `transactions` row as INCOME (borrowed → money in) or EXPENSE (lent → money out).
+  const movesMoney = !!input.openingAccountId && input.initialBalance > 0;
+
   const { data, error } = await supabase
     .from("debts")
     .insert({
@@ -97,7 +106,7 @@ export async function createDebt(input: DebtInput): Promise<string> {
       agent: input.agent,
       side: input.side,
       kind: input.kind,
-      initial_balance: input.initialBalance,
+      initial_balance: movesMoney ? 0 : input.initialBalance,
       default_category_id: input.defaultCategoryId ?? null,
       monthly_amount: input.monthlyAmount ?? null,
       due_day: input.dueDay ?? null,
@@ -106,6 +115,18 @@ export async function createDebt(input: DebtInput): Promise<string> {
     .select("id")
     .single();
   if (error) throw new Error(error.message);
+
+  if (movesMoney) {
+    await addDebtTransaction({
+      debtId: data.id,
+      amount: input.initialBalance, // positive = the debt is opened; direction is decided by `side`
+      date: input.openingDate || todayIso(),
+      description: `Abertura da dívida ${input.agent}`,
+      createLinkedTransaction: true,
+      linkedAccountId: input.openingAccountId,
+    });
+  }
+
   return data.id;
 }
 

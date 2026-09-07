@@ -24,6 +24,10 @@ export async function createDebtAction(input: DebtInput) {
   const parsed = debtSchema.parse(input);
   await debtsService.createDebt(parsed);
   revalidateDebtPaths();
+  // A PERSONAL debt can open with a linked money movement (openingAccountId) — that touches an
+  // account balance and the dashboard, same as addDebtTransactionAction.
+  revalidatePath("/dashboard");
+  revalidatePath("/accounts");
 }
 
 export async function updateDebtAction(input: UpdateDebtInput) {

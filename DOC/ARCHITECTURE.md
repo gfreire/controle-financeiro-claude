@@ -96,7 +96,8 @@ not to rediscover whether a feature exists.
   data); default description; auto soft-delete on settle-to-zero after a confirm-again
   warning; default category typed by side, pre-filled on the payment dialog only; debt +
   ledger entries editable/deletable with direction locked; `INSTALLMENT_PLAN` ahead/behind
-  badge by competence.
+  badge by competence. The PERSONAL create form has an optional "Movimentar uma conta agora"
+  toggle that opens the debt with a linked money movement in/out of a CASH/BANK account.
 - **Budgets / Despesas Programadas** — month-scoped budgets (`MonthNav` browses any month;
   only the current real month + the next once the current has a budget are editable; earlier
   is read-only). "Clonar de {mês}" from `lastRegisteredMonth`. A category's number is always
@@ -691,6 +692,10 @@ getGoalAccumulation() → GoalAccumulationDTO   -- cumulative total saved at the
 createDebt(data)   -- data.kind (PERSONAL default | OVERDUE_BILL | INSTALLMENT_PLAN).
   -- monthlyAmount/dueDay/startCompetence required in zod only for INSTALLMENT_PLAN.
   -- data.defaultCategoryId (EXPENSE for PAYABLE, INCOME for RECEIVABLE).
+  -- data.openingAccountId (+ optional openingDate): PERSONAL create-form "Movimentar uma
+  -- conta agora". When set, initial_balance is stored as 0 and the opening amount is posted
+  -- via addDebtTransaction as a linked "increase" entry ("Abertura da dívida {agent}") — not
+  -- the seed, to avoid double-counting in remainingBalance. Ignored by updateDebt.
 updateDebt(id, data)   -- partial: agent/side/kind/initialBalance/defaultCategoryId/
   -- monthlyAmount/dueDay/startCompetence.
 addDebtTransaction(data) → { settled: boolean }
