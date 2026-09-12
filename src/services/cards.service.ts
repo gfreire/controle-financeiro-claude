@@ -332,7 +332,6 @@ export async function getCardInstallments(cardId: string, filters: { periodStart
     sorted.forEach((row, index) => numbered.set(row.id, index + 1));
   }
 
-  // Compras à vista (1/1) primeiro, depois parceladas; dentro de cada grupo, ordena pela data real da compra.
   const rows = (data ?? []).map((row) => ({
     id: row.id,
     purchaseId: row.purchase_id,
@@ -345,12 +344,8 @@ export async function getCardInstallments(cardId: string, filters: { periodStart
     paidBeforeSystem: row.paid_before_system,
   }));
 
-  rows.sort((a, b) => {
-    const aSingle = a.totalInstallments === 1;
-    const bSingle = b.totalInstallments === 1;
-    if (aSingle !== bSingle) return aSingle ? -1 : 1;
-    return a.purchaseDate < b.purchaseDate ? -1 : a.purchaseDate > b.purchaseDate ? 1 : 0;
-  });
+  // Compras mais recentes primeiro (data real da compra) — não separa mais à vista de parcelado.
+  rows.sort((a, b) => (a.purchaseDate < b.purchaseDate ? 1 : a.purchaseDate > b.purchaseDate ? -1 : 0));
 
   return rows;
 }
