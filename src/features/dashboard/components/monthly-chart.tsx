@@ -1,75 +1,13 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  usePlotArea,
-  useXAxisScale,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { useState } from "react";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card } from "@/components/ui/card";
 import { CardTitleWithHelp } from "@/components/ui/help-hint";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils/currency";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
+import { compactMonth, MonthLabelsOverlay, useResponsiveLabelFont } from "@/components/ui/chart-month-labels";
 import type { MonthlyEvolutionDTO } from "@/types/dto";
-
-// d.month já vem como "set/2026" (formatMonthLabel). Encurta pra "set/26".
-function compactMonth(label: string) {
-  return label.replace(/\/(\d{2})(\d{2})$/, "/$2");
-}
-
-// Valor completo sem o prefixo "R$ " pra caber no bloco por mês: "3.000,00" / "10.000,00".
-function bareValue(v: number) {
-  if (v <= 0) return "—";
-  return formatCurrency(v).replace(/^R\$\s*/, "");
-}
-
-/**
- * Bloco de valores por mês desenhado ACIMA da área de plotagem (dentro da margem
- * superior do gráfico), 3 linhas empilhadas: receita (verde), despesa (vermelho) e,
- * quando há, o guardado em Metas (azul). Um bloco por mês, centralizado na banda —
- * nunca encavala entre meses porque cada bloco vive na sua própria coluna.
- * `fontSize` chega já calculado a partir da largura disponível (ver MonthlyChart).
- */
-function MonthValueLabels({
-  data,
-  showReserved,
-  fontSize,
-}: {
-  data: MonthlyEvolutionDTO[];
-  showReserved: boolean;
-  fontSize: number;
-}) {
-  const xScale = useXAxisScale();
-  const plot = usePlotArea();
-  if (!xScale || !plot) return null;
-  const lineGap = fontSize + 3;
-  const lines = showReserved ? 3 : 2;
-  const firstLineY = plot.y - (lines - 1) * lineGap - 11;
-
-  return (
-    <g>
-      {data.map((d) => {
-        const cx = xScale(d.month, { position: "middle" });
-        if (cx == null) return null;
-        return (
-          <text key={d.month} x={cx} textAnchor="middle" fontSize={fontSize} fontWeight={600}>
-            <tspan x={cx} y={firstLineY} fill="var(--color-success-600)">{bareValue(d.income)}</tspan>
-            <tspan x={cx} dy={lineGap} fill="var(--color-danger-600)">{bareValue(d.expense)}</tspan>
-            {showReserved && (
-              <tspan x={cx} dy={lineGap} fill="var(--color-accent-500)">{bareValue(d.reserved)}</tspan>
-            )}
-          </text>
-        );
-      })}
-    </g>
-  );
-}
 
 function ValuesTable({ data, showReserved }: { data: MonthlyEvolutionDTO[]; showReserved: boolean }) {
   return (
@@ -109,27 +47,8 @@ export function MonthlyChart({ data }: { data: MonthlyEvolutionDTO[] }) {
   const [listOpen, setListOpen] = useState(false);
 
   // Fonte do bloco de valores adapta à largura: aperta no celular (piso ~7.5px),
-  // cresce no desktop onde sobra espaço (teto 13px). Medimos o container e derivamos
-  // a fonte da largura de cada banda mensal — assim o número mais largo ("10.000,00")
-  // sempre cabe na coluna do seu mês.
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [labelFont, setLabelFont] = useState(9);
-  useLayoutEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const measure = () => {
-      const plotWidth = el.clientWidth - 52 /* eixo Y */ - 8 /* margem direita */;
-      if (plotWidth <= 0 || data.length === 0) return;
-      const bandWidth = plotWidth / data.length;
-      const longest = Math.max(6, ...data.flatMap((d) => [d.income, d.expense, d.reserved].map((v) => bareValue(v).length)));
-      const fitted = (bandWidth * 0.92) / (longest * 0.58);
-      setLabelFont(Math.max(7.5, Math.min(13, fitted)));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [data]);
+  // cresce no desktop onde sobra espaço (teto 13px) — ver useResponsiveLabelFont.
+  const { wrapRef, font: labelFont } = useResponsiveLabelFont(data, (d) => [d.income, d.expense, d.reserved]);
 
   const lineGap = labelFont + 3;
   const topPad = (showReserved ? 3 : 2) * lineGap + 11;
@@ -171,7 +90,16 @@ export function MonthlyChart({ data }: { data: MonthlyEvolutionDTO[] }) {
             {showReserved && (
               <Bar dataKey="reserved" name="Guardado (metas)" fill="var(--color-accent-500)" radius={[1, 1, 0, 0]} />
             )}
-            <MonthValueLabels data={data} showReserved={showReserved} fontSize={labelFont} />
+            <MonthLabelsOverlay
+              data={data}
+              monthKey={(d) => d.month}
+              fontSize={labelFont}
+              lines={(d) => [
+                { key: "income", value: d.income, color: "var(--color-success-600)" },
+                { key: "expense", value: d.expense, color: "var(--color-danger-600)" },
+                ...(showReserved ? [{ key: "reserved", value: d.reserved, color: "var(--color-accent-500)" }] : []),
+              ]}
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>

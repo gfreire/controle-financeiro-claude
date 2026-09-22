@@ -307,7 +307,9 @@ src
  │  │   always single-month]; month-obligations-card.tsx ["Despesas de {mês}"];
  │  │   summary-cards; monthly-chart [6-month window; per-month value labels above the bars with a
  │  │   width-derived responsive font (ResizeObserver on the container) + "Exibir lista" toggle
- │  │   to an exact-values table]; category-pie [expense + income donuts,
+ │  │   to an exact-values table — the label/font/table mechanics live in the shared
+ │  │   components/ui/chart-month-labels.tsx, reused by the Cards page's card-evolution-chart];
+ │  │   category-pie [expense + income donuts,
  │  │   additive multi-select]; expense-source-toggle; goals-overview.tsx; budgets-panel
  │  │   [shares BudgetTree read-only]; transaction-explorer [table above sm:, stacked cards
  │  │   below]; editable-category-cell)
@@ -324,7 +326,9 @@ src
  │  │   advance-installments-dialog.tsx ["Antecipar parcelas"], delete-purchase-button,
  │  │   month-nav, card-filters.tsx, card-expense-donut.tsx, card-evolution-chart
  │  │   [±6 months by competence, own local multi-select category filter via
- │  │   use-evolution-category-filter.ts])
+ │  │   use-evolution-category-filter.ts; same value-labels-above-bars + "Exibir lista"
+ │  │   table style as the dashboard's monthly-chart, via the shared chart-month-labels
+ │  │   helpers])
  │  ├ reservoirs/components (reservoir-form-dialog, accrual-dialog, withdrawal-dialog,
  │  │   delete-reservoir-button.tsx, delete-reservoir-transaction-button.tsx)
  │  ├ goals/components (goal-form-dialog [create+edit; start/end month pickers; live
@@ -369,7 +373,10 @@ src
   │   once an account is chosen], month-picker
  │  │   [click-anywhere-on-label showPicker(); shared by Dashboard/Cards/Transactions],
  │  │   loading-overlay [full-screen "Carregando…"], chart-tooltip [chartTooltipStyle],
- │  │   category-checkbox-filter [generic additive multi-select popover; optional
+ │  │   chart-month-labels.tsx [compactMonth, MonthLabelsOverlay, useResponsiveLabelFont —
+ │  │   the per-month value-labels-above-bars + responsive-font mechanics shared by the
+ │  │   dashboard's monthly-chart and the Cards page's card-evolution-chart, so both read
+ │  │   as one visual system], category-checkbox-filter [generic additive multi-select popover; optional
  │  │   onToggleGroup for the group select-all], donut-with-total.tsx, invoice-paid-badge.tsx,
  │  │   help-button.tsx [static per-page "?" popover], help-hint.tsx [HelpHint + HelpTourProvider
  │  │   + CardTitleWithHelp + resetHelpHints — granular per-chart/per-field "?"; auto-opens once
