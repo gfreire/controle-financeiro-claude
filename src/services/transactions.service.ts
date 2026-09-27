@@ -13,6 +13,16 @@ export type TransactionFilters = {
   type?: "INCOME" | "EXPENSE" | "TRANSFER" | "CREDIT_CARD_PAYMENT" | "RESERVE" | "REDEEM";
 };
 
+/** Default description of a TRANSFER left blank — same idea as registerCardPayment's "Pagamento da
+ *  fatura do cartão {nome}": without it the row shows as "Sem descrição" in the Explorer. */
+const TRANSFER_DEFAULT_DESCRIPTION = "Transferência entre contas";
+
+function resolveDescription(type: TransactionInput["type"] | undefined, description: string | null | undefined): string | null {
+  const trimmed = description?.trim();
+  if (trimmed) return trimmed;
+  return type === "TRANSFER" ? TRANSFER_DEFAULT_DESCRIPTION : null;
+}
+
 export async function createTransaction(input: TransactionInput): Promise<string> {
   const supabase = await createClient();
   const user = await getUser();
@@ -26,7 +36,7 @@ export async function createTransaction(input: TransactionInput): Promise<string
       destination_account_id: input.destinationAccountId ?? null,
       amount: input.amount,
       date: input.date,
-      description: input.description ?? null,
+      description: resolveDescription(input.type, input.description),
       category_id: input.categoryId ?? null,
       subcategory_id: input.subcategoryId ?? null,
       fixed_expense_id: input.fixedExpenseId ?? null,
@@ -46,7 +56,16 @@ export async function updateTransaction(id: string, input: Partial<TransactionIn
   if (input.destinationAccountId !== undefined) patch.destination_account_id = input.destinationAccountId;
   if (input.amount !== undefined) patch.amount = input.amount;
   if (input.date !== undefined) patch.date = input.date;
-  if (input.description !== undefined) patch.description = input.description;
+  if (input.description !== undefined) {
+    // A partial update (e.g. the Explorer's inline description edit) may omit `type` — read it
+    // only when the description was cleared and the type isn't known from the input.
+    let type = input.type;
+    if (!input.description?.trim() && type === undefined) {
+      const { data } = await supabase.from("transactions").select("type").eq("id", id).single();
+      type = data?.type;
+    }
+    patch.description = resolveDescription(type, input.description);
+  }
   if (input.categoryId !== undefined) patch.category_id = input.categoryId;
   if (input.subcategoryId !== undefined) patch.subcategory_id = input.subcategoryId;
 

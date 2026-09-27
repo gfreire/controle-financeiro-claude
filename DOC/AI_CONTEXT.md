@@ -91,6 +91,9 @@ One table, `origin_account_id` + `destination_account_id`:
 - `INCOME`: destination only.
 - `EXPENSE`: origin only.
 - `TRANSFER`: both — moving money between the user's own accounts. **Never in analytics.**
+  A blank description defaults to `"Transferência entre contas"` server-side
+  (`transactions.service.ts#resolveDescription`, on create and when an edit clears it); the form
+  shows it as the placeholder. Same idea as `registerCardPayment`'s default.
 - `CREDIT_CARD_PAYMENT`: origin = paying account, destination = credit card account.
 - `RESERVE` / `REDEEM`: Meta aporte/resgate (see "Metas"). Move CASH/BANK balances like
   `TRANSFER`, never counted as INCOME/EXPENSE.

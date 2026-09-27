@@ -193,7 +193,12 @@ export function TransactionFormDialog({
 
         <Field>
           <Label>Descrição</Label>
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+          <Textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+            placeholder={type === "TRANSFER" ? "Transferência entre contas" : undefined}
+          />
         </Field>
 
         <FieldError>{error}</FieldError>
