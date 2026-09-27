@@ -162,5 +162,8 @@ export async function getTransactions(filters: TransactionFilters = {}): Promise
     source: "transaction" as const,
     originAccountId: row.origin_account_id,
     destinationAccountId: row.destination_account_id,
+    ...(row.origin && row.destination
+      ? { destinationAccount: row.destination.name, destinationAccountType: row.destination.type }
+      : {}),
   }));
 }

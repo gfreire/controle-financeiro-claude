@@ -15,6 +15,39 @@ import { RefundTransactionDialog } from "@/features/transactions/components/refu
 import { AccountTypeIcon } from "@/components/ui/account-type-icon";
 import type { AccountDTO, CategoryDTO, TransactionViewDTO } from "@/types/dto";
 
+/** Sign + color of the amount. A TRANSFER just moves money between the user's own accounts —
+ *  neither inflow nor outflow — so it's shown unsigned in the neutral text color (yellow was
+ *  rejected: it reads as a warning). A RESERVE (aporte para meta) isn't an expense either, just
+ *  money set aside — unsigned in the Metas blue (--color-accent-500), same as every other
+ *  "guardado em metas" figure. A CREDIT_CARD_PAYMENT stays red "-" on purpose: user's call,
+ *  it's real money leaving the account. */
+function amountDisplay(t: TransactionViewDTO): { sign: string; className: string } {
+  if (t.type === "TRANSFER") return { sign: "", className: "text-text" };
+  if (t.type === "RESERVE") return { sign: "", className: "text-accent-500" };
+  if (t.type === "INCOME" || t.type === "REDEEM") return { sign: "+", className: "text-success-600" };
+  return { sign: "-", className: "text-danger-600" };
+}
+
+/** Rows with both sides (TRANSFER, CREDIT_CARD_PAYMENT) show origin on top and "→ destination" below. */
+function AccountLabel({ t }: { t: TransactionViewDTO }) {
+  if (!t.account) return null;
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      <span className="inline-flex items-center gap-1">
+        {t.accountType && <AccountTypeIcon type={t.accountType} className="size-3" />}
+        {t.account}
+      </span>
+      {t.destinationAccount && (
+        <span className="inline-flex items-center gap-1">
+          <span aria-label="para">→</span>
+          {t.destinationAccountType && <AccountTypeIcon type={t.destinationAccountType} className="size-3" />}
+          {t.destinationAccount}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function TransactionExplorer({
   transactions,
   categories,
@@ -26,7 +59,7 @@ export function TransactionExplorer({
   accounts?: AccountDTO[];
 }) {
   const [search, setSearch] = useState("");
-  const filtered = search ? transactions.filter((t) => textIncludes(`${t.description} ${t.category} ${t.account}`, search)) : transactions;
+  const filtered = search ? transactions.filter((t) => textIncludes(`${t.description} ${t.category} ${t.account} ${t.destinationAccount ?? ""}`, search)) : transactions;
 
   return (
     <Card elevation="sm" className="gap-3">
@@ -44,7 +77,7 @@ export function TransactionExplorer({
         {filtered.map((t) => {
           // RESERVE/REDEEM (aporte/resgate de Meta) são geridos só pela tela de Metas — read-only aqui.
           const isGoalMovement = t.type === "RESERVE" || t.type === "REDEEM";
-          const inflow = t.type === "INCOME" || t.type === "REDEEM";
+          const amount = amountDisplay(t);
           const actions =
             t.source === "transaction" && !isGoalMovement ? (
               <div className="flex shrink-0 items-center gap-1">
@@ -68,19 +101,14 @@ export function TransactionExplorer({
                     {t.description || <span className="opacity-40">Sem descrição</span>}
                   </p>
                   <p className="flex flex-wrap items-center gap-1.5 text-xs opacity-60">
-                    {t.account && (
-                      <span className="inline-flex items-center gap-1">
-                        {t.accountType && <AccountTypeIcon type={t.accountType} className="size-3" />}
-                        {t.account}
-                      </span>
-                    )}
+                    <AccountLabel t={t} />
                     {t.source === "installment" && <Badge variant="neutral">cartão</Badge>}
                     {t.paidBeforeSystem && <Badge variant="outline">paga antes do sistema</Badge>}
                     {t.type === "EXPENSE" && t.category === "Estorno" && <Badge variant="accent">estornado</Badge>}
                   </p>
                 </div>
-                <span className={`shrink-0 text-sm font-medium tabular-nums ${inflow ? "text-success-600" : "text-danger-600"}`}>
-                  {inflow ? "+" : "-"}
+                <span className={`shrink-0 text-sm font-medium tabular-nums ${amount.className}`}>
+                  {amount.sign}
                   {formatCurrency(t.amount)}
                 </span>
                 {actions}
@@ -123,15 +151,10 @@ export function TransactionExplorer({
                 </TableCell>
                 <TableCell><EditableCategoryCell row={t} categories={categories} /></TableCell>
                 <TableCell className="whitespace-nowrap text-xs opacity-70">
-                  {t.account && (
-                    <span className="inline-flex items-center gap-1">
-                      {t.accountType && <AccountTypeIcon type={t.accountType} className="size-3" />}
-                      {t.account}
-                    </span>
-                  )}
+                  <AccountLabel t={t} />
                 </TableCell>
-                <TableCell className={`text-right tabular-nums font-medium ${t.type === "INCOME" || t.type === "REDEEM" ? "text-success-600" : "text-danger-600"}`}>
-                  {t.type === "INCOME" || t.type === "REDEEM" ? "+" : "-"}
+                <TableCell className={`text-right tabular-nums font-medium ${amountDisplay(t).className}`}>
+                  {amountDisplay(t).sign}
                   {formatCurrency(t.amount)}
                 </TableCell>
                 <TableCell>

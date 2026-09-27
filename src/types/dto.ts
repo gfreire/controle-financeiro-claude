@@ -106,6 +106,8 @@ export type TransactionViewDTO = {
   paidBeforeSystem?: boolean; // set only when source === "installment" — backfilled/retroactive purchase installment already paid outside the system, see AI_CONTEXT.md "Compras retroativas"
   originAccountId?: string | null; // set only when source === "transaction" — accountId/account above merge origin+destination for display; full edit (TransactionFormDialog edit mode) needs both sides distinguished
   destinationAccountId?: string | null; // set only when source === "transaction"
+  destinationAccount?: string; // set only when the row has BOTH sides (TRANSFER, CREDIT_CARD_PAYMENT) — `account` is then the origin, this the destination, shown stacked in the Conta column
+  destinationAccountType?: AccountType | null; // paired with destinationAccount
 };
 
 export type ReservoirDTO = {

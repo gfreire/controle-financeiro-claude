@@ -877,6 +877,11 @@ type TransactionViewDTO = {
   paidBeforeSystem?: boolean   // set only for source === "installment"
   originAccountId?: string | null       // set only for source === "transaction" — the full-edit dialog needs both sides (e.g. a TRANSFER)
   destinationAccountId?: string | null  // set only for source === "transaction"
+  destinationAccount?: string           // set only when the row has BOTH sides (TRANSFER, CREDIT_CARD_PAYMENT) —
+  destinationAccountType?: AccountType | null  //   `account` is then the origin; the Explorer's Conta column stacks
+                     //   "origem / → destino". Explorer amount colors (amountDisplay): TRANSFER unsigned in the
+                     //   neutral text color; RESERVE unsigned in the Metas blue (accent-500); CREDIT_CARD_PAYMENT
+                     //   stays red "-" (user's call — real money leaving); INCOME/REDEEM green "+".
 }
 
 type ReservoirDTO = {
