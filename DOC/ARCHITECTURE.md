@@ -82,7 +82,7 @@ not to rediscover whether a feature exists.
   refund/overpayment); a purchase can be backfilled as retroactive ("compra antiga" +
   "pago até" → `paid_before_system` prefix); "Antecipar parcelas" and "Estornar compra" per
   purchase; `getDefaultCardsMonth` auto-advances to next month when every card is settled;
-  "Evolução mensal do cartão" chart (`CardEvolutionChart`, ±6 months, green/red paid split
+  "Evolução mensal do cartão" chart (`CardEvolutionChart`, 6-month window: 2 back + viewed + 3 forward, green/red paid split
   or stacked-by-category under a filter).
 - **Receita Programada** (`/reservoirs`) — accrual/withdrawal entries, gross/net split,
   reservoir-level defaults, hard delete.
@@ -325,7 +325,7 @@ src
  │  │   warning], payment-form-dialog, refund-purchase-dialog.tsx [full refund only],
  │  │   advance-installments-dialog.tsx ["Antecipar parcelas"], delete-purchase-button,
  │  │   month-nav, card-filters.tsx, card-expense-donut.tsx, card-evolution-chart
- │  │   [±6 months by competence, own local multi-select category filter via
+ │  │   [6-month window (2 back + viewed + 3 forward) by competence, own local multi-select category filter via
  │  │   use-evolution-category-filter.ts; same value-labels-above-bars + "Exibir lista"
  │  │   table style as the dashboard's monthly-chart, via the shared chart-month-labels
  │  │   helpers])
@@ -645,7 +645,8 @@ advancePurchaseInstallments(purchaseId, count)
   -- competence; the rest renumbered contiguously right after, shortening the plan by `count`
   -- months. NEVER creates a payment/transaction — pure UPDATE card_installments.competence.
 getCardMonthlyEvolution(cardIds, referenceMonth, categoryIds?) → CardMonthlyEvolutionDTO[]
-  -- 6 months before + 6 after referenceMonth (13), card_installments.amount by competence.
+  -- 2 months before + referenceMonth + 3 after (6 bars, same window as the dashboard's monthly
+  -- chart — shrunk from 13 on 2026-10-04 for mobile readability), card_installments.amount by competence.
   -- total = historical billed total (does NOT exclude paid_before_system). paid/unpaid split
   -- that total (oldest-first allocation, same as currentMonthPaidAmount) — only != 0 when
   -- categoryIds is NOT passed. byCategory[] breaks the total down per category — used to

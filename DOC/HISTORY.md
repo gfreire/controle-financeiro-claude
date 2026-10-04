@@ -608,3 +608,8 @@ not the negative-margin trick, so adjacent hit boxes can't overlap); `/budgets`'
 actions got a hierarchy ("Planejar orçamentos" primary, the rest secondary); `/reservoirs`'
 header got `flex-wrap`. (Some of these — the period-preset row, the "Vence essa semana"
 alert — were later removed for unrelated reasons.)
+
+**2026-10-04 — Cards "Evolução mensal do cartão" window 13 → 6 months.** The chart showed ±6
+months around the viewed month (13 bars), too dense to read, especially on mobile. Shrunk to
+2 months back + viewed month + 3 forward (6 bars), the same window the dashboard's monthly
+chart adopted on 2026-09-07. Change lives in `cards.service.ts#getCardMonthlyEvolution`.

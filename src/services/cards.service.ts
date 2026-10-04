@@ -708,8 +708,8 @@ export async function getDefaultCardsMonth(): Promise<string> {
 }
 
 /**
- * Card spend evolution: 6 months before through 6 months after `referenceMonth` (the Cards page's
- * viewed month), by installment competence (never purchase_date — same rule as every other credit
+ * Card spend evolution: 2 months before through 3 months after `referenceMonth` (the Cards page's
+ * viewed month) — 6 bars, same window as the dashboard's monthly chart (readable on mobile), by installment competence (never purchase_date — same rule as every other credit
  * card analytic). `cardIds` scopes which cards are summed together (the Cards page passes either
  * every card the user has, or just the one selected via its existing "Cartão" filter);
  * `categoryIds`, when given, narrows to purchases in those categories via a join against
@@ -731,8 +731,8 @@ export async function getCardMonthlyEvolution(
   categoryIds?: string[]
 ): Promise<CardMonthlyEvolutionDTO[]> {
   const referenceStart = startOfMonth(`${referenceMonth}-01`);
-  const periodStart = startOfMonth(addMonthsToIsoDate(referenceStart, -6));
-  const periodEnd = endOfMonth(addMonthsToIsoDate(referenceStart, 6));
+  const periodStart = startOfMonth(addMonthsToIsoDate(referenceStart, -2));
+  const periodEnd = endOfMonth(addMonthsToIsoDate(referenceStart, 3));
 
   const months: string[] = [];
   let cursor = monthKey(periodStart);

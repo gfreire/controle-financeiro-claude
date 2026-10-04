@@ -96,7 +96,7 @@ export function CardEvolutionChart({ data, categories }: { data: CardMonthlyEvol
         <div className="flex items-center gap-1.5">
           <CardTitle>Evolução mensal do cartão</CardTitle>
           <HelpHint id="cards.evolution" title="Evolução mensal do cartão">
-            <p>Quanto foi faturado por mês (6 meses pra trás e pra frente), dividido em já pago (verde) e a pagar (vermelho).</p>
+            <p>Quanto foi faturado por mês (2 meses pra trás, o mês visualizado e 3 pra frente), dividido em já pago (verde) e a pagar (vermelho).</p>
             <p>Os valores de cada mês aparecem em cima das barras. Toque em “Exibir lista” para ver a mesma informação em tabela.</p>
             <p>Com um filtro de categoria ativo, as barras passam a se dividir por categoria em vez de pago/a pagar.</p>
           </HelpHint>
