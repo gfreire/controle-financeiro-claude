@@ -48,6 +48,26 @@ export async function createTransaction(input: TransactionInput): Promise<string
   return data.id;
 }
 
+/**
+ * When an edit carries `type` (the full-edit dialog always does), the row must be rewritten to the
+ * shape that type requires — an omitted field means "none", not "keep". Otherwise switching
+ * INCOME → EXPENSE kept the old destination_account_id, and getAccountBalance (which sums both
+ * sides regardless of type) cancelled the expense out; likewise an INCOME category stayed on an
+ * EXPENSE row.
+ */
+function sidesAndCategoryForType(input: Partial<TransactionInput>): Record<string, unknown> {
+  const origin = input.originAccountId ?? null;
+  const destination = input.destinationAccountId ?? null;
+  switch (input.type) {
+    case "INCOME":
+      return { origin_account_id: null, destination_account_id: destination, category_id: input.categoryId ?? null, subcategory_id: null };
+    case "EXPENSE":
+      return { origin_account_id: origin, destination_account_id: null, category_id: input.categoryId ?? null, subcategory_id: input.subcategoryId ?? null };
+    default:
+      return { origin_account_id: origin, destination_account_id: destination };
+  }
+}
+
 export async function updateTransaction(id: string, input: Partial<TransactionInput>): Promise<void> {
   const supabase = await createClient();
   const patch: Record<string, unknown> = {};
@@ -68,6 +88,7 @@ export async function updateTransaction(id: string, input: Partial<TransactionIn
   }
   if (input.categoryId !== undefined) patch.category_id = input.categoryId;
   if (input.subcategoryId !== undefined) patch.subcategory_id = input.subcategoryId;
+  if (input.type !== undefined) Object.assign(patch, sidesAndCategoryForType(input));
 
   const { error } = await supabase.from("transactions").update(patch).eq("id", id);
   if (error) throw new Error(error.message);

@@ -98,6 +98,13 @@ One table, `origin_account_id` + `destination_account_id`:
 - `RESERVE` / `REDEEM`: Meta aporte/resgate (see "Metas"). Move CASH/BANK balances like
   `TRANSFER`, never counted as INCOME/EXPENSE.
 
+**A full edit that carries `type` rewrites the row to that type's shape**
+(`transactions.service.ts#sidesAndCategoryForType`): an omitted side/category means "none", not
+"keep" — INCOME clears `origin_account_id`/subcategory, EXPENSE clears `destination_account_id`.
+Without it, switching INCOME → EXPENSE kept the old destination and `getAccountBalance` (which
+sums both sides regardless of type) cancelled the expense out. Partial edits without `type`
+(the Explorer's inline edit) stay partial.
+
 **Dashboard analytics only ever read from `transactions` (`type in ('INCOME','EXPENSE')`) and
 `card_installments`.**
 
@@ -412,6 +419,12 @@ fills the value once (one-directional, like `DebtTransactionDialog`'s).
 the system compares it to the calculated balance and creates **one INCOME transaction,
 category `Rendimentos`, for the difference**. For a "cofrinho" that yields daily but the user
 doesn't want to log day by day. **`BANK`-only** — physical cash doesn't yield.
+
+**Dialog (`BalanceAdjustDialog`, shared with "Ajustar Saldo")**: two optional, linked fields —
+"Valor do rendimento" (or "Diferença" for Ajuste) and "Saldo real atual". Typing in either
+recomputes the other against the calculated balance (`addMoney`/`subtractMoney`); the user fills
+whichever number they have. The server contract is unchanged — the action still receives
+`realBalance`.
 
 ## Ajuste — balance reconciliation
 

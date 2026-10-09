@@ -510,6 +510,8 @@ getCategoryDistribution(filters, obligationsMonth?) → CategoryDistributionDTO[
   -- filters.source ("liquid"/"cards") narrows fetchPeriodEntries to one query — expense
   -- donut's account-type toggle only.
 getTransactionsFiltered(filters) → TransactionViewDTO[]
+  -- newest first by `date`. Card installments are SELECTED by competence (this month's invoice)
+  -- but their row `date` is the purchase's real `purchase_date`, which also drives the order.
 getCurrentMonthObligations(month?) → MonthObligationsDTO
   -- "Despesas de {mês}" card. `month` = the dashboard's viewed month
   -- (monthKey(filters.periodEnd)); no arg = today's real month. INSTALLMENT_PLAN gated by

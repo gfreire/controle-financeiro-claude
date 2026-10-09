@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { registerYieldAction, reconcileBalanceAction } from "../actions";
 import { formatCurrency } from "@/lib/utils/currency";
+import { addMoney, subtractMoney } from "@/lib/utils/money";
 import type { AccountDTO } from "@/types/dto";
 
 export function BalanceAdjustDialog({ account, mode, trigger }: { account: AccountDTO; mode: "yield" | "reconcile"; trigger: React.ReactNode }) {
@@ -14,7 +15,11 @@ export function BalanceAdjustDialog({ account, mode, trigger }: { account: Accou
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [realBalance, setRealBalance] = useState(String(account.balance));
+  // Two optional, linked fields: the real balance and the difference itself (the yield, or the
+  // adjustment). Typing in either recomputes the other against the calculated balance, so the user
+  // can enter whichever number they actually have. The server contract stays `realBalance`.
+  const [realBalance, setRealBalance] = useState("");
+  const [difference, setDifference] = useState("");
 
   // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
   // not an Effect: the dialog stays mounted across parent re-renders, so the useState
@@ -23,14 +28,29 @@ export function BalanceAdjustDialog({ account, mode, trigger }: { account: Accou
   const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
     setPrevOpen(open);
-    if (open) setRealBalance(String(account.balance));
+    if (open) {
+      setRealBalance("");
+      setDifference("");
+    }
+  }
+
+  function handleRealBalanceChange(raw: string) {
+    setRealBalance(raw);
+    const value = Number(raw);
+    setDifference(raw.trim() !== "" && Number.isFinite(value) ? String(subtractMoney(value, account.balance)) : "");
+  }
+
+  function handleDifferenceChange(raw: string) {
+    setDifference(raw);
+    const value = Number(raw);
+    setRealBalance(raw.trim() !== "" && Number.isFinite(value) ? String(addMoney(account.balance, value)) : "");
   }
 
   function handleSubmit() {
     setError(null);
     const value = Number(realBalance);
-    if (!Number.isFinite(value)) {
-      setError("Informe um valor válido");
+    if (realBalance.trim() === "" || !Number.isFinite(value)) {
+      setError(mode === "yield" ? "Informe o saldo real ou o valor do rendimento" : "Informe o saldo real ou a diferença");
       return;
     }
     startTransition(async () => {
@@ -45,7 +65,7 @@ export function BalanceAdjustDialog({ account, mode, trigger }: { account: Accou
     });
   }
 
-  const delta = Number(realBalance) - account.balance;
+  const delta = realBalance.trim() === "" ? NaN : subtractMoney(Number(realBalance), account.balance);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -59,9 +79,14 @@ export function BalanceAdjustDialog({ account, mode, trigger }: { account: Accou
           {" "}Saldo calculado atual: <strong>{formatCurrency(account.balance)}</strong>.
         </DialogDescription>
         <Field>
-          <Label>Saldo real atual</Label>
-          <Input type="number" step="0.01" value={realBalance} onChange={(e) => setRealBalance(e.target.value)} />
+          <Label>{mode === "yield" ? "Valor do rendimento" : "Diferença"}</Label>
+          <Input type="number" step="0.01" value={difference} placeholder="0,00" onChange={(e) => handleDifferenceChange(e.target.value)} />
         </Field>
+        <Field>
+          <Label>Saldo real atual</Label>
+          <Input type="number" step="0.01" value={realBalance} placeholder={String(account.balance)} onChange={(e) => handleRealBalanceChange(e.target.value)} />
+        </Field>
+        <p className="text-xs opacity-70">Preencha um dos dois — o outro é calculado automaticamente.</p>
         {Number.isFinite(delta) && delta !== 0 && (
           <p className="text-xs opacity-70">
             Será lançado: <strong className={delta > 0 ? "text-success-600" : "text-danger-600"}>{formatCurrency(delta)}</strong>

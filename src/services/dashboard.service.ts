@@ -723,7 +723,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
 
   let purchaseQuery = supabase
     .from("card_purchases")
-    .select("id, description, category_id, subcategory_id, credit_card_id, categories(name), subcategories(name), accounts(name)")
+    .select("id, description, purchase_date, category_id, subcategory_id, credit_card_id, categories(name), subcategories(name), accounts(name)")
     .eq("user_id", user.id);
   if (filters.uncategorizedOnly) purchaseQuery = purchaseQuery.is("category_id", null);
   else if (filters.categories?.length) purchaseQuery = purchaseQuery.in("category_id", filters.categories);
@@ -735,6 +735,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
   const purchases = (purchasesData ?? []) as unknown as Array<{
     id: string;
     description: string | null;
+    purchase_date: string;
     category_id: string | null;
     subcategory_id: string | null;
     credit_card_id: string;
@@ -760,7 +761,9 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
     if (!purchase) continue;
     results.push({
       id: row.id,
-      date: row.competence,
+      // The installment is still selected by competence (it belongs to this month's invoice),
+      // but the row shows — and sorts by — the real purchase date, not the competence.
+      date: purchase.purchase_date,
       description: purchase.description ?? "",
       type: "EXPENSE",
       categoryId: purchase.category_id,
@@ -777,7 +780,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
     });
   }
 
-  return results.sort((a, b) => (a.date < b.date ? 1 : -1));
+  return results.sort((a, b) => b.date.localeCompare(a.date));
 }
 
 /**
