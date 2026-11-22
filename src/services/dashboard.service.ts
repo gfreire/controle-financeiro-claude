@@ -29,6 +29,23 @@ type Entry = {
   categoryIcon: string | null;
 };
 
+/** `descrição contém` → an ILIKE pattern with the user's own `%`/`_`/`\\` escaped. */
+function ilikePattern(search: string): string {
+  return `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/** Same match as `ilikePattern`, client-side (for projected obligations, which aren't a query). */
+function descriptionMatches(text: string | null | undefined, search: string | undefined): boolean {
+  if (!search) return true;
+  return (text ?? "").toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR"));
+}
+
+/** `obligationsMonth` arg of the public functions: one month, or (reports) an explicit list. */
+function toMonthList(arg: string | string[] | undefined): string[] | undefined {
+  if (arg === undefined) return undefined;
+  return Array.isArray(arg) ? arg : [arg];
+}
+
 /**
  * Central aggregation point: pulls from `transactions` (INCOME/EXPENSE only —
  * TRANSFER and CREDIT_CARD_PAYMENT never count as analytics, see
@@ -71,6 +88,7 @@ async function fetchPeriodEntries(
     if (filters.uncategorizedOnly) txQuery = txQuery.is("category_id", null);
     else if (filters.categories?.length) txQuery = txQuery.in("category_id", filters.categories);
     if (filters.subcategories?.length) txQuery = txQuery.in("subcategory_id", filters.subcategories);
+    if (filters.descriptionSearch) txQuery = txQuery.ilike("description", ilikePattern(filters.descriptionSearch));
     if (filters.accounts?.length) {
       const list = filters.accounts.join(",");
       txQuery = txQuery.or(`origin_account_id.in.(${list}),destination_account_id.in.(${list})`);
@@ -100,29 +118,50 @@ async function fetchPeriodEntries(
   }
 
   // Card installments are always EXPENSE — skip entirely when the caller asked for INCOME only.
+  // cardBasis "purchase" (reports only): each purchase counts once, at its full amount, on its
+  // purchase_date — instead of each installment on its competence.
+  const purchaseBasis = filters.cardBasis === "purchase";
   if (includeCards && filters.transactionType !== "INCOME") {
     let purchaseQuery = supabase
       .from("card_purchases")
-      .select("id, category_id, credit_card_id, categories(name, color, icon)")
+      .select("id, amount, purchase_date, category_id, credit_card_id, categories(name, color, icon)")
       .eq("user_id", userId);
     if (filters.uncategorizedOnly) purchaseQuery = purchaseQuery.is("category_id", null);
     else if (filters.categories?.length) purchaseQuery = purchaseQuery.in("category_id", filters.categories);
     if (filters.subcategories?.length) purchaseQuery = purchaseQuery.in("subcategory_id", filters.subcategories);
     if (filters.accounts?.length) purchaseQuery = purchaseQuery.in("credit_card_id", filters.accounts);
+    if (filters.descriptionSearch) purchaseQuery = purchaseQuery.ilike("description", ilikePattern(filters.descriptionSearch));
+    if (purchaseBasis) purchaseQuery = purchaseQuery.gte("purchase_date", filters.periodStart).lte("purchase_date", filters.periodEnd);
 
     const { data: purchasesData, error: purchaseError } = await purchaseQuery;
     if (purchaseError) throw new Error(purchaseError.message);
     const purchases = (purchasesData ?? []) as unknown as Array<{
       id: string;
+      amount: number;
+      purchase_date: string;
       category_id: string | null;
       credit_card_id: string;
       categories: { name: string; color: string; icon: string | null } | null;
     }>;
 
+    if (purchaseBasis) {
+      for (const purchase of purchases) {
+        entries.push({
+          amount: purchase.amount,
+          date: purchase.purchase_date,
+          type: "EXPENSE",
+          categoryId: purchase.category_id,
+          categoryName: purchase.categories?.name ?? "Sem categoria",
+          categoryColor: purchase.categories?.color ?? "#98989b",
+          categoryIcon: purchase.categories?.icon ?? null,
+        });
+      }
+    }
+
     const purchaseById = new Map(purchases.map((p) => [p.id, p]));
     const purchaseIds = [...purchaseById.keys()];
 
-    if (purchaseIds.length) {
+    if (!purchaseBasis && purchaseIds.length) {
       const { data: installments, error: installmentError } = await supabase
         .from("card_installments")
         .select("amount, competence, purchase_id")
@@ -154,27 +193,31 @@ async function fetchPeriodEntries(
   // of a separate computed-only bucket — category charts can show "Estorno" like any other income.
   // Skipped for uncategorizedOnly/subcategory filters since a refund never matches either.
   if (includeCards && filters.transactionType !== "EXPENSE" && !filters.uncategorizedOnly && !filters.subcategories?.length) {
+    // Purchase basis dates a refund on the day it happened (refund_date), not its invoice.
+    const refundDateColumn = purchaseBasis ? "refund_date" : "competence";
     let refundQuery = supabase
       .from("card_refunds")
-      .select("amount, competence, category_id, credit_card_id, categories(name, color, icon)")
+      .select("amount, competence, refund_date, category_id, credit_card_id, categories(name, color, icon)")
       .eq("user_id", userId)
-      .gte("competence", filters.periodStart)
-      .lte("competence", filters.periodEnd);
+      .gte(refundDateColumn, filters.periodStart)
+      .lte(refundDateColumn, filters.periodEnd);
     if (filters.categories?.length) refundQuery = refundQuery.in("category_id", filters.categories);
     if (filters.accounts?.length) refundQuery = refundQuery.in("credit_card_id", filters.accounts);
+    if (filters.descriptionSearch) refundQuery = refundQuery.ilike("description", ilikePattern(filters.descriptionSearch));
 
     const { data: refundsData, error: refundError } = await refundQuery;
     if (refundError) throw new Error(refundError.message);
     const refunds = (refundsData ?? []) as unknown as Array<{
       amount: number;
       competence: string;
+      refund_date: string;
       category_id: string;
       categories: { name: string; color: string; icon: string | null } | null;
     }>;
     for (const row of refunds) {
       entries.push({
         amount: row.amount,
-        date: row.competence,
+        date: purchaseBasis ? row.refund_date : row.competence,
         type: "INCOME",
         categoryId: row.category_id,
         categoryName: row.categories?.name ?? "Estorno",
@@ -202,32 +245,39 @@ async function fetchPeriodEntries(
     includeCards &&
     filters.transactionType !== "EXPENSE" &&
     !filters.uncategorizedOnly &&
-    !filters.subcategories?.length;
+    !filters.subcategories?.length &&
+    !filters.descriptionSearch;
 
   if (wantsRetroactiveIncome) {
     const retroCategory = await getRetroactiveIncomeCategory();
     if (!filters.categories?.length || filters.categories.includes(retroCategory.id)) {
-      let retroPurchaseQuery = supabase.from("card_purchases").select("id, credit_card_id").eq("user_id", userId);
+      let retroPurchaseQuery = supabase.from("card_purchases").select("id, credit_card_id, purchase_date").eq("user_id", userId);
       if (filters.accounts?.length) retroPurchaseQuery = retroPurchaseQuery.in("credit_card_id", filters.accounts);
+      // Purchase basis: the retroactive income follows the purchase onto its purchase_date too,
+      // so it keeps offsetting the (full-amount) expense of the same purchase.
+      if (purchaseBasis) retroPurchaseQuery = retroPurchaseQuery.gte("purchase_date", filters.periodStart).lte("purchase_date", filters.periodEnd);
 
       const { data: retroPurchasesData, error: retroPurchaseError } = await retroPurchaseQuery;
       if (retroPurchaseError) throw new Error(retroPurchaseError.message);
-      const retroPurchaseIds = (retroPurchasesData ?? []).map((p) => p.id);
+      const retroPurchaseDate = new Map((retroPurchasesData ?? []).map((p) => [p.id as string, p.purchase_date as string]));
+      const retroPurchaseIds = [...retroPurchaseDate.keys()];
 
       if (retroPurchaseIds.length) {
-        const { data: retroInstallments, error: retroInstallmentError } = await supabase
+        let retroInstallmentQuery = supabase
           .from("card_installments")
-          .select("amount, competence")
+          .select("amount, competence, purchase_id")
           .in("purchase_id", retroPurchaseIds)
-          .eq("paid_before_system", true)
-          .gte("competence", filters.periodStart)
-          .lte("competence", filters.periodEnd);
+          .eq("paid_before_system", true);
+        if (!purchaseBasis) {
+          retroInstallmentQuery = retroInstallmentQuery.gte("competence", filters.periodStart).lte("competence", filters.periodEnd);
+        }
+        const { data: retroInstallments, error: retroInstallmentError } = await retroInstallmentQuery;
         if (retroInstallmentError) throw new Error(retroInstallmentError.message);
 
         for (const row of retroInstallments ?? []) {
           entries.push({
             amount: row.amount,
-            date: row.competence,
+            date: purchaseBasis ? (retroPurchaseDate.get(row.purchase_id) ?? row.competence) : row.competence,
             type: "INCOME",
             categoryId: retroCategory.id,
             categoryName: retroCategory.name,
@@ -249,7 +299,8 @@ async function fetchPeriodEntries(
     filters.transactionType !== "EXPENSE" &&
     !filters.uncategorizedOnly &&
     !filters.subcategories?.length &&
-    !filters.accounts?.length;
+    !filters.accounts?.length &&
+    !filters.descriptionSearch;
 
   if (wantsGoalYieldIncome) {
     const rendimentos = await getRendimentosCategory();
@@ -296,17 +347,18 @@ async function fetchPeriodEntries(
 async function fetchUnpaidFixedExpensesByMonth(
   supabase: Awaited<ReturnType<typeof createClient>>,
   months: string[]
-): Promise<Array<{ month: string; amount: number; categoryId: string | null; subcategoryId: string | null }>> {
+): Promise<Array<{ month: string; amount: number; categoryId: string | null; subcategoryId: string | null; label: string }>> {
   if (!months.length) return [];
   const user = await getUser();
 
   const { data: fixedExpensesData, error: feError } = await supabase
     .from("fixed_expenses")
-    .select("id, amount, category_id, subcategory_id, start_competence, end_competence")
+    .select("id, name, amount, category_id, subcategory_id, start_competence, end_competence")
     .eq("user_id", user.id);
   if (feError) throw new Error(feError.message);
   const fixedExpenses = (fixedExpensesData ?? []) as Array<{
     id: string;
+    name: string;
     amount: number;
     category_id: string | null;
     subcategory_id: string | null;
@@ -373,7 +425,7 @@ async function fetchUnpaidFixedExpensesByMonth(
   const plannedFor = (fe: { id: string; amount: number }, monthStart: string): number =>
     historyByFe.get(fe.id)?.find((r) => r.effective_from <= monthStart)?.amount ?? fe.amount;
 
-  const out: Array<{ month: string; amount: number; categoryId: string | null; subcategoryId: string | null }> = [];
+  const out: Array<{ month: string; amount: number; categoryId: string | null; subcategoryId: string | null; label: string }> = [];
   for (const month of months) {
     const monthStart = `${month}-01`;
     for (const fe of fixedExpenses) {
@@ -385,6 +437,7 @@ async function fetchUnpaidFixedExpensesByMonth(
         amount: plannedFor(fe, monthStart),
         categoryId: fe.category_id,
         subcategoryId: fe.subcategory_id,
+        label: fe.name,
       });
     }
   }
@@ -436,7 +489,7 @@ async function fetchUnpaidObligationEntries(
     getDebts(),
   ]);
 
-  type Raw = { month: string; amount: number; categoryId: string | null; subcategoryId: string | null };
+  type Raw = { month: string; amount: number; categoryId: string | null; subcategoryId: string | null; label: string };
   const raws: Raw[] = [...fixedRaws];
 
   for (const month of months) {
@@ -448,15 +501,15 @@ async function fetchUnpaidObligationEntries(
         // (oldest-first). See AI_CONTEXT.md "Parcelamento Programado — competência e adiantado/atrasado".
         if (debt.startCompetence && month < debt.startCompetence) continue;
         if (debt.paidThroughCompetence && month <= debt.paidThroughCompetence) continue;
-        raws.push({ month, amount: debt.monthlyAmount ?? debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null });
+        raws.push({ month, amount: debt.monthlyAmount ?? debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null, label: debt.agent });
       } else if (month === currentMonth) {
         // OVERDUE_BILL — a single outstanding lump; projected only into the current real month.
-        raws.push({ month, amount: debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null });
+        raws.push({ month, amount: debt.remainingBalance, categoryId: debt.defaultCategoryId ?? null, subcategoryId: null, label: debt.agent });
       }
     }
   }
 
-  let filtered = raws.filter((r) => r.amount > 0);
+  let filtered = raws.filter((r) => r.amount > 0 && descriptionMatches(r.label, filters.descriptionSearch));
   if (filters.uncategorizedOnly) filtered = filtered.filter((r) => r.categoryId === null);
   else if (filters.categories?.length) filtered = filtered.filter((r) => r.categoryId !== null && filters.categories!.includes(r.categoryId));
   if (filters.subcategories?.length) filtered = filtered.filter((r) => r.subcategoryId !== null && filters.subcategories!.includes(r.subcategoryId));
@@ -532,16 +585,12 @@ const getRendimentosCategory = cache(async (): Promise<{
 
 export async function getFinancialSummary(
   filters: DashboardFilters,
-  obligationsMonth?: string
+  /** One month (dashboard) or an explicit list (reports) whose unpaid obligations get projected. */
+  obligationsMonth?: string | string[]
 ): Promise<FinancialSummaryDTO> {
   const supabase = await createClient();
   const user = await getUser();
-  const entries = await fetchPeriodEntries(
-    supabase,
-    user.id,
-    filters,
-    obligationsMonth ? [obligationsMonth] : undefined
-  );
+  const entries = await fetchPeriodEntries(supabase, user.id, filters, toMonthList(obligationsMonth));
 
   const income = sumMoney(entries.filter((e) => e.type === "INCOME").map((e) => e.amount));
   const expense = sumMoney(entries.filter((e) => e.type === "EXPENSE").map((e) => e.amount));
@@ -573,7 +622,8 @@ export async function getFinancialSummary(
 
 export async function getMonthlyEvolution(
   filters: DashboardFilters,
-  obligationsMonth?: string
+  /** string = "project every month of the window" (dashboard); string[] = project only these (reports). */
+  obligationsMonth?: string | string[]
 ): Promise<MonthlyEvolutionDTO[]> {
   const supabase = await createClient();
   const user = await getUser();
@@ -595,7 +645,7 @@ export async function getMonthlyEvolution(
     supabase,
     user.id,
     filters,
-    obligationsMonth ? months : undefined
+    Array.isArray(obligationsMonth) ? obligationsMonth : obligationsMonth ? months : undefined
   );
 
   // Reserved flow (Meta aporte/resgate) per month — a third bar, same unit as income/expense.
@@ -635,17 +685,12 @@ export async function getMonthlyEvolution(
 /** Defaults to EXPENSE when no transactionType filter is set — a spending breakdown is the common case for a donut chart. */
 export async function getCategoryDistribution(
   filters: DashboardFilters,
-  obligationsMonth?: string
+  obligationsMonth?: string | string[]
 ): Promise<CategoryDistributionDTO[]> {
   const supabase = await createClient();
   const user = await getUser();
   const effectiveFilters: DashboardFilters = { ...filters, transactionType: filters.transactionType ?? "EXPENSE" };
-  const entries = await fetchPeriodEntries(
-    supabase,
-    user.id,
-    effectiveFilters,
-    obligationsMonth ? [obligationsMonth] : undefined
-  );
+  const entries = await fetchPeriodEntries(supabase, user.id, effectiveFilters, toMonthList(obligationsMonth));
 
   const byCategory = new Map<string, { categoryId: string; categoryName: string; color: string; icon: string | null; amounts: number[] }>();
   for (const entry of entries) {
@@ -679,6 +724,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
   if (filters.uncategorizedOnly) txQuery = txQuery.is("category_id", null);
   else if (filters.categories?.length) txQuery = txQuery.in("category_id", filters.categories);
   if (filters.subcategories?.length) txQuery = txQuery.in("subcategory_id", filters.subcategories);
+  if (filters.descriptionSearch) txQuery = txQuery.ilike("description", ilikePattern(filters.descriptionSearch));
   if (filters.accounts?.length) {
     const list = filters.accounts.join(",");
     txQuery = txQuery.or(`origin_account_id.in.(${list}),destination_account_id.in.(${list})`);
@@ -724,17 +770,21 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
 
   let purchaseQuery = supabase
     .from("card_purchases")
-    .select("id, description, purchase_date, category_id, subcategory_id, credit_card_id, categories(name), subcategories(name), accounts(name)")
+    .select("id, amount, description, purchase_date, category_id, subcategory_id, credit_card_id, categories(name), subcategories(name), accounts(name)")
     .eq("user_id", user.id);
   if (filters.uncategorizedOnly) purchaseQuery = purchaseQuery.is("category_id", null);
   else if (filters.categories?.length) purchaseQuery = purchaseQuery.in("category_id", filters.categories);
   if (filters.subcategories?.length) purchaseQuery = purchaseQuery.in("subcategory_id", filters.subcategories);
   if (filters.accounts?.length) purchaseQuery = purchaseQuery.in("credit_card_id", filters.accounts);
+  if (filters.descriptionSearch) purchaseQuery = purchaseQuery.ilike("description", ilikePattern(filters.descriptionSearch));
+  const purchaseBasis = filters.cardBasis === "purchase";
+  if (purchaseBasis) purchaseQuery = purchaseQuery.gte("purchase_date", filters.periodStart).lte("purchase_date", filters.periodEnd);
 
   const { data: purchasesData, error: purchaseError } = await purchaseQuery;
   if (purchaseError) throw new Error(purchaseError.message);
   const purchases = (purchasesData ?? []) as unknown as Array<{
     id: string;
+    amount: number;
     description: string | null;
     purchase_date: string;
     category_id: string | null;
@@ -744,6 +794,30 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
     subcategories: { name: string } | null;
     accounts: { name: string } | null;
   }>;
+
+  // Purchase basis (reports): one row per purchase at its full amount — the installments aren't
+  // what's being looked at. `id` is the purchase's own id (no single installment stands for it).
+  if (purchaseBasis) {
+    for (const purchase of purchases) {
+      results.push({
+        id: purchase.id,
+        date: purchase.purchase_date,
+        description: purchase.description ?? "",
+        type: "EXPENSE",
+        categoryId: purchase.category_id,
+        category: purchase.categories?.name ?? "",
+        subcategoryId: purchase.subcategory_id,
+        subcategory: purchase.subcategories?.name ?? "",
+        accountId: purchase.credit_card_id,
+        account: purchase.accounts?.name ?? "",
+        accountType: "CREDIT_CARD" as const,
+        amount: purchase.amount,
+        source: "installment" as const,
+        purchaseId: purchase.id,
+      });
+    }
+    return results.sort((a, b) => b.date.localeCompare(a.date));
+  }
 
   const purchaseIds = purchases.map((p) => p.id);
   if (!purchaseIds.length) return results;

@@ -114,6 +114,11 @@ not to rediscover whether a feature exists.
   templates with a per-month "Registrar recebimento", the mirror of the fixed-expense rows;
   purely a convenience, never projected into any analytic (AI_CONTEXT.md "Receitas Recorrentes").
   (Named "Receita Recorrente", NOT "Receita Programada" — that label is the reservoirs feature's.)
+- **Relatórios** (`/reports`, migration 0042) — saved, named filters (period preset or custom
+  dates, categories, subcategories, accounts/cards, "descrição contém", card basis
+  competence/purchase, projections toggle) rendered as a dashboard over the period: summary
+  cards, Evolução mensal, "Resultado acumulado", donuts, Explorer. See `AI_CONTEXT.md` →
+  "Relatórios".
 - **Per-screen help** — a page-level `HelpButton` ("?") in every header, plus granular `HelpHint`
   ("?") on every chart (and, planned, on the trickier form fields). A `HelpHint` auto-opens once
   on the first visit to a screen (one per visit, `localStorage`-tracked), auto-closes after a few
@@ -235,6 +240,7 @@ Applied in order; each additive (a new file corrects an old one, never a rewrite
 | 0039 | `reload_schema_cache` | as `0020`, for `recurring_incomes` |
 | 0040 | `card_credits` | `card_refunds.card_purchase_id` nullable (NULL = standalone credit, "Lançar crédito") + `card_refunds.description`; `is_system` INCOME "Crédito no Cartão"; reloads the schema cache |
 | 0041 | `card_refund_competence` | `card_refunds.competence` (`NOT NULL`, 1st of month, backfilled = invoice open at `refund_date`) — the user-editable invoice a credit lands on; replaces `refund_date` in every card figure and the dashboard income month |
+| 0042 | `reports` | `reports` (saved report filters: `period_preset`/`period_start`/`period_end`, `card_basis`, `include_projections`, `category_ids`/`subcategory_ids`/`account_ids` `uuid[]` without FK, `description_search`); RLS `auth.uid() = user_id`; reloads the schema cache |
 
 ---
 
@@ -305,7 +311,7 @@ src
  │                 be .partial()'d; keep a plain base object schema alongside the refined one,
  │                 e.g. accounts.ts / transactions.ts)
  ├ services (one per domain: dashboard, transactions, accounts, categories, cards, reservoirs,
- │           goals, debts, budgets, fixed-expenses, recurring-incomes, profile; _shared.ts holds
+ │           goals, debts, budgets, fixed-expenses, recurring-incomes, reports, profile; _shared.ts holds
  │           the budget/fixed-expense actualAmount + floor aggregation both reuse)
  ├ features
  │  ├ dashboard/components (dashboard-filters [MonthPicker + account-type icons +
@@ -362,6 +368,10 @@ src
  │  │   fixed expenses depend on the row], delete-fixed-expense-button [hard delete],
  │  │   pay-fixed-expense-dialog [branches on isPaidThisMonth: pay form / summary +
  │  │   "Cancelar pagamento"; also a "Já lancei isso manualmente" link-existing mode])
+ │  ├ reports/components (report-form-dialog [create+edit — every filter; custom period opens two
+ │  │   date fields; card-basis segmented toggle; projections switch], delete-report-button,
+ │  │   report-summary-cards, report-result-chart [monthly result bars + cumulative line]);
+ │  │   reports/period-labels.ts (preset labels, describeReportPeriod)
  │  ├ recurring-incomes/components (recurring-incomes-section [block on /budgets],
  │  │   recurring-income-form-dialog [create+edit], register-receipt-dialog [branches on
  │  │   receivedThisMonth: receipt form / summary + "Cancelar recebimento"],
@@ -403,7 +413,7 @@ src
     │   onboarding-account-form.tsx], onboarding/page.tsx [categories], onboarding/budget/
     │   [+ onboarding-budget-form.tsx])
     └ (app)/dashboard, transactions, accounts, cards, reservoirs, goals, debts, overdue-bills,
-       installment-plans, budgets, settings — layout.tsx redirects to /onboarding/account
+       installment-plans, budgets, reports (+ reports/[id]), settings — layout.tsx redirects to /onboarding/account
        while profiles.onboarding_completed is false; every route has its own loading.tsx.
        debts / overdue-bills / installment-plans are the three debts.kind values as dedicated
        screens (presentation only — same service/DTOs/rules), thin pages over the shared
@@ -432,6 +442,7 @@ category has no subcategory") live in `src/lib/validations` (Zod).
      /overdue-bills         ("Contas em Atraso" — debts.kind = OVERDUE_BILL)
      /installment-plans     ("Parcelamento Programado" — debts.kind = INSTALLMENT_PLAN)
      /budgets               (includes Despesas Programadas + Receitas Recorrentes)
+     /reports, /reports/[id] ("Relatórios" — saved filters; ?categories= = donut drill-down, not saved)
      /settings
 ```
 
@@ -461,6 +472,11 @@ type DashboardFilters = {
   source?: "all" | "liquid" | "cards"  // account-type segmentation for the expense donut
                              //   only. "liquid" = transactions only, "cards" =
                              //   card_installments only. Not in the global filter bar.
+  descriptionSearch?: string // reports only — ILIKE on transactions/card_purchases/card_refunds
+                             //   description (obligations: fixed-expense name / debt agent);
+                             //   drops "Compras retroativas" + goal yields while set
+  cardBasis?: "competence" | "purchase"  // reports only — "purchase" = each card purchase once,
+                             //   full amount, on purchase_date (refunds on refund_date)
 }
 ```
 
@@ -818,6 +834,25 @@ cancelReceipt(recurringIncomeId, month)   -- deletes the linked INCOME transacti
   -- the month. Mirror of cancelFixedExpensePayment.
 ```
 
+## reports.service.ts (migration 0042)
+```
+-- Saved filters only — every figure comes from dashboard.service. See AI_CONTEXT.md "Relatórios".
+getReports() → ReportDTO[] / getReport(id) → ReportDTO | null
+createReport(input) → id / updateReport(id, input) / deleteReport(id)   -- hard delete
+resolveReportPeriod(report) → { periodStart, periodEnd }
+  -- relative presets re-resolved on every open (resolvePeriodPreset); "all" = earliest → latest
+  -- of transactions.date / card_purchases.purchase_date / card_installments.competence.
+buildReportFilters(report, period, drillCategoryIds?) → DashboardFilters
+  -- drillCategoryIds (?categories= from a donut click) replaces the saved categories for that view.
+getReportProjectionMonths(report, period) → string[]
+  -- [] when include_projections is off; else months >= today's month whose 1st day is in the period.
+getReportResultSeries(evolution) → ReportResultPointDTO[]   -- monthly result + running total
+prepareReportEvolution(evolution, filters)   -- zeroes `reserved` under a category/description filter
+```
+dashboard.service: `getFinancialSummary`/`getCategoryDistribution`/`getMonthlyEvolution` take
+`obligationsMonth?: string | string[]` — a string keeps the dashboard behavior (one month; for the
+evolution chart "project every bar"), an array (reports) projects exactly those months.
+
 ## _shared.ts
 ```
 getActualAmountForCategory(...)   -- reused by budgets and fixed-expenses for the month's actualAmount
@@ -1049,6 +1084,16 @@ type BudgetMonthWindowDTO = {
   hasCurrentMonthBudget: boolean; lastRegisteredMonth: string | null
 }
 
+type ReportPeriodPreset = "month" | "lastMonth" | "last3" | "last6" | "last12" | "year" | "lastYear" | "all" | "custom"
+type ReportDTO = {
+  id: string; name: string; periodPreset: ReportPeriodPreset
+  periodStart?: string; periodEnd?: string      // "YYYY-MM-DD", only for "custom"
+  cardBasis: "competence" | "purchase"; includeProjections: boolean
+  categoryIds: string[]; subcategoryIds: string[]; accountIds: string[]   // [] = no restriction
+  descriptionSearch?: string
+}
+type ReportResultPointDTO = { month: string; result: number; cumulative: number }
+
 type AccountDTO = {
   id: string; type: AccountType; name: string; color: string | null; active: boolean
   institutionId: string | null; institutionName: string | null; institutionColor: string | null
@@ -1110,7 +1155,6 @@ covers searchParams-only filter changes (which don't trigger Next's `loading.tsx
 
 # Future Expansion
 
-Potential modules: investments, advanced analytics, a reports tab (multi-period — the removed
-dashboard period presets are meant to move there), Metas phase 2 (compound-interest
+Potential modules: investments, advanced analytics, Metas phase 2 (compound-interest
 projection), OFX import (deferred). The architecture must remain **service-driven, DTO-based,
 RLS-isolated per user**.

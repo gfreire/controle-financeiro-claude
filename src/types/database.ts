@@ -274,3 +274,21 @@ export interface BudgetRow {
   active: boolean;
   created_at: string;
 }
+
+/** Migration 0042 — saved report filters. */
+export interface ReportRow {
+  id: string;
+  user_id: string;
+  name: string;
+  period_preset: string;
+  period_start: string | null;
+  period_end: string | null;
+  card_basis: "competence" | "purchase";
+  include_projections: boolean;
+  category_ids: string[];
+  subcategory_ids: string[];
+  account_ids: string[];
+  description_search: string | null;
+  created_at: string;
+  updated_at: string;
+}

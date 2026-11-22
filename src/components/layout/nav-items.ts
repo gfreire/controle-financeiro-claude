@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, ArrowLeftRight, Wallet, CreditCard, Vault, HandCoins, FileWarning, CalendarClock, PiggyBank, Target, Settings } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, Wallet, CreditCard, Vault, HandCoins, FileWarning, CalendarClock, PiggyBank, Target, Settings, ChartColumn } from "lucide-react";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -28,6 +28,7 @@ export const SECONDARY_NAV: NavItem[] = [
   { href: "/overdue-bills", label: "Contas em Atraso", icon: FileWarning },
   { href: "/installment-plans", label: "Parcelamento Programado", icon: CalendarClock },
   { href: "/budgets", label: "Orçamentos", icon: PiggyBank },
+  { href: "/reports", label: "Relatórios", icon: ChartColumn },
   { href: "/settings", label: "Configurações", icon: Settings },
 ];
 

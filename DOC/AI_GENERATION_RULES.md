@@ -79,7 +79,7 @@ Every user-scoped table has RLS enabled with a policy on `auth.uid() = user_id` 
 
 Services must encapsulate all Supabase queries, return DTOs (defined in `ARCHITECTURE.md`), and contain the financial aggregation logic. Services must not contain UI logic or depend on React components.
 
-Required services: `dashboard.service.ts`, `transactions.service.ts`, `accounts.service.ts`, `categories.service.ts`, `cards.service.ts`, `reservoirs.service.ts`, `goals.service.ts`, `debts.service.ts`, `budgets.service.ts`, `fixed-expenses.service.ts`, `recurring-incomes.service.ts`, `profile.service.ts`.
+Required services: `dashboard.service.ts`, `transactions.service.ts`, `accounts.service.ts`, `categories.service.ts`, `cards.service.ts`, `reservoirs.service.ts`, `goals.service.ts`, `debts.service.ts`, `budgets.service.ts`, `fixed-expenses.service.ts`, `recurring-incomes.service.ts`, `reports.service.ts`, `profile.service.ts`.
 
 **Never store a value in the database that can be computed from other rows** — reservoir/debt balances, installment numbers, budget/fixed-expense projected amounts are always calculated in the service (or a SQL view), never persisted as a mutable column. This is not optional — it is the pattern already established across the whole schema.
 
@@ -101,7 +101,7 @@ All primary keys are `uuid`, generated with `gen_random_uuid()` at the database 
 
 Charts use Recharts, receive aggregated data from services, and never calculate totals (`reduce()`/manual sums are forbidden in components). All aggregation happens in SQL (`SUM`, `GROUP BY`) inside services.
 
-Credit card analytics use `card_installments.competence`, never `card_purchases.purchase_date`.
+Credit card analytics use `card_installments.competence`, never `card_purchases.purchase_date` — sole exception: a saved report whose user picked `card_basis = purchase` (see `AI_CONTEXT.md` → "Relatórios").
 
 ---
 
@@ -151,7 +151,7 @@ AI must respect `AI_CONTEXT.md`. Key examples to never violate:
 - Reservoir and Debt entries never affect totals directly — only the transactions they link to do.
 - Budgets/Fixed Expenses never generate transactions.
 - Income categories never get a subcategory (validate in `src/lib/validations`, not just UI).
-- Installment competence date drives all credit card analytics, never purchase date.
+- Installment competence date drives all credit card analytics, never purchase date (except a report explicitly set to "Compra pelo valor cheio").
 - Rounding remainder on installment generation goes to the first installment.
 - `is_system` categories (`Juros`, `Rendimentos`, `Ajuste`, `Estorno`, `Compras retroativas`, `Pagamento de Cartão`) are never editable/deletable by any user, never copied, and **never selectable from a form** — they never appear in `CategorySelect` (the shared assignment picker), only in the dashboard/Cards/Transactions *filter* dropdowns. Each is applied exclusively by its own dedicated flow: `registerYield` → `Rendimentos`; `reconcileAccountBalance` → `Ajuste`; `registerInterest` ("Lançar Juros", account-side for `BANK`, and the Cards page's "Fatura" menu) → `Juros`; `refundCardPurchase`/`refundTransaction` → `Estorno`; the retroactive-purchase computed income → `Compras retroativas`; `registerCardPayment` ("Pagar fatura") → `Pagamento de Cartão`, applied automatically to every `CREDIT_CARD_PAYMENT` transaction (migration `0031`); `registerCardCredit` ("Lançar crédito") → `Crédito no Cartão` (migration `0040`). The choice of flow is the user's, not an automatic classification — except `Pagamento de Cartão`, which the system always applies since a card payment has exactly one flow anyway.
 - A category's `type` is always required and must match the `type` of any transaction it's attached to (an `EXPENSE` category can't be used on an `INCOME` transaction) — this is why `Ajuste` is two rows, not one.

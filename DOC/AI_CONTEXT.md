@@ -1272,6 +1272,52 @@ to the reservoirs feature (`/reservoirs`). All internal identifiers stay `recurr
 
 ---
 
+# Relatórios (saved reports) — migration `0042`
+
+`/reports` lists **saved filters with a name** ("Poker", "Viagem Chile", "Alimentação no ano");
+`/reports/[id]` renders that filter as a dashboard over a period. Table `reports`, service
+`reports.service.ts`, `ReportDTO`.
+
+- **A report stores only the filter definition, never a figure.** Every number is recomputed on
+  open through the *same* `dashboard.service` functions the dashboard uses (`getFinancialSummary`,
+  `getMonthlyEvolution`, `getCategoryDistribution`, `getTransactionsFiltered`) — reports are not a
+  second aggregation engine.
+- **Filters**: period, categories, subcategories, accounts/cards (multi), "descrição contém",
+  card basis, include-projections toggle. Empty list = no restriction.
+- **Period** (`period_preset`, `resolvePeriodPreset` in `src/lib/utils/date.ts`): `month`,
+  `lastMonth`, `last3`/`last6`/`last12` (always include the current month), `year` / `lastYear`
+  (calendar years, Jan 1–Dec 31 even mid-year — so future installments of the year show),
+  `all` (earliest → latest analytic row, which may be in the future), `custom` (two dates).
+  **Relative presets are re-resolved on every open** — "últimos 3 meses" keeps meaning that.
+- **Card basis — the user's call per report** (`card_basis`): `competence` (default; each
+  installment in its invoice month — "o impacto mês a mês", same as the dashboard) or
+  `purchase` (each purchase once, full `card_purchases.amount`, on `purchase_date` — "quanto
+  aquilo custou"; refunds then count on `refund_date`, retroactive income on the purchase date).
+  This is the one place analytics may use `purchase_date`, and only when the user picks it —
+  the "competence, never purchase date" rule still holds everywhere else.
+- **"Descrição contém"** (`DashboardFilters.descriptionSearch`) — case-insensitive ILIKE on
+  `transactions`/`card_purchases`/`card_refunds.description`; projected obligations match on the
+  fixed expense's name / debt's agent. Synthetic income with no description ("Compras
+  retroativas", goal yields) is dropped while it's set. For trips: categories don't capture a trip
+  (its spending spreads across Alimentação/Transporte/…), so period + description is the tool.
+- **Projections** (`include_projections`, default on — "igual ao dashboard"): the dashboard's
+  unpaid fixed-expense / `INSTALLMENT_PLAN` / `OVERDUE_BILL` projection, but **only for the
+  current real month onward** and months whose 1st day is inside the period
+  (`getReportProjectionMonths`). Past months are excluded on purpose: on a long report every past
+  month a fixed expense wasn't logged would get a placeholder — noise, not a forecast.
+- **Ids are `uuid[]` with no FK** (deliberate): a saved filter isn't history, and `RESTRICT`
+  would drag reports into the guided category-deletion flow. A deleted id just matches nothing;
+  the editor drops unknown ids on the next save.
+- **View**: Receitas/Despesas/Resultado cards; Evolução mensal over the period (the "Guardado
+  (metas)" bar is zeroed when a category/subcategory/description filter is active — it carries no
+  category); "Resultado acumulado" (monthly result bars + running total line, `getReportResultSeries`);
+  expense/income donuts (empty side hidden under a category filter, like the dashboard); Explorer
+  (under `purchase` basis one row per purchase, full amount). Clicking a donut slice sets
+  `?categories=` — a temporary drill-down that never changes the saved report.
+- Hard delete (`deleteReport`) — nothing references a report.
+
+---
+
 # Money Reality Rules
 
 **Only these affect financial totals**: `transactions`, `card_installments`, `card_payments`

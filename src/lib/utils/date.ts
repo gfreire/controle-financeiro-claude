@@ -148,26 +148,45 @@ function generateMonthlyCompetences(anchor: Date, dueDay: number, installmentsCo
   });
 }
 
-export type DashboardPeriodPreset = "month" | "last3" | "last6" | "last12" | "year" | "custom";
+export type DashboardPeriodPreset =
+  | "month"
+  | "lastMonth"
+  | "last3"
+  | "last6"
+  | "last12"
+  | "year"
+  | "lastYear"
+  | "all"
+  | "custom";
 
+/**
+ * Resolves a relative period preset (used by saved reports, /reports) against today. "lastN"
+ * always includes the current month (last3 = this month + the 2 before). "year"/"lastYear" are
+ * calendar years — Jan 1st to Dec 31st even while the year is still running, so future card
+ * installments of the year show up. "all" and "custom" can't be resolved from the preset alone
+ * (the caller supplies bounds) and fall back to the current month here.
+ */
 export function resolvePeriodPreset(
   preset: DashboardPeriodPreset,
   referenceIso: string = todayIso()
 ): { periodStart: string; periodEnd: string } {
   const monthStart = startOfMonth(referenceIso);
+  const year = Number(referenceIso.slice(0, 4));
   switch (preset) {
-    case "month":
-      return { periodStart: monthStart, periodEnd: endOfMonth(referenceIso) };
+    case "lastMonth": {
+      const prev = addMonthsToIsoDate(monthStart, -1);
+      return { periodStart: startOfMonth(prev), periodEnd: endOfMonth(prev) };
+    }
     case "last3":
       return { periodStart: startOfMonth(addMonthsToIsoDate(monthStart, -2)), periodEnd: endOfMonth(referenceIso) };
     case "last6":
       return { periodStart: startOfMonth(addMonthsToIsoDate(monthStart, -5)), periodEnd: endOfMonth(referenceIso) };
     case "last12":
       return { periodStart: startOfMonth(addMonthsToIsoDate(monthStart, -11)), periodEnd: endOfMonth(referenceIso) };
-    case "year": {
-      const year = Number(referenceIso.slice(0, 4));
+    case "year":
       return { periodStart: `${year}-01-01`, periodEnd: `${year}-12-31` };
-    }
+    case "lastYear":
+      return { periodStart: `${year - 1}-01-01`, periodEnd: `${year - 1}-12-31` };
     default:
       return { periodStart: monthStart, periodEnd: endOfMonth(referenceIso) };
   }

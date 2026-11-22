@@ -42,7 +42,16 @@ function ValuesTable({ data, showReserved }: { data: MonthlyEvolutionDTO[]; show
   );
 }
 
-export function MonthlyChart({ data }: { data: MonthlyEvolutionDTO[] }) {
+export function MonthlyChart({
+  data,
+  helpId = "dashboard.monthly-evolution",
+  help,
+}: {
+  data: MonthlyEvolutionDTO[];
+  /** Reports reuse this chart over their own period — they pass their own help text/id. */
+  helpId?: string;
+  help?: React.ReactNode;
+}) {
   const showReserved = data.some((d) => d.reserved > 0);
   const [listOpen, setListOpen] = useState(false);
 
@@ -56,10 +65,10 @@ export function MonthlyChart({ data }: { data: MonthlyEvolutionDTO[] }) {
   return (
     <Card elevation="sm" className="min-h-[320px]">
       <CardTitleWithHelp
-        id="dashboard.monthly-evolution"
+        id={helpId}
         helpTitle="Evolução mensal"
         help={
-          <>
+          help ?? <>
             <p>Receitas (verde) e despesas (vermelho) mês a mês — os 2 meses anteriores, o mês atual e os 3 próximos.</p>
             <p>Os valores de cada mês aparecem em cima das barras. Toque em “Exibir lista” para ver a mesma informação em tabela.</p>
             <p>Toda barra soma também as despesas programadas e os parcelamentos ainda não pagos daquele mês, além do que já foi lançado.</p>

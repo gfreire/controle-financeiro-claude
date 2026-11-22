@@ -645,3 +645,28 @@ crédito em outra fatura. Virou a coluna `card_refunds.competence` (backfill = f
 `refund_date`). Pra a lista da fatura, o pool de pagamento e o dashboard não discordarem, a
 competência passou a substituir `refund_date` em todos eles — inclusive o mês da RECEITA no
 dashboard, que antes era o mês de `refund_date` (agora segue a regra de competência do cartão).
+
+---
+
+# Relatórios salvos (2026-11-22, migration `0042`)
+
+User request: "relatórios gráficos… semelhante à dashboard porém com filtros salvos e mais um
+filtro de período" — e.g. a "Poker" report (his poker income/expense categories) or a trip. The
+removed dashboard period presets (2026-08-28) were always meant to land here.
+
+Decisions asked up front and answered by the user:
+- **Card purchases**: "se quero ver o impacto mês a mês seria as parcelas, se quero saber o quanto
+  estou gastando em si seria o valor cheio" → a per-report `card_basis` toggle, default competence.
+- **Trips**: categories alone don't capture a trip; tags were offered but the user asked for "todo
+  filtro que pudermos ter" — description search + period + categories + accounts + card basis.
+  Tags stay a possible later addition.
+- **Projections**: "igual ao dashboard". Narrowed while building to *current month onward* — a
+  "todo o período" report would otherwise get a fixed-expense placeholder for every past month
+  since `start_competence` (backfilled to 1970) — and made a per-report switch.
+- **Periods**: mês atual, mês passado, últimos 3/6/12, este ano (Jan–Dec even mid-year, for future
+  installments), ano passado, todo o período, personalizado (two dates).
+
+Editing is a dialog ("Editar filtros") rather than live URL-driven filters with a save button —
+simpler, and the saved definition is always what the page shows (donut clicks are the only
+unsaved, temporary narrowing).
+

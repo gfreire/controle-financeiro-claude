@@ -283,6 +283,34 @@ CREATE TABLE public.recurring_incomes (
 );
 CREATE INDEX recurring_incomes_user_id_idx ON public.recurring_incomes (user_id);
 
+-- NOVO (0042): reports — relatórios salvos (/reports). Guarda só a definição dos filtros;
+-- todo número é recalculado ao abrir. period_preset relativo (start/end só p/ 'custom');
+-- card_basis 'competence' (parcelas) | 'purchase' (valor cheio na data da compra). Arrays de ids
+-- sem FK de propósito — filtro salvo não é histórico; id inexistente só não casa com nada.
+CREATE TABLE public.reports (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  name text NOT NULL,
+  period_preset text NOT NULL DEFAULT 'month'
+    CHECK (period_preset IN ('month', 'lastMonth', 'last3', 'last6', 'last12', 'year', 'lastYear', 'all', 'custom')),
+  period_start date,
+  period_end date,
+  card_basis text NOT NULL DEFAULT 'competence' CHECK (card_basis IN ('competence', 'purchase')),
+  include_projections boolean NOT NULL DEFAULT true,
+  category_ids uuid[] NOT NULL DEFAULT '{}',
+  subcategory_ids uuid[] NOT NULL DEFAULT '{}',
+  account_ids uuid[] NOT NULL DEFAULT '{}',
+  description_search text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT reports_pkey PRIMARY KEY (id),
+  CONSTRAINT reports_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT reports_custom_period CHECK (
+    period_preset <> 'custom' OR (period_start IS NOT NULL AND period_end IS NOT NULL AND period_end >= period_start)
+  )
+);
+CREATE INDEX reports_user_id_idx ON public.reports (user_id);
+
 -- ============================================================
 -- TRANSACTIONS
 -- origin_account_id + destination_account_id no mesmo registro cobrem
@@ -757,4 +785,8 @@ CREATE POLICY "own goal yields" ON public.goal_yields
 
 ALTER TABLE public.budgets ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "own budgets" ON public.budgets
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY; -- NOVO (0042)
+CREATE POLICY "own reports" ON public.reports
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

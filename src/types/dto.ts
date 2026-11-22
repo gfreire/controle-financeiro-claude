@@ -24,6 +24,19 @@ export type DashboardFilters = {
    * only ever set by the page when building the expense-charts-only filters object.
    */
   source?: "all" | "liquid" | "cards";
+  /**
+   * Reports only (/reports) — case-insensitive "descrição contém". Matches `transactions.description`,
+   * `card_purchases.description`, `card_refunds.description` and, for the projected obligations, the
+   * fixed expense's name / debt's agent. Synthetic income without a description of its own
+   * ("Compras retroativas", goal yields) is dropped while it's set.
+   */
+  descriptionSearch?: string;
+  /**
+   * Reports only — how card purchases count. "competence" (default, same as the dashboard): each
+   * installment in its invoice month. "purchase": each purchase once, at its full `amount`, on its
+   * `purchase_date` (card refunds then count on `refund_date`).
+   */
+  cardBasis?: "competence" | "purchase";
 };
 
 export type FinancialSummaryDTO = {
@@ -442,3 +455,22 @@ export type CategoryImportOptionDTO = {
     alreadyImported: boolean;
   }[];
 };
+
+/** Saved report (/reports, migration 0042) — only the filter definition; every figure is recomputed on open. */
+export type ReportPeriodPreset = "month" | "lastMonth" | "last3" | "last6" | "last12" | "year" | "lastYear" | "all" | "custom";
+export type ReportDTO = {
+  id: string;
+  name: string;
+  periodPreset: ReportPeriodPreset;
+  periodStart?: string;          // "YYYY-MM-DD", only for "custom"
+  periodEnd?: string;            // "YYYY-MM-DD", only for "custom"
+  cardBasis: "competence" | "purchase";
+  includeProjections: boolean;
+  categoryIds: string[];
+  subcategoryIds: string[];
+  accountIds: string[];
+  descriptionSearch?: string;
+};
+/** Monthly result of a report + its running total ("quanto já ganhei/perdi até aqui"). */
+export type ReportResultPointDTO = { month: string; result: number; cumulative: number };
+
