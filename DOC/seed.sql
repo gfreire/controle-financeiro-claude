@@ -13,7 +13,8 @@ values
 (gen_random_uuid(), 'Compras retroativas', 'INCOME', '🕓', '#0d9488', true, false),
 (gen_random_uuid(), 'Pagamento de Cartão', 'EXPENSE', '🧾', '#64748b', true, false),
 (gen_random_uuid(), 'Resgate de Meta Concluída', 'INCOME', '🎯', '#16a34a', true, false),
-(gen_random_uuid(), 'Resgate de Meta Antecipado', 'INCOME', '⚠️', '#f59e0b', true, false);
+(gen_random_uuid(), 'Resgate de Meta Antecipado', 'INCOME', '⚠️', '#f59e0b', true, false),
+(gen_random_uuid(), 'Crédito no Cartão', 'INCOME', '💚', '#10b981', true, false);
 -- ADICIONADO: faltavam as 2 linhas de "Ajuste" (INCOME e EXPENSE) definidas
 -- na sessão de replanejamento — saída do reconcileAccountBalance ("Ajustar
 -- Saldo"), separado de Rendimentos (que é o registerYield/"Informar Rendimento").
@@ -32,6 +33,9 @@ values
 -- saldo vs. alvo no momento do saque. Como "Pagamento de Cartão": is_system (fora do CategorySelect),
 -- e REDEEM já é excluído de analytics por type — a categoria é só alça de filtro em /transactions.
 -- Ver AI_CONTEXT.md "Metas".
+-- ADICIONADO (0040): "Crédito no Cartão" (só INCOME — uma linha) — categoria de um crédito avulso
+-- na fatura (card_refunds sem compra vinculada), aplicada só por cards.service#registerCardCredit.
+-- Ver AI_CONTEXT.md "Crédito no Cartão".
 
 -- ============================================
 -- DEFAULT EXPENSE CATEGORIES

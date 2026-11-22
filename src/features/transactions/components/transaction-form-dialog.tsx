@@ -9,12 +9,23 @@ import { Field, Label, Input, Textarea, FieldError } from "@/components/ui/input
 import { CategorySelect, SubcategorySelect } from "@/features/categories/components/category-select";
 import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-select";
 import { Plus, Pencil } from "lucide-react";
+import { BalanceAdjustForm } from "@/features/accounts/components/balance-adjust-dialog";
+import { InterestForm } from "@/features/accounts/components/interest-dialog";
 import { createTransactionAction, updateTransactionAction } from "../actions";
 import { transactionSchema, type TransactionType } from "@/lib/validations/transactions";
 import { todayIso } from "@/lib/utils/date";
 import type { AccountDTO, CategoryDTO, TransactionViewDTO } from "@/types/dto";
 
 const NONE = "NONE";
+
+type MovementKind = "TRANSACTION" | "YIELD" | "INTEREST" | "RECONCILE";
+
+const KIND_LABEL: Record<MovementKind, string> = {
+  TRANSACTION: "Movimentação",
+  YIELD: "Informar Rendimento",
+  INTEREST: "Lançar Juros",
+  RECONCILE: "Ajustar Saldo",
+};
 
 export function TransactionFormDialog({
   accounts,
@@ -27,8 +38,89 @@ export function TransactionFormDialog({
   transaction?: TransactionViewDTO;
 }) {
   const isEdit = !!transaction;
-  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<MovementKind>("TRANSACTION");
+  const [accountId, setAccountId] = useState("");
+  const close = () => setOpen(false);
+
+  // Accounts each shortcut accepts — the same rule as the account card's menu: "Informar
+  // Rendimento"/"Lançar Juros" are BANK-only, "Ajustar Saldo" is CASH + BANK.
+  const kindAccounts = kind === "RECONCILE" ? accounts.filter((a) => a.type === "CASH" || a.type === "BANK") : accounts.filter((a) => a.type === "BANK");
+  const selectedAccount = kindAccounts.find((a) => a.id === accountId);
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (next) setKind("TRANSACTION");
+  }
+
+  function handleKindChange(next: MovementKind) {
+    setKind(next);
+    const eligible = next === "RECONCILE" ? accounts.filter((a) => a.type === "CASH" || a.type === "BANK") : accounts.filter((a) => a.type === "BANK");
+    setAccountId(eligible[0]?.id ?? "");
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        {isEdit ? (
+          // Real padding, no negative margin — see delete-transaction-button.tsx for why: this
+          // sits alongside estornar/excluir, and an expanded-but-overlapping hit zone would let
+          // taps meant for this button land on a more destructive neighbor instead.
+          <button className="p-2.5 text-text/40 hover:text-accent" aria-label="Editar lançamento">
+            <Pencil className="size-3.5" strokeWidth={1.5} />
+          </button>
+        ) : (
+          <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova movimentação</Button>
+        )}
+      </DialogTrigger>
+      <DialogContent>
+        <DialogTitle>{isEdit ? "Editar movimentação" : "Nova movimentação"}</DialogTitle>
+
+        {!isEdit && (
+          <Field>
+            <Label>Tipo de movimentação</Label>
+            <Select value={kind} onValueChange={(v) => handleKindChange(v as MovementKind)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(Object.keys(KIND_LABEL) as MovementKind[]).map((k) => <SelectItem key={k} value={k}>{KIND_LABEL[k]}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
+
+        {kind !== "TRANSACTION" && (
+          <Field>
+            <Label>Conta</Label>
+            <AccountSelect accounts={kindAccounts} value={accountId} onChange={setAccountId} />
+            {kindAccounts.length === 0 && <p className="mt-1 text-[11px] opacity-50">Nenhuma conta elegível.</p>}
+          </Field>
+        )}
+
+        {kind === "TRANSACTION" && <TransactionForm accounts={accounts} categories={initialCategories} transaction={transaction} onDone={close} />}
+        {/* key remounts the form on an account switch, so its state follows the newly picked account. */}
+        {kind === "YIELD" && selectedAccount && <BalanceAdjustForm key={selectedAccount.id} account={selectedAccount} mode="yield" onDone={close} />}
+        {kind === "INTEREST" && selectedAccount && <InterestForm key={selectedAccount.id} account={selectedAccount} onDone={close} />}
+        {kind === "RECONCILE" && selectedAccount && <BalanceAdjustForm key={selectedAccount.id} account={selectedAccount} mode="reconcile" onDone={close} />}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The plain INCOME/EXPENSE/TRANSFER form. Radix unmounts the dialog content on close, so state
+ * starts fresh (from `transaction`, in edit mode) on every open. */
+function TransactionForm({
+  accounts,
+  categories: initialCategories,
+  transaction,
+  onDone,
+}: {
+  accounts: AccountDTO[];
+  categories: CategoryDTO[];
+  transaction?: TransactionViewDTO;
+  onDone: () => void;
+}) {
+  const isEdit = !!transaction;
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState(initialCategories);
@@ -42,33 +134,11 @@ export function TransactionFormDialog({
   const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? NONE);
   const [subcategoryId, setSubcategoryId] = useState(transaction?.subcategoryId ?? NONE);
 
-  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
-  // not an Effect: the dialog stays mounted across parent re-renders (e.g. an inline category
-  // edit on this same row triggering router.refresh()), so the useState initializers above
-  // never see a fresher `transaction` prop on their own.
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open) {
-      setCategories(initialCategories);
-      setType((transaction?.type as TransactionType) ?? "EXPENSE");
-      setAmount(transaction ? String(transaction.amount) : "");
-      setDate(transaction?.date ?? todayIso());
-      setDescription(transaction?.description ?? "");
-      setOriginAccountId(transaction?.originAccountId ?? NONE);
-      setDestinationAccountId(transaction?.destinationAccountId ?? NONE);
-      setCategoryId(transaction?.categoryId ?? NONE);
-      setSubcategoryId(transaction?.subcategoryId ?? NONE);
-    }
-  }
 
   const liquidAccounts = accounts.filter((a) => a.type !== "CREDIT_CARD");
   const relevantCategories = useMemo(() => categories.filter((c) => c.type === type), [categories, type]);
   const selectedCategory = relevantCategories.find((c) => c.id === categoryId);
 
-  function reset() {
-    setAmount(""); setDescription(""); setOriginAccountId(NONE); setDestinationAccountId(NONE); setCategoryId(NONE); setSubcategoryId(NONE);
-  }
 
   function handleSubmit() {
     setError(null);
@@ -92,10 +162,9 @@ export function TransactionFormDialog({
           await updateTransactionAction({ id: transaction.id, ...parsed.data });
         } else {
           await createTransactionAction(parsed.data);
-          reset();
         }
         router.refresh();
-        setOpen(false);
+        onDone();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao salvar lançamento");
       }
@@ -103,22 +172,7 @@ export function TransactionFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {isEdit ? (
-          // Real padding, no negative margin — see delete-transaction-button.tsx for why: this
-          // sits alongside estornar/excluir, and an expanded-but-overlapping hit zone would let
-          // taps meant for this button land on a more destructive neighbor instead.
-          <button className="p-2.5 text-text/40 hover:text-accent" aria-label="Editar lançamento">
-            <Pencil className="size-3.5" strokeWidth={1.5} />
-          </button>
-        ) : (
-          <Button size="sm"><Plus className="size-3.5" strokeWidth={1.5} /> Nova movimentação</Button>
-        )}
-      </DialogTrigger>
-      <DialogContent>
-        <DialogTitle>{isEdit ? "Editar movimentação" : "Nova movimentação"}</DialogTitle>
-
+    <>
         <Field>
           <Label>Tipo</Label>
           <Select value={type} onValueChange={(v) => { setType(v as TransactionType); setCategoryId(NONE); setSubcategoryId(NONE); }}>
@@ -206,7 +260,6 @@ export function TransactionFormDialog({
           <DialogClose asChild><Button variant="secondary" size="sm">Cancelar</Button></DialogClose>
           <Button size="sm" disabled={pending || !amount} onClick={handleSubmit}>{pending ? "Salvando..." : "Salvar"}</Button>
         </DialogActions>
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }

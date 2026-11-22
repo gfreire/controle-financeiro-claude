@@ -262,6 +262,19 @@ export type CardMonthlyEvolutionDTO = {
   byCategory: { categoryId: string; categoryName: string; color: string; amount: number }[];
 };
 
+/** cards.service#getCardCredits — a card_refunds row shown (in green) on the invoice of the
+ * competence open at its date. Covers both a standalone credit ("Lançar crédito", purchaseId
+ * absent, deletable) and a full purchase refund (purchaseId set). See AI_CONTEXT.md "Crédito no Cartão". */
+export type CardCreditDTO = {
+  id: string;
+  date: string;
+  competenceMonth: string; // "YYYY-MM"
+  amount: number; // always positive
+  description: string;
+  categoryName: string;
+  purchaseId?: string;
+};
+
 export type CardInstallmentDTO = {
   id: string;
   purchaseId: string;

@@ -613,3 +613,27 @@ alert — were later removed for unrelated reasons.)
 months around the viewed month (13 bars), too dense to read, especially on mobile. Shrunk to
 2 months back + viewed month + 3 forward (6 bars), the same window the dashboard's monthly
 chart adopted on 2026-09-07. Change lives in `cards.service.ts#getCardMonthlyEvolution`.
+
+# Crédito avulso no cartão + "Nova movimentação" com seletor (2026-11-22, migration `0040`)
+
+Caso real que motivou: o usuário assinava Amazon Prime anual em 12x de 13,90 no cartão; ao
+assinar PicPay Plus (que inclui o Prime por 11,99/mês em outro cartão), a Amazon creditou R$
+133,44 proporcionais na fatura corrente **mas manteve as parcelas de 13,90 programadas**. O
+estorno existente (`refundCardPurchase`) não servia: só aceita estorno integral de uma compra,
+reclassifica a compra pra "Estorno" e antecipa as parcelas.
+
+Decisões:
+- **Reaproveitar `card_refunds`** (`card_purchase_id` passa a ser nullable + `description`) em
+  vez de tabela nova — ela já se comportava como crédito em toda a pipeline (pool oldest-first,
+  limite, `creditBalance`, RECEITA no dashboard pela própria `category_id`).
+- **Categoria**: o usuário ficou em dúvida entre "Estorno" e uma genérica. Escolhida a nova
+  is_system INCOME **"Crédito no Cartão"**, com o motivo na descrição — "Estorno" ficou com o
+  significado de estorno integral (com reclassificação), e um crédito avulso pode ser reembolso
+  do banco, cashback etc. Sem seletor de categoria (o usuário preferia não ter que escolher).
+- Créditos aparecem **na lista da fatura, em verde** ("tudo que é positivo"), na fatura da
+  competência aberta na data do crédito. Isso vale também pros estornos integrais.
+- Pedido do usuário no mesmo turno: os botões "Nova compra" (/cards) e "Nova movimentação"
+  (/transactions) viraram "Nova movimentação" com um dropdown de tipo como 1º campo, reusando os
+  formulários dos menus ("Fatura ▾" e o menu da conta). É o começo de uma ideia maior de atalhos
+  — um menu flutuante configurável pelo usuário está planejado pra depois (os relatórios vêm
+  antes).

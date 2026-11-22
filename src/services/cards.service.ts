@@ -3,8 +3,8 @@ import { getUser } from "@/lib/auth/getUser";
 import { splitInstallments, sumMoney, subtractMoney, addMoney } from "@/lib/utils/money";
 import { calculateInstallmentCompetences, calculateInstallmentCompetencesFromAnchorMonth } from "@/lib/utils/date";
 import { monthKey, startOfMonth, endOfMonth, todayIso, addMonthsToIsoDate, formatMonthLabel } from "@/lib/utils/date";
-import type { CardPurchaseInput, CardPaymentInput } from "@/lib/validations/cards";
-import type { CardInstallmentDTO, CardMonthlyEvolutionDTO, CardPurchaseDTO, CardSummaryDTO } from "@/types/dto";
+import type { CardPurchaseInput, CardPaymentInput, CardCreditInput } from "@/lib/validations/cards";
+import type { CardCreditDTO, CardInstallmentDTO, CardMonthlyEvolutionDTO, CardPurchaseDTO, CardSummaryDTO } from "@/types/dto";
 
 async function getCardCycle(supabase: Awaited<ReturnType<typeof createClient>>, creditCardId: string) {
   const { data, error } = await supabase.from("credit_cards").select("closing_day, due_day").eq("account_id", creditCardId).single();
@@ -230,6 +230,96 @@ export async function refundCardPurchase(purchaseId: string, refundDate: string)
     refund_date: refundDate,
   });
   if (refundError) throw new Error(refundError.message);
+}
+
+async function getCardCreditCategoryId(supabase: Awaited<ReturnType<typeof createClient>>): Promise<string> {
+  const { data, error } = await supabase
+    .from("categories")
+    .select("id")
+    .eq("is_system", true)
+    .eq("name", "Crédito no Cartão")
+    .eq("type", "INCOME")
+    .single();
+  if (error) throw new Error('Categoria de sistema "Crédito no Cartão" (INCOME) não encontrada — verifique a migration 0040');
+  return data.id;
+}
+
+/**
+ * "Lançar crédito" (AI_CONTEXT.md "Crédito no Cartão") — um crédito avulso na fatura, sem compra
+ * vinculada (ex.: proporcional devolvido pelo lojista, reembolso do banco, cashback). É um
+ * `card_refunds` com `card_purchase_id = NULL`, então abate a fatura/limite e conta como RECEITA
+ * exatamente como o estorno integral — mas NÃO reclassifica nenhuma compra nem mexe em parcelas.
+ * Categoria sempre a is_system "Crédito no Cartão"; o motivo vai na descrição.
+ */
+export async function registerCardCredit(input: CardCreditInput): Promise<void> {
+  const supabase = await createClient();
+  const user = await getUser();
+  const { data: card, error: cardError } = await supabase.from("accounts").select("name, type").eq("id", input.creditCardId).single();
+  if (cardError) throw new Error(cardError.message);
+  if (card.type !== "CREDIT_CARD") throw new Error("Crédito só pode ser lançado em um cartão de crédito.");
+  const categoryId = await getCardCreditCategoryId(supabase);
+  const { error } = await supabase.from("card_refunds").insert({
+    user_id: user.id,
+    card_purchase_id: null,
+    credit_card_id: input.creditCardId,
+    category_id: categoryId,
+    amount: input.amount,
+    refund_date: input.date,
+    description: input.description?.trim() || `Crédito no cartão ${card.name}`,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Só apaga crédito avulso — o estorno integral de uma compra não tem desfazer (ver "Estorno"). */
+export async function deleteCardCredit(id: string): Promise<void> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("card_refunds").select("card_purchase_id").eq("id", id).single();
+  if (error) throw new Error(error.message);
+  if (data.card_purchase_id) throw new Error("O estorno de uma compra não pode ser excluído por aqui.");
+  const { error: deleteError } = await supabase.from("card_refunds").delete().eq("id", id);
+  if (deleteError) throw new Error(deleteError.message);
+}
+
+/**
+ * Créditos (todo `card_refunds` — avulsos e estornos integrais) exibidos na fatura de `month`.
+ * A fatura de um crédito é a que estava aberta na data dele (mesma regra de competência de uma
+ * compra feita naquele dia). Só apresentação — os totais da fatura continuam vindo de
+ * getCardSummary, que trata o crédito como pagamento (pool oldest-first).
+ */
+export async function getCardCredits(cardId: string, month: string): Promise<CardCreditDTO[]> {
+  const supabase = await createClient();
+  const cycle = await getCardCycle(supabase, cardId);
+  // A data de um crédito cai no máximo ~2 meses antes da competência da fatura dele.
+  const windowStart = startOfMonth(addMonthsToIsoDate(`${month}-01`, -2));
+  const windowEnd = endOfMonth(`${month}-01`);
+  const { data, error } = await supabase
+    .from("card_refunds")
+    .select("id, amount, refund_date, description, card_purchase_id, categories(name), card_purchases(description)")
+    .eq("credit_card_id", cardId)
+    .gte("refund_date", windowStart)
+    .lte("refund_date", windowEnd)
+    .order("refund_date", { ascending: false });
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as unknown as Array<{
+    id: string;
+    amount: number;
+    refund_date: string;
+    description: string | null;
+    card_purchase_id: string | null;
+    categories: { name: string } | null;
+    card_purchases: { description: string | null } | null;
+  }>;
+  return rows
+    .map((r) => ({
+      id: r.id,
+      date: r.refund_date,
+      competenceMonth: monthKey(calculateInstallmentCompetences(r.refund_date, cycle.closing_day, cycle.due_day, 1)[0]),
+      amount: Number(r.amount),
+      description: r.description || (r.card_purchase_id ? `Estorno — ${r.card_purchases?.description || "compra"}` : "Crédito no cartão"),
+      categoryName: r.categories?.name ?? "",
+      purchaseId: r.card_purchase_id ?? undefined,
+    }))
+    .filter((c) => c.competenceMonth === month);
 }
 
 export async function getCardPurchases(cardId: string): Promise<CardPurchaseDTO[]> {

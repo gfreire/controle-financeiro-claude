@@ -61,9 +61,40 @@ export function PurchaseFormDialog({
   purchase?: CardPurchaseDTO;
   trigger?: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {trigger ?? <Button size="sm" disabled={cards.length === 0}><Plus className="size-3.5" strokeWidth={1.5} /> Nova compra</Button>}
+      </DialogTrigger>
+      <DialogContent>
+        <DialogTitle>{purchase ? "Editar compra" : "Nova compra no cartão"}</DialogTitle>
+        <PurchaseForm cards={cards} cardTotals={cardTotals} categories={initialCategories} purchase={purchase} onDone={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * The dialog's body — also rendered by the Cards page's "Nova movimentação" picker. Always mounted
+ * inside a Dialog; Radix unmounts the content on close, so every useState initializer below runs
+ * fresh on each open (no stale `purchase` after an inline edit + router.refresh()).
+ */
+export function PurchaseForm({
+  cards,
+  cardTotals,
+  categories: initialCategories,
+  purchase,
+  onDone,
+}: {
+  cards: AccountDTO[];
+  cardTotals: Record<string, number>;
+  categories: CategoryDTO[];
+  purchase?: CardPurchaseDTO;
+  onDone: () => void;
+}) {
   const isEdit = !!purchase;
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState(initialCategories);
@@ -83,31 +114,6 @@ export function PurchaseFormDialog({
   const [isBackfill, setIsBackfill] = useState(!!purchase?.paidThroughCompetence);
   const [paidThroughCompetence, setPaidThroughCompetence] = useState(purchase?.paidThroughCompetence ?? "");
 
-  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
-  // not an Effect: the dialog stays mounted across parent re-renders (e.g. an inline category
-  // edit on this same installment row triggering router.refresh()), so the useState
-  // initializers above never see a fresher `purchase` prop on their own.
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open) {
-      setCategories(initialCategories);
-      setCreditCardId(purchase?.creditCardId ?? cards[0]?.id ?? NONE);
-      setAmount(purchase ? String(purchase.totalAmount) : "");
-      setPurchaseDate(purchase?.purchaseDate ?? todayIso());
-      setDescription(purchase?.description ?? "");
-      setInstallments(purchase ? String(purchase.installmentsCount) : "1");
-      setCategoryId(purchase?.categoryId ?? NONE);
-      setSubcategoryId(purchase?.subcategoryId ?? NONE);
-      setFirstCompetenceMonth(
-        purchase?.firstCompetenceMonth ?? initialCompetenceMonth(purchase?.purchaseDate ?? todayIso(), cards.find((c) => c.id === (purchase?.creditCardId ?? cards[0]?.id)))
-      );
-      setCompetenceManuallyEdited(false);
-      setOverLimitAcknowledged(false);
-      setIsBackfill(!!purchase?.paidThroughCompetence);
-      setPaidThroughCompetence(purchase?.paidThroughCompetence ?? "");
-    }
-  }
 
   const expenseCategories = categories.filter((c) => c.type === "EXPENSE");
   const selectedCategory = expenseCategories.find((c) => c.id === categoryId);
@@ -177,14 +183,6 @@ export function PurchaseFormDialog({
     if (!competenceManuallyEdited) suggestCompetence(purchaseDate, value);
   }
 
-  function resetForm() {
-    setAmount(""); setDescription(""); setInstallments("1"); setCategoryId(NONE); setSubcategoryId(NONE);
-    setCompetenceManuallyEdited(false);
-    setFirstCompetenceMonth(initialCompetenceMonth(purchaseDate, selectedCard));
-    setOverLimitAcknowledged(false);
-    setIsBackfill(false);
-    setPaidThroughCompetence("");
-  }
 
   function handleAmountChange(value: string) {
     setAmount(value);
@@ -226,8 +224,7 @@ export function PurchaseFormDialog({
           await createCardPurchaseAction(parsed.data);
         }
         router.refresh();
-        setOpen(false);
-        if (!isEdit) resetForm();
+        onDone();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao salvar compra");
       }
@@ -235,12 +232,7 @@ export function PurchaseFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger ?? <Button size="sm" disabled={cards.length === 0}><Plus className="size-3.5" strokeWidth={1.5} /> Nova compra</Button>}
-      </DialogTrigger>
-      <DialogContent>
-        <DialogTitle>{isEdit ? "Editar compra" : "Nova compra no cartão"}</DialogTitle>
+    <>
         {isEdit && (
           <p className="text-xs opacity-60">Editar refaz o parcelamento inteiro a partir dos novos valores — as parcelas atuais são substituídas.</p>
         )}
@@ -377,7 +369,6 @@ export function PurchaseFormDialog({
             {pending ? "Salvando..." : "Salvar"}
           </Button>
         </DialogActions>
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }

@@ -395,11 +395,12 @@ CREATE TABLE public.card_payments (
 CREATE TABLE public.card_refunds (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
-  card_purchase_id uuid NOT NULL,
+  card_purchase_id uuid, -- NULL = crédito avulso ("Lançar crédito", 0040); set = estorno integral da compra
   credit_card_id uuid NOT NULL,
   category_id uuid NOT NULL,
   amount numeric(14,2) NOT NULL CHECK (amount > 0),
   refund_date date NOT NULL,
+  description text, -- 0040 — detalhe do crédito avulso
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT card_refunds_pkey PRIMARY KEY (id),
   CONSTRAINT card_refunds_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),

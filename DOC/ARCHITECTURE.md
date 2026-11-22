@@ -63,6 +63,8 @@ not to rediscover whether a feature exists.
   block of compact donuts + a "Guardado (metas)" evolution bar + a "guardado em metas" Saldo
   sub-line.
 - **Transactions** (`/transactions`) — month-scoped like Cards/Dashboard; create/edit/delete;
+  "Nova movimentação" opens with a type picker (Movimentação / Informar Rendimento / Lançar
+  Juros / Ajustar Saldo + an account picker for the last three);
   no manual "pay card bill". `CREDIT_CARD_PAYMENT` rows show a fixed "Pagamento de Cartão"
   label (also the `is_system` category they carry, migration `0031`). `RESERVE`/`REDEEM` rows
   are read-only ("Edite pela tela de Metas").
@@ -77,7 +79,9 @@ not to rediscover whether a feature exists.
 - **Cards** — create/edit/delete a purchase (edit rolls back and regenerates every
   installment); competence month defaults from the card + overridable via a month picker;
   inline category/subcategory editing per installment row; a "Fatura ▾" menu ("Pagar fatura"
-  + "Lançar juros"); soft credit-limit warning; usado/total against the full committed
+  + "Lançar juros" + "Lançar crédito"); "Nova movimentação" with a type picker (Compra /
+  Informar Juros / Lançar Crédito / Pagar Fatura); standalone card credits (`0040`, category
+  "Crédito no Cartão") and full refunds listed in green on the invoice; soft credit-limit warning; usado/total against the full committed
   balance, the viewed month's invoice, overdue amount, `creditBalance` (saldo a favor from a
   refund/overpayment); a purchase can be backfilled as retroactive ("compra antiga" +
   "pago até" → `paid_before_system` prefix); "Antecipar parcelas" and "Estornar compra" per
@@ -229,6 +233,7 @@ Applied in order; each additive (a new file corrects an old one, never a rewrite
 | 0037 | `reload_schema_cache` | as `0020`, for the `goals` tables |
 | 0038 | `recurring_incomes` | `recurring_incomes` (predictable-income template) + `transactions.recurring_income_id` (`ON DELETE SET NULL`); RLS `auth.uid() = user_id`. `category_id`/`default_account_id` are `SET NULL`, not `RESTRICT` — a template carries no history of its own |
 | 0039 | `reload_schema_cache` | as `0020`, for `recurring_incomes` |
+| 0040 | `card_credits` | `card_refunds.card_purchase_id` nullable (NULL = standalone credit, "Lançar crédito") + `card_refunds.description`; `is_system` INCOME "Crédito no Cartão"; reloads the schema cache |
 
 ---
 
@@ -322,7 +327,9 @@ src
  │  │   limit-adjust-dialog.tsx [LimitAdjustDialog — "Editar Conta"/"Editar Cartão"; name all
  │  │   types, +institution/limits BANK+CARD, +closing/due CARD])
  │  ├ cards/components (purchase-form-dialog [create+edit, competence override, over-limit
- │  │   warning], payment-form-dialog, refund-purchase-dialog.tsx [full refund only],
+ │  │   warning], payment-form-dialog, card-credit-dialog ["Lançar crédito"],
+ │  │   card-movement-dialog ["Nova movimentação" type picker over PurchaseForm/InterestForm/
+ │  │   CardCreditForm/PaymentForm], delete-card-credit-button, invoice-menu, refund-purchase-dialog.tsx [full refund only],
  │  │   advance-installments-dialog.tsx ["Antecipar parcelas"], delete-purchase-button,
  │  │   month-nav, card-filters.tsx, card-expense-donut.tsx, card-evolution-chart
  │  │   [6-month window (2 back + viewed + 3 forward) by competence, own local multi-select category filter via
@@ -638,6 +645,14 @@ registerCardPayment(data)
   -- default "Pagamento da fatura do cartão {nome}". Tags the transaction with the is_system
   -- EXPENSE category "Pagamento de Cartão" (getCardPaymentCategoryId) — automatic, label
   -- only.
+registerCardCredit({ creditCardId, amount, date, description? })
+  -- "Lançar crédito": a card_refunds row with card_purchase_id NULL, category always the
+  -- is_system INCOME "Crédito no Cartão", description default "Crédito no cartão {nome}". Touches
+  -- no purchase/installment. Same downstream effects as a full refund's credit.
+deleteCardCredit(id)   -- only a standalone credit (card_purchase_id NULL); a full refund has no undo
+getCardCredits(cardId, month) → CardCreditDTO[]
+  -- every card_refunds (standalone + full refunds) whose refund_date falls in the cycle of
+  -- `month`'s invoice — listed in green on /cards. Presentation only.
 getDefaultCardsMonth() → string
   -- month /cards opens on with no ?month=. Next month when getCardBalanceThroughMonth(card,
   -- todayMonth) === 0 for EVERY card AND next month has installments; else today's month.
@@ -960,6 +975,12 @@ type CardMonthlyEvolutionDTO = {
   month: string; total: number   // historical billed total (does NOT exclude paid_before_system)
   paid: number; unpaid: number   // split `total` (oldest-first allocation) — only != 0 with no category filter
   byCategory: { categoryId: string; categoryName: string; color: string; amount: number }[]
+}
+type CardCreditDTO = {
+  id: string; date: string; competenceMonth: string   // invoice the credit lands on
+  amount: number                // always positive
+  description: string; categoryName: string
+  purchaseId?: string           // set = full purchase refund (not deletable); absent = standalone credit
 }
 type CardInstallmentDTO = {
   id: string; purchaseId: string

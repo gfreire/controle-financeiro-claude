@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Receipt, ChevronDown } from "lucide-react";
 import { PaymentFormDialog } from "./payment-form-dialog";
 import { InterestDialog } from "@/features/accounts/components/interest-dialog";
+import { CardCreditDialog } from "./card-credit-dialog";
 import type { AccountDTO } from "@/types/dto";
 
 /**
- * The card's "Fatura ▾" menu — "Pagar fatura" + "Lançar juros". Client-only because each
+ * The card's "Fatura ▾" menu — "Pagar fatura" + "Lançar juros" + "Lançar crédito". Client-only because each
  * `DropdownMenuItem` trigger carries an `onSelect` handler, which a Server Component can't
  * pass across the boundary (see the runtime error this was extracted to fix).
  */
@@ -34,6 +35,7 @@ export function InvoiceMenu({
           trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Pagar fatura</DropdownMenuItem>}
         />
         <InterestDialog account={card} trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Lançar juros</DropdownMenuItem>} />
+        <CardCreditDialog card={card} trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Lançar crédito</DropdownMenuItem>} />
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import * as cardsService from "@/services/cards.service";
-import { cardPurchaseSchema, updateCardPurchaseSchema, cardPaymentSchema, refundCardPurchaseSchema, advancePurchaseInstallmentsSchema, type CardPurchaseInput, type CardPaymentInput } from "@/lib/validations/cards";
+import { cardPurchaseSchema, updateCardPurchaseSchema, cardPaymentSchema, refundCardPurchaseSchema, advancePurchaseInstallmentsSchema, cardCreditSchema, type CardCreditInput, type CardPurchaseInput, type CardPaymentInput } from "@/lib/validations/cards";
 
 export async function createCardPurchaseAction(input: CardPurchaseInput) {
   const parsed = cardPurchaseSchema.parse(input);
@@ -44,5 +44,20 @@ export async function advancePurchaseInstallmentsAction(input: { purchaseId: str
   const parsed = advancePurchaseInstallmentsSchema.parse(input);
   await cardsService.advancePurchaseInstallments(parsed.purchaseId, parsed.count);
   revalidatePath("/cards");
+  revalidatePath("/dashboard");
+}
+
+export async function registerCardCreditAction(input: CardCreditInput) {
+  const parsed = cardCreditSchema.parse(input);
+  await cardsService.registerCardCredit(parsed);
+  revalidatePath("/cards");
+  revalidatePath("/accounts");
+  revalidatePath("/dashboard");
+}
+
+export async function deleteCardCreditAction(id: string) {
+  await cardsService.deleteCardCredit(id);
+  revalidatePath("/cards");
+  revalidatePath("/accounts");
   revalidatePath("/dashboard");
 }

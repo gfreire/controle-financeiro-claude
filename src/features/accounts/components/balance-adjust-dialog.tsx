@@ -11,8 +11,22 @@ import { addMoney, subtractMoney } from "@/lib/utils/money";
 import type { AccountDTO } from "@/types/dto";
 
 export function BalanceAdjustDialog({ account, mode, trigger }: { account: AccountDTO; mode: "yield" | "reconcile"; trigger: React.ReactNode }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent>
+        <DialogTitle>{mode === "yield" ? "Informar Rendimento" : "Ajustar Saldo"}</DialogTitle>
+        <BalanceAdjustForm account={account} mode={mode} onDone={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The dialog's body — also rendered by the "Nova movimentação" picker on /transactions. Radix
+ * unmounts the content on close, so state starts fresh on every open. */
+export function BalanceAdjustForm({ account, mode, onDone }: { account: AccountDTO; mode: "yield" | "reconcile"; onDone: () => void }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   // Two optional, linked fields: the real balance and the difference itself (the yield, or the
@@ -21,18 +35,6 @@ export function BalanceAdjustDialog({ account, mode, trigger }: { account: Accou
   const [realBalance, setRealBalance] = useState("");
   const [difference, setDifference] = useState("");
 
-  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
-  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
-  // initializer above never sees a fresher `account.balance` (e.g. a transaction logged
-  // elsewhere just moved it before this dialog was reopened).
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open) {
-      setRealBalance("");
-      setDifference("");
-    }
-  }
 
   function handleRealBalanceChange(raw: string) {
     setRealBalance(raw);
@@ -58,7 +60,7 @@ export function BalanceAdjustDialog({ account, mode, trigger }: { account: Accou
         if (mode === "yield") await registerYieldAction(account.id, value);
         else await reconcileBalanceAction(account.id, value);
         router.refresh();
-        setOpen(false);
+        onDone();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao salvar");
       }
@@ -68,10 +70,7 @@ export function BalanceAdjustDialog({ account, mode, trigger }: { account: Accou
   const delta = realBalance.trim() === "" ? NaN : subtractMoney(Number(realBalance), account.balance);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
-        <DialogTitle>{mode === "yield" ? "Informar Rendimento" : "Ajustar Saldo"}</DialogTitle>
+    <>
         <DialogDescription>
           {mode === "yield"
             ? "Para rendimento rotineiro e esperado — lança a diferença como Rendimentos."
@@ -97,7 +96,6 @@ export function BalanceAdjustDialog({ account, mode, trigger }: { account: Accou
           <DialogClose asChild><Button variant="secondary" size="sm">Cancelar</Button></DialogClose>
           <Button size="sm" disabled={pending} onClick={handleSubmit}>{pending ? "Salvando..." : "Confirmar"}</Button>
         </DialogActions>
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }

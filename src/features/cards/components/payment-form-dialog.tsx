@@ -25,27 +25,38 @@ export function PaymentFormDialog({
   statementBalance: number;
   trigger: React.ReactNode;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent>
+        <DialogTitle>Pagar fatura — {card.name}</DialogTitle>
+        <PaymentForm card={card} payerAccounts={payerAccounts} statementBalance={statementBalance} onDone={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The dialog's body — also rendered by the "Nova movimentação" picker on /cards. Radix unmounts
+ * the content on close, so the initial state below is always fresh on open. */
+export function PaymentForm({
+  card,
+  payerAccounts,
+  statementBalance,
+  onDone,
+}: {
+  card: AccountDTO;
+  payerAccounts: AccountDTO[];
+  statementBalance: number;
+  onDone: () => void;
+}) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [accountId, setAccountId] = useState(payerAccounts[0]?.id ?? "");
   const [amount, setAmount] = useState(String(statementBalance));
   const [paymentDate, setPaymentDate] = useState(todayIso());
 
-  // See category-form-dialog.tsx for why this is needed and why it's a render-phase adjustment,
-  // not an Effect: the dialog stays mounted across parent re-renders, so the useState
-  // initializers above never see a fresher `statementBalance`/`payerAccounts` (e.g. after
-  // another payment or purchase changed what's owed).
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open) {
-      setAccountId(payerAccounts[0]?.id ?? "");
-      setAmount(String(statementBalance));
-      setPaymentDate(todayIso());
-    }
-  }
 
   function handleSubmit() {
     setError(null);
@@ -58,7 +69,7 @@ export function PaymentFormDialog({
       try {
         await registerCardPaymentAction(parsed.data);
         router.refresh();
-        setOpen(false);
+        onDone();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao registrar pagamento");
       }
@@ -66,10 +77,7 @@ export function PaymentFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
-        <DialogTitle>Pagar fatura — {card.name}</DialogTitle>
+    <>
         <p className="text-xs opacity-70">Fatura até o mês atual: <strong>{formatCurrency(statementBalance)}</strong></p>
         <Field>
           <Label>Conta pagadora</Label>
@@ -96,7 +104,6 @@ export function PaymentFormDialog({
           <DialogClose asChild><Button variant="secondary" size="sm">Cancelar</Button></DialogClose>
           <Button size="sm" disabled={pending || !accountId || !amount} onClick={handleSubmit}>{pending ? "Salvando..." : "Confirmar"}</Button>
         </DialogActions>
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }

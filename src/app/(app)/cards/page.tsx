@@ -1,13 +1,15 @@
 import { getAccounts } from "@/services/accounts.service";
 import { getCategories } from "@/services/categories.service";
-import { getCardInstallments, getCardMonthlyEvolution, getCardPurchases, getCardSummary, getCardTotalCommitted, getDefaultCardsMonth } from "@/services/cards.service";
+import { getCardBalanceThroughMonth, getCardCredits, getCardInstallments, getCardMonthlyEvolution, getCardPurchases, getCardSummary, getCardTotalCommitted, getDefaultCardsMonth } from "@/services/cards.service";
 import { Card, CardKicker, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { InvoicePaidBadge } from "@/components/ui/invoice-paid-badge";
 import { formatCurrency } from "@/lib/utils/currency";
-import { startOfMonth, endOfMonth, formatMonthLabel, formatDate } from "@/lib/utils/date";
+import { startOfMonth, endOfMonth, formatMonthLabel, formatDate, monthKey, todayIso } from "@/lib/utils/date";
 import { toPercentage } from "@/lib/utils/number";
 import { PurchaseFormDialog } from "@/features/cards/components/purchase-form-dialog";
+import { CardMovementDialog } from "@/features/cards/components/card-movement-dialog";
+import { DeleteCardCreditButton } from "@/features/cards/components/delete-card-credit-button";
 import { InvoiceMenu } from "@/features/cards/components/invoice-menu";
 import { DeletePurchaseButton } from "@/features/cards/components/delete-purchase-button";
 import { RefundPurchaseDialog } from "@/features/cards/components/refund-purchase-dialog";
@@ -42,9 +44,13 @@ export default async function CardsPage({
 
   // Passed to PurchaseFormDialog's over-limit warning — the correct "used against the limit"
   // figure (excludes paid_before_system installments), unlike AccountDTO.balance.
-  const cardTotals: Record<string, number> = Object.fromEntries(
-    await Promise.all(allCards.map(async (c) => [c.id, await getCardTotalCommitted(c.id)] as const))
-  );
+  const todayMonth = monthKey(todayIso());
+  const [cardTotals, statementBalances] = await Promise.all([
+    Promise.all(allCards.map(async (c) => [c.id, await getCardTotalCommitted(c.id)] as const)).then(Object.fromEntries) as Promise<Record<string, number>>,
+    // "Pagar Fatura" suggestion inside the "Nova movimentação" picker — same figure as
+    // CardSummaryDTO.usedThroughCurrentMonth, but for every card (not just the filtered ones).
+    Promise.all(allCards.map(async (c) => [c.id, await getCardBalanceThroughMonth(c.id, todayMonth)] as const)).then(Object.fromEntries) as Promise<Record<string, number>>,
+  ]);
 
   const evolutionCategoryIds = evoCategories ? evoCategories.split(",").filter(Boolean) : undefined;
   const cardEvolution = await getCardMonthlyEvolution(
@@ -75,7 +81,7 @@ export default async function CardsPage({
         </div>
         <div className="flex items-center gap-2">
           <MonthNav month={month} />
-          <PurchaseFormDialog cards={allCards} cardTotals={cardTotals} categories={categories} />
+          <CardMovementDialog cards={allCards} cardTotals={cardTotals} statementBalances={statementBalances} payerAccounts={payerAccounts} categories={categories} />
         </div>
       </div>
 
@@ -98,9 +104,10 @@ export default async function CardsPage({
         <div className="flex flex-col gap-4">
           {await Promise.all(
             cards.map(async (card) => {
-              const [installmentsRaw, purchases] = await Promise.all([
+              const [installmentsRaw, purchases, creditsRaw] = await Promise.all([
                 getCardInstallments(card.id, { periodStart, periodEnd }),
                 getCardPurchases(card.id),
+                getCardCredits(card.id, month),
               ]);
               // `month` here is the page's viewed/filtered month — drives `currentMonthInvoice`.
               // `usedThroughCurrentMonth`/`overdueAmount` inside stay anchored to today regardless.
@@ -116,6 +123,9 @@ export default async function CardsPage({
                 }
                 return true;
               });
+              // Credits (standalone "Lançar crédito" + full purchase refunds) on this invoice — shown
+              // in green. A category/subcategory filter hides them (they aren't spending categories).
+              const credits = categoryId || subcategoryId ? [] : creditsRaw.filter((c) => !q || textIncludes(c.description, q));
               // Against-the-limit usage must include future not-yet-due installments too — see
               // `getCardTotalCommitted`'s comment for why `usedThroughCurrentMonth` alone undercounts it.
               const usagePercent = summary.creditLimit ? toPercentage(summary.totalCommitted, summary.creditLimit) : null;
@@ -172,10 +182,27 @@ export default async function CardsPage({
                     />
                   </div>
 
-                  {installments.length === 0 ? (
+                  {installments.length === 0 && credits.length === 0 ? (
                     <p className="text-xs opacity-50">Sem compras neste mês.</p>
                   ) : (
                     <div className="flex flex-col divide-y divide-neutral-200">
+                      {credits.map((c) => (
+                        <div key={c.id} className="flex items-center gap-3 py-2.5">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm">
+                              <span className="tabular-nums opacity-60">{formatDate(c.date)}</span> - {c.description}
+                            </p>
+                            <p className="text-xs opacity-50">{c.categoryName || "Crédito"}</p>
+                          </div>
+                          <div className="w-24 shrink-0 text-right text-sm font-medium tabular-nums text-success-600">
+                            +{formatCurrency(c.amount)}
+                          </div>
+                          <div className="hidden w-40 shrink-0 sm:block" />
+                          <div className="flex w-20 shrink-0 items-center justify-end gap-2">
+                            {!c.purchaseId && <DeleteCardCreditButton creditId={c.id} description={c.description} />}
+                          </div>
+                        </div>
+                      ))}
                       {installments.map((r) => {
                         const purchase = purchaseById.get(r.purchaseId);
                         const description =

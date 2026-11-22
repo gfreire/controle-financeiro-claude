@@ -20,26 +20,29 @@ import type { AccountDTO } from "@/types/dto";
  * fills the amount field once, not a reactive two-way binding.
  */
 export function InterestDialog({ account, trigger }: { account: AccountDTO; trigger: React.ReactNode }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent>
+        <DialogTitle>Lançar Juros</DialogTitle>
+        <InterestForm account={account} onDone={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The dialog's body — also rendered by the "Nova movimentação" pickers on /cards and /transactions.
+ * Always mounted inside a Dialog (DialogDescription/DialogClose need it); Radix unmounts the
+ * content on close, so state starts fresh on every open. */
+export function InterestForm({ account, onDone }: { account: AccountDTO; onDone: () => void }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(todayIso());
   const [base, setBase] = useState("");
   const [percentage, setPercentage] = useState("");
-
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open) {
-      setAmount("");
-      setDate(todayIso());
-      setBase("");
-      setPercentage("");
-      setError(null);
-    }
-  }
 
   function recalc(nextBase: string, nextPct: string) {
     const b = Number(nextBase);
@@ -60,7 +63,7 @@ export function InterestDialog({ account, trigger }: { account: AccountDTO; trig
       try {
         await registerInterestAction(parsed.data);
         router.refresh();
-        setOpen(false);
+        onDone();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao lançar");
       }
@@ -68,10 +71,7 @@ export function InterestDialog({ account, trigger }: { account: AccountDTO; trig
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
-        <DialogTitle>Lançar Juros</DialogTitle>
+    <>
         <DialogDescription>
           {account.type === "CREDIT_CARD"
             ? "Lança a linha de juros da fatura como uma compra à vista categorizada Juros."
@@ -114,7 +114,6 @@ export function InterestDialog({ account, trigger }: { account: AccountDTO; trig
           <DialogClose asChild><Button variant="secondary" size="sm">Cancelar</Button></DialogClose>
           <Button size="sm" disabled={pending || !amount} onClick={handleSubmit}>{pending ? "Salvando..." : "Confirmar"}</Button>
         </DialogActions>
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }

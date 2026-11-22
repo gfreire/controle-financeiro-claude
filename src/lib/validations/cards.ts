@@ -45,3 +45,11 @@ export const advancePurchaseInstallmentsSchema = z.object({
   count: z.number().int().min(1),
 });
 export type AdvancePurchaseInstallmentsInput = z.infer<typeof advancePurchaseInstallmentsSchema>;
+
+export const cardCreditSchema = z.object({
+  creditCardId: z.string().uuid(),
+  amount: z.number().positive("Valor deve ser maior que zero"),
+  date: z.string().min(1, "Data é obrigatória"),
+  description: z.string().max(500).optional().nullable(),
+});
+export type CardCreditInput = z.infer<typeof cardCreditSchema>;

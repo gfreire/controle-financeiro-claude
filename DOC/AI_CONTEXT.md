@@ -301,13 +301,13 @@ Both live on rows with `user_id IS NULL`; they never overlap.
   `Juros` (EXPENSE), `Rendimentos` (INCOME), `Ajuste` (INCOME + EXPENSE), `Estorno` (INCOME
   + EXPENSE, migration `0019`), `Compras retroativas` (INCOME only, `0030`), `Pagamento de
   Cartão` (EXPENSE only, `0031`), `Resgate de Meta Concluída` / `Resgate de Meta Antecipado`
-  (INCOME, `0036`).
+  (INCOME, `0036`), `Crédito no Cartão` (INCOME only, `0040`).
   - **None is ever selectable from a form.** `CategorySelect` filters `!c.isSystem`;
     `EditableCategoryCell` shows a row already tagged with one as plain text, not a dropdown.
     Each is applied only by its own dedicated flow (`registerYield`,
     `reconcileAccountBalance`, `registerInterest`, `refundCardPurchase`/`refundTransaction`,
     retroactive-purchase computed income, `registerCardPayment`, `redeemGoal`,
-    `registerGoalYield`).
+    `registerGoalYield`, `registerCardCredit`).
   - The dashboard/Cards/Transactions **filter** dropdowns are separate components and
     deliberately still list them.
 
@@ -500,6 +500,47 @@ Blocks a second refund by checking the original is already categorized `Estorno`
 - **Out of scope**: a refund doesn't appear as its own row in the Explorador de Lançamentos
   (only the original's recategorization is visible). No undo path — to reverse, recategorize
   manually and delete the `card_refunds` / income transaction by hand.
+
+---
+
+# Crédito no Cartão — crédito avulso na fatura (migration `0040`)
+
+For a credit the issuer/merchant puts on the invoice that is **not** the full refund of a
+registered purchase: a proportional/partial refund (e.g. Amazon crediting R$ 133,44 while keeping
+the remaining installments scheduled), a bank reimbursement, cashback.
+`cards.service.ts#registerCardCredit({ creditCardId, amount, date, description? })`.
+
+- **It's a `card_refunds` row with `card_purchase_id = NULL`** (+ `description`). So it behaves
+  exactly like the full refund's credit everywhere: pays down invoices oldest-first
+  (`currentMonthPaidAmount`), reduces `getCardBalanceThroughMonth`/`getCardTotalCommitted`, feeds
+  `creditBalance`, and is real dashboard INCOME in the month of `refund_date`.
+- **Never touches a purchase or installment** — no reclassification, no advancing. The original
+  spending stays in its real category; the credit is income of its own, so the net is right
+  without hiding what was charged.
+- **Category is always the `is_system` INCOME "Crédito no Cartão"** — not "Estorno" (which means
+  a full purchase refund with reclassification). No category picker; the reason goes in the
+  description (default `"Crédito no cartão {nome}"`). Not in `FinancialSummaryDTO.refundAmount`
+  (that one only sums "Estorno").
+- **Shown on the invoice list in green (`+R$`)** on `/cards` — via `getCardCredits(cardId,
+  month)`, every `card_refunds` (standalone and full refunds) whose date falls in the cycle of the
+  viewed invoice (`calculateInstallmentCompetences(refund_date, …)`). Hidden under a
+  category/subcategory filter. Presentation only — the invoice figures keep coming from
+  `getCardSummary`.
+- **Deletable** (`deleteCardCredit`) only when standalone; a full purchase refund still has no
+  undo.
+- Entry points: "Fatura ▾" → "Lançar crédito", and "Nova movimentação" → "Lançar Crédito".
+
+# "Nova movimentação" — one button, a type picker as the first field
+
+- **`/cards`** (`CardMovementDialog`): "Compra" (default — the purchase form) / "Informar Juros" /
+  "Lançar Crédito" / "Pagar Fatura"; the last three add a card picker.
+- **`/transactions`** (`TransactionFormDialog`, create mode only): "Movimentação" (default — the
+  INCOME/EXPENSE/TRANSFER form) / "Informar Rendimento" / "Lançar Juros" (BANK accounts) /
+  "Ajustar Saldo" (CASH + BANK); the last three add an account picker.
+- Pure shortcuts: each option renders the same form body as the existing menu dialog
+  (`PurchaseForm`, `InterestForm`, `CardCreditForm`, `PaymentForm`, `BalanceAdjustForm`) — every
+  such dialog is a thin `Dialog` wrapper around an exported `XForm` with an `onDone` prop. No new
+  service contract. (A user-configurable floating shortcuts menu is planned, not built.)
 
 ---
 
@@ -1226,7 +1267,8 @@ to the reservoirs feature (`/reservoirs`). All internal identifiers stay `recurr
 
 **Only these affect financial totals**: `transactions`, `card_installments`, `card_payments`
 (via their linked transaction), `card_refunds` (counts as INCOME for the month of
-`refund_date`, and reduces the card's outstanding balance like a payment — see "Estorno").
+`refund_date`, and reduces the card's outstanding balance like a payment — see "Estorno" and
+"Crédito no Cartão").
 
 **Never affect totals directly**: `reservoirs`/`reservoir_transactions`,
 `debts`/`debt_transactions`, `budgets`, `fixed_expenses`, `goals`, `recurring_incomes`. They may
