@@ -637,3 +637,11 @@ Decisões:
   formulários dos menus ("Fatura ▾" e o menu da conta). É o começo de uma ideia maior de atalhos
   — um menu flutuante configurável pelo usuário está planejado pra depois (os relatórios vêm
   antes).
+
+**Mesmo dia — fatura do crédito editável (migration `0041`).** O usuário pediu que a fatura do
+crédito (antes só um rótulo "Aparece na fatura de X", derivado da data) fosse editável como o "Mês
+da 1ª parcela" de uma compra: cartões cujo fechamento escorrega por cair em fim de semana jogam o
+crédito em outra fatura. Virou a coluna `card_refunds.competence` (backfill = fatura aberta em
+`refund_date`). Pra a lista da fatura, o pool de pagamento e o dashboard não discordarem, a
+competência passou a substituir `refund_date` em todos eles — inclusive o mês da RECEITA no
+dashboard, que antes era o mês de `refund_date` (agora segue a regra de competência do cartão).

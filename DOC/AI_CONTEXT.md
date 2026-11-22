@@ -215,7 +215,7 @@ paid" is derived: `CardSummaryDTO.currentMonthPaidAmount`, assuming a payment al
 the **oldest open competence first** (the same assumption `getCardBalanceThroughMonth` /
 `overdueAmount` already make). Concretely: a `paid_before_system` installment of the viewed
 month counts paid outright; the rest is covered by whatever's left of all-time
-`card_payments` **+ `card_refunds` credited through the end of the viewed month** after
+`card_payments` **+ `card_refunds` whose `competence` is the viewed month or earlier** after
 settling every non-`paid_before_system` installment strictly before the viewed month.
 
 This is a heuristic, not a real allocation — a payment made today to prepay a future invoice
@@ -470,8 +470,12 @@ things together:
    merchant/issuer). `UNIQUE (card_purchase_id)` prevents refunding the same purchase twice.
 
 `card_refunds` effects:
-- `getCardSummary.currentMonthPaidAmount` **includes** refunds credited through the end of
-  the viewed month in the same oldest-first pool as `card_payments` — a refund "pays" the
+- **Every `card_refunds` row carries `competence`** (migration `0041`, 1st of month) — the
+  invoice it lands on. `refundCardPurchase` sets it to the invoice open at `refundDate`;
+  `registerCardCredit` takes it from the user (suggested the same way, overridable). It — not
+  `refund_date` — positions the credit in every card figure and in the dashboard.
+- `getCardSummary.currentMonthPaidAmount` **includes** refunds with competence through the
+  viewed month in the same oldest-first pool as `card_payments` — a refund "pays" the
   oldest open competence and the excess cascades forward. A fully-refunded invoice shows
   "Paga" and drops off the dashboard's obligations list.
 - `currentMonthInvoice` stays the **gross** billed value (historical fact — only the "paid"
@@ -483,8 +487,9 @@ things together:
   an account balance — only offsets the card's own future purchases/invoices.
   `getCardBalanceThroughMonth`/`getCardTotalCommitted` keep the `Math.max(0, …)` — the
   negative sign lives only in `creditBalance`.
-- `card_refunds.category_id` is always `Estorno` (`INCOME`) and counts as **real dashboard
-  INCOME** for the month of `refund_date` (never the original purchase's month) — computed in
+- `card_refunds.category_id` is `Estorno` (`INCOME`) for a full refund (or "Crédito no Cartão"
+  for a standalone credit) and counts as **real dashboard INCOME** in its `competence` month
+  (never the original purchase's month — same "card analytics use competence" rule as installments) — computed in
   `fetchPeriodEntries`, with a real category, so it appears in the income-by-category charts
   (unlike "Compras retroativas", which has no real category).
 
@@ -508,12 +513,16 @@ Blocks a second refund by checking the original is already categorized `Estorno`
 For a credit the issuer/merchant puts on the invoice that is **not** the full refund of a
 registered purchase: a proportional/partial refund (e.g. Amazon crediting R$ 133,44 while keeping
 the remaining installments scheduled), a bank reimbursement, cashback.
-`cards.service.ts#registerCardCredit({ creditCardId, amount, date, description? })`.
+`cards.service.ts#registerCardCredit({ creditCardId, amount, date, competenceMonth?, description? })`.
 
 - **It's a `card_refunds` row with `card_purchase_id = NULL`** (+ `description`). So it behaves
   exactly like the full refund's credit everywhere: pays down invoices oldest-first
   (`currentMonthPaidAmount`), reduces `getCardBalanceThroughMonth`/`getCardTotalCommitted`, feeds
-  `creditBalance`, and is real dashboard INCOME in the month of `refund_date`.
+  `creditBalance`, and is real dashboard INCOME in its `competence` month.
+- **"Fatura" is editable** — like a purchase's "Mês da 1ª parcela": the form suggests the invoice
+  open on the credit's date (`calculateInstallmentCompetences(date, closing, due)`, re-suggested
+  when the date changes until the user touches it), and the user can pick another month (a closing
+  that slipped because of a weekend). Stored as `card_refunds.competence`.
 - **Never touches a purchase or installment** — no reclassification, no advancing. The original
   spending stays in its real category; the credit is income of its own, so the net is right
   without hiding what was charged.
@@ -522,8 +531,8 @@ the remaining installments scheduled), a bank reimbursement, cashback.
   description (default `"Crédito no cartão {nome}"`). Not in `FinancialSummaryDTO.refundAmount`
   (that one only sums "Estorno").
 - **Shown on the invoice list in green (`+R$`)** on `/cards` — via `getCardCredits(cardId,
-  month)`, every `card_refunds` (standalone and full refunds) whose date falls in the cycle of the
-  viewed invoice (`calculateInstallmentCompetences(refund_date, …)`). Hidden under a
+  month)`, every `card_refunds` (standalone and full refunds) whose `competence` is the viewed
+  invoice. Hidden under a
   category/subcategory filter. Presentation only — the invoice figures keep coming from
   `getCardSummary`.
 - **Deletable** (`deleteCardCredit`) only when standalone; a full purchase refund still has no
@@ -1266,8 +1275,7 @@ to the reservoirs feature (`/reservoirs`). All internal identifiers stay `recurr
 # Money Reality Rules
 
 **Only these affect financial totals**: `transactions`, `card_installments`, `card_payments`
-(via their linked transaction), `card_refunds` (counts as INCOME for the month of
-`refund_date`, and reduces the card's outstanding balance like a payment — see "Estorno" and
+(via their linked transaction), `card_refunds` (counts as INCOME in its `competence` month, and reduces the card's outstanding balance like a payment — see "Estorno" and
 "Crédito no Cartão").
 
 **Never affect totals directly**: `reservoirs`/`reservoir_transactions`,

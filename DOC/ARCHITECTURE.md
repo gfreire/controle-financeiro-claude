@@ -234,6 +234,7 @@ Applied in order; each additive (a new file corrects an old one, never a rewrite
 | 0038 | `recurring_incomes` | `recurring_incomes` (predictable-income template) + `transactions.recurring_income_id` (`ON DELETE SET NULL`); RLS `auth.uid() = user_id`. `category_id`/`default_account_id` are `SET NULL`, not `RESTRICT` — a template carries no history of its own |
 | 0039 | `reload_schema_cache` | as `0020`, for `recurring_incomes` |
 | 0040 | `card_credits` | `card_refunds.card_purchase_id` nullable (NULL = standalone credit, "Lançar crédito") + `card_refunds.description`; `is_system` INCOME "Crédito no Cartão"; reloads the schema cache |
+| 0041 | `card_refund_competence` | `card_refunds.competence` (`NOT NULL`, 1st of month, backfilled = invoice open at `refund_date`) — the user-editable invoice a credit lands on; replaces `refund_date` in every card figure and the dashboard income month |
 
 ---
 
@@ -534,7 +535,7 @@ getDefaultDashboardMonth() → string
 ```
 `fetchPeriodEntries` (module-local, feeds every function above) pulls from `transactions`
 (`type in ('INCOME','EXPENSE')`), `card_installments` (EXPENSE, by competence), `card_refunds`
-(INCOME, "Estorno", for the month of `refund_date`), `card_installments.paid_before_system`
+(INCOME, "Estorno"/"Crédito no Cartão", in its `competence` month — migration 0041), `card_installments.paid_before_system`
 amounts (INCOME, `is_system` "Compras retroativas", via cached `getRetroactiveIncomeCategory`),
 and `goal_yields` (INCOME, `is_system` "Rendimentos", via cached `getRendimentosCategory`).
 The last two are income-side only, skip `uncategorizedOnly`/subcategory filters, and their
@@ -645,14 +646,15 @@ registerCardPayment(data)
   -- default "Pagamento da fatura do cartão {nome}". Tags the transaction with the is_system
   -- EXPENSE category "Pagamento de Cartão" (getCardPaymentCategoryId) — automatic, label
   -- only.
-registerCardCredit({ creditCardId, amount, date, description? })
+registerCardCredit({ creditCardId, amount, date, competenceMonth?, description? })
   -- "Lançar crédito": a card_refunds row with card_purchase_id NULL, category always the
   -- is_system INCOME "Crédito no Cartão", description default "Crédito no cartão {nome}". Touches
-  -- no purchase/installment. Same downstream effects as a full refund's credit.
+  -- no purchase/installment. Same downstream effects as a full refund's credit. competenceMonth
+  -- ("YYYY-MM", the "Fatura" field) → card_refunds.competence; omitted = invoice open on `date`.
 deleteCardCredit(id)   -- only a standalone credit (card_purchase_id NULL); a full refund has no undo
 getCardCredits(cardId, month) → CardCreditDTO[]
-  -- every card_refunds (standalone + full refunds) whose refund_date falls in the cycle of
-  -- `month`'s invoice — listed in green on /cards. Presentation only.
+  -- every card_refunds (standalone + full refunds) with competence = `month` — listed in green
+  -- on /cards. Presentation only.
 getDefaultCardsMonth() → string
   -- month /cards opens on with no ?month=. Next month when getCardBalanceThroughMonth(card,
   -- todayMonth) === 0 for EVERY card AND next month has installments; else today's month.

@@ -228,6 +228,7 @@ export async function refundCardPurchase(purchaseId: string, refundDate: string)
     category_id: incomeCategoryId,
     amount: purchase.amount,
     refund_date: refundDate,
+    competence: `${monthKey(openInvoiceCompetence)}-01`,
   });
   if (refundError) throw new Error(refundError.message);
 }
@@ -258,6 +259,13 @@ export async function registerCardCredit(input: CardCreditInput): Promise<void> 
   if (cardError) throw new Error(cardError.message);
   if (card.type !== "CREDIT_CARD") throw new Error("Crédito só pode ser lançado em um cartão de crédito.");
   const categoryId = await getCardCreditCategoryId(supabase);
+  // The invoice the credit lands on — user-overridable (a weekend can shift the real closing);
+  // defaults to the invoice open on the credit's date, like a purchase made that day.
+  const competenceMonth =
+    input.competenceMonth ??
+    (await getCardCycle(supabase, input.creditCardId).then((cycle) =>
+      monthKey(calculateInstallmentCompetences(input.date, cycle.closing_day, cycle.due_day, 1)[0])
+    ));
   const { error } = await supabase.from("card_refunds").insert({
     user_id: user.id,
     card_purchase_id: null,
@@ -265,6 +273,7 @@ export async function registerCardCredit(input: CardCreditInput): Promise<void> 
     category_id: categoryId,
     amount: input.amount,
     refund_date: input.date,
+    competence: `${competenceMonth}-01`,
     description: input.description?.trim() || `Crédito no cartão ${card.name}`,
   });
   if (error) throw new Error(error.message);
@@ -288,38 +297,32 @@ export async function deleteCardCredit(id: string): Promise<void> {
  */
 export async function getCardCredits(cardId: string, month: string): Promise<CardCreditDTO[]> {
   const supabase = await createClient();
-  const cycle = await getCardCycle(supabase, cardId);
-  // A data de um crédito cai no máximo ~2 meses antes da competência da fatura dele.
-  const windowStart = startOfMonth(addMonthsToIsoDate(`${month}-01`, -2));
-  const windowEnd = endOfMonth(`${month}-01`);
   const { data, error } = await supabase
     .from("card_refunds")
-    .select("id, amount, refund_date, description, card_purchase_id, categories(name), card_purchases(description)")
+    .select("id, amount, refund_date, competence, description, card_purchase_id, categories(name), card_purchases(description)")
     .eq("credit_card_id", cardId)
-    .gte("refund_date", windowStart)
-    .lte("refund_date", windowEnd)
+    .eq("competence", `${month}-01`)
     .order("refund_date", { ascending: false });
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as unknown as Array<{
     id: string;
     amount: number;
     refund_date: string;
+    competence: string;
     description: string | null;
     card_purchase_id: string | null;
     categories: { name: string } | null;
     card_purchases: { description: string | null } | null;
   }>;
-  return rows
-    .map((r) => ({
+  return rows.map((r) => ({
       id: r.id,
       date: r.refund_date,
-      competenceMonth: monthKey(calculateInstallmentCompetences(r.refund_date, cycle.closing_day, cycle.due_day, 1)[0]),
+      competenceMonth: monthKey(r.competence),
       amount: Number(r.amount),
       description: r.description || (r.card_purchase_id ? `Estorno — ${r.card_purchases?.description || "compra"}` : "Crédito no cartão"),
       categoryName: r.categories?.name ?? "",
       purchaseId: r.card_purchase_id ?? undefined,
-    }))
-    .filter((c) => c.competenceMonth === month);
+    }));
 }
 
 export async function getCardPurchases(cardId: string): Promise<CardPurchaseDTO[]> {
@@ -453,7 +456,7 @@ export async function getCardBalanceThroughMonth(creditCardId: string, throughMo
       .eq("paid_before_system", false)
       .lte("competence", periodEnd),
     supabase.from("card_payments").select("amount").eq("credit_card_id", creditCardId),
-    supabase.from("card_refunds").select("amount").eq("credit_card_id", creditCardId).lte("refund_date", periodEnd),
+    supabase.from("card_refunds").select("amount").eq("credit_card_id", creditCardId).lte("competence", periodEnd),
   ]);
   const totalInstallments = sumMoney((installments ?? []).map((i) => i.amount));
   const totalPayments = sumMoney([...(payments ?? []).map((p) => p.amount), ...(refunds ?? []).map((r) => r.amount)]);
@@ -551,7 +554,7 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
     viewingOpenMonth
       ? Promise.resolve(null)
       : supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).gte("competence", openStart).lte("competence", openEnd),
-    supabase.from("card_refunds").select("amount, refund_date").eq("credit_card_id", creditCardId),
+    supabase.from("card_refunds").select("amount, competence").eq("credit_card_id", creditCardId),
     supabase.from("card_installments").select("amount").eq("credit_card_id", creditCardId).eq("paid_before_system", false),
   ]);
   if (viewedError) throw new Error(viewedError.message);
@@ -576,10 +579,11 @@ export async function getCardSummary(creditCardId: string, viewedMonth: string, 
   const totalPayments = sumMoney((paymentRows ?? []).map((p) => p.amount));
   // A `card_refunds` credit behaves like a payment for allocation: it pays down the oldest unpaid
   // competence first (AI_CONTEXT.md "Estorno") and any surplus carries forward to later invoices.
-  // Only refunds credited on or before the viewed month's end count — a refund logged later never
-  // retroactively settles an earlier month, same convention as getCardBalanceThroughMonth.
+  // Only refunds whose invoice (competence, migration 0041) is the viewed month or earlier count — a
+  // credit on a later invoice never retroactively settles an earlier one, same convention as
+  // getCardBalanceThroughMonth.
   const refundsThroughViewedMonth = sumMoney(
-    (refundRows ?? []).filter((r) => r.refund_date <= viewedEnd).map((r) => r.amount)
+    (refundRows ?? []).filter((r) => r.competence <= viewedEnd).map((r) => r.amount)
   );
   const allRefunds = sumMoney((refundRows ?? []).map((r) => r.amount));
   const creditPoolThroughViewedMonth = addMoney(totalPayments, refundsThroughViewedMonth);
@@ -875,7 +879,7 @@ export async function getCardMonthlyEvolution(
         .in("credit_card_id", cardIds)
         .lte("competence", periodEnd),
       supabase.from("card_payments").select("amount, credit_card_id").in("credit_card_id", cardIds),
-      supabase.from("card_refunds").select("amount, credit_card_id, refund_date").in("credit_card_id", cardIds).lte("refund_date", periodEnd),
+      supabase.from("card_refunds").select("amount, credit_card_id").in("credit_card_id", cardIds).lte("competence", periodEnd),
     ]);
     if (allInstError) throw new Error(allInstError.message);
     if (allPayError) throw new Error(allPayError.message);

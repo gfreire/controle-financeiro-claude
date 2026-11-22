@@ -202,16 +202,17 @@ export interface CardPaymentRow {
 
 // migration 0019 — a credit against the card that reduces the amount owed like a payment,
 // with no paying account behind it (the credit came from the merchant/issuer). Full refund
-// only: UNIQUE (card_purchase_id). category_id is always the `is_system` "Estorno" (INCOME).
-// See AI_CONTEXT.md "Estorno".
+// only: UNIQUE (card_purchase_id). See AI_CONTEXT.md "Estorno" and "Crédito no Cartão".
 export interface CardRefundRow {
   id: string;
   user_id: string;
-  card_purchase_id: string;
+  card_purchase_id: string | null; // NULL = standalone credit ("Lançar crédito", migration 0040)
   credit_card_id: string;
-  category_id: string;
+  category_id: string; // "Estorno" (full refund) or "Crédito no Cartão" (standalone credit) — both is_system INCOME
   amount: number;
-  refund_date: string;
+  refund_date: string; // real date of the credit
+  competence: string; // 1st of the month of the invoice it lands on (migration 0041) — drives every card figure + dashboard income month
+  description: string | null; // 0040
   created_at: string;
 }
 

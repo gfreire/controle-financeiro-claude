@@ -147,18 +147,19 @@ async function fetchPeriodEntries(
   }
 
   // Card refunds (AI_CONTEXT.md "Estorno") — a credit against the card's balance, always tagged
-  // with the real "Estorno" INCOME system category, counted for the month it actually happened
-  // (refund_date), never the original purchase's competence. Unlike retroactive/paid-before-system
+  // with its real INCOME system category ("Estorno" or "Crédito no Cartão"), counted in the
+  // competence of the invoice it landed on (card_refunds.competence, migration 0041 — same
+  // "card analytics use competence" rule as installments), never the original purchase's. Unlike retroactive/paid-before-system
   // income below, this always has a real categoryId, so it's folded directly into `entries` instead
   // of a separate computed-only bucket — category charts can show "Estorno" like any other income.
   // Skipped for uncategorizedOnly/subcategory filters since a refund never matches either.
   if (includeCards && filters.transactionType !== "EXPENSE" && !filters.uncategorizedOnly && !filters.subcategories?.length) {
     let refundQuery = supabase
       .from("card_refunds")
-      .select("amount, refund_date, category_id, credit_card_id, categories(name, color, icon)")
+      .select("amount, competence, category_id, credit_card_id, categories(name, color, icon)")
       .eq("user_id", userId)
-      .gte("refund_date", filters.periodStart)
-      .lte("refund_date", filters.periodEnd);
+      .gte("competence", filters.periodStart)
+      .lte("competence", filters.periodEnd);
     if (filters.categories?.length) refundQuery = refundQuery.in("category_id", filters.categories);
     if (filters.accounts?.length) refundQuery = refundQuery.in("credit_card_id", filters.accounts);
 
@@ -166,14 +167,14 @@ async function fetchPeriodEntries(
     if (refundError) throw new Error(refundError.message);
     const refunds = (refundsData ?? []) as unknown as Array<{
       amount: number;
-      refund_date: string;
+      competence: string;
       category_id: string;
       categories: { name: string; color: string; icon: string | null } | null;
     }>;
     for (const row of refunds) {
       entries.push({
         amount: row.amount,
-        date: row.refund_date,
+        date: row.competence,
         type: "INCOME",
         categoryId: row.category_id,
         categoryName: row.categories?.name ?? "Estorno",

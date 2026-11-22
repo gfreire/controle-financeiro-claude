@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Label, Input, FieldError } from "@/components/ui/input";
 import { registerCardCreditAction } from "../actions";
 import { cardCreditSchema } from "@/lib/validations/cards";
-import { calculateInstallmentCompetences, formatMonthLabel, monthKey, todayIso } from "@/lib/utils/date";
+import { calculateInstallmentCompetences, monthKey, todayIso } from "@/lib/utils/date";
 import type { AccountDTO } from "@/types/dto";
 
 /**
@@ -28,6 +28,11 @@ export function CardCreditDialog({ card, trigger }: { card: AccountDTO; trigger:
   );
 }
 
+function suggestInvoiceMonth(date: string, card: AccountDTO): string {
+  if (!card.closingDay || !card.dueDay) return monthKey(date);
+  return monthKey(calculateInstallmentCompetences(date, card.closingDay, card.dueDay, 1)[0]);
+}
+
 /** The dialog's body — also rendered by the Cards page's "Nova movimentação" picker. */
 export function CardCreditForm({ card, onDone }: { card: AccountDTO; onDone: () => void }) {
   const router = useRouter();
@@ -36,11 +41,15 @@ export function CardCreditForm({ card, onDone }: { card: AccountDTO; onDone: () 
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(todayIso());
   const [description, setDescription] = useState("");
+  // Same pattern as the purchase form's "Mês da 1ª parcela": suggested from the date + the card's
+  // closing/due days, freely overridable (a weekend can push the real closing to another day).
+  const [competenceMonth, setCompetenceMonth] = useState(suggestInvoiceMonth(todayIso(), card));
+  const [competenceManuallyEdited, setCompetenceManuallyEdited] = useState(false);
 
-  const invoiceMonth =
-    card.closingDay && card.dueDay && /^\d{4}-\d{2}-\d{2}$/.test(date)
-      ? monthKey(calculateInstallmentCompetences(date, card.closingDay, card.dueDay, 1)[0])
-      : null;
+  function handleDateChange(value: string) {
+    setDate(value);
+    if (!competenceManuallyEdited && /^\d{4}-\d{2}-\d{2}$/.test(value)) setCompetenceMonth(suggestInvoiceMonth(value, card));
+  }
 
   function handleSubmit() {
     setError(null);
@@ -48,6 +57,7 @@ export function CardCreditForm({ card, onDone }: { card: AccountDTO; onDone: () 
       creditCardId: card.id,
       amount: Number(amount),
       date,
+      competenceMonth: competenceMonth || undefined,
       description: description || undefined,
     });
     if (!parsed.success) {
@@ -78,10 +88,20 @@ export function CardCreditForm({ card, onDone }: { card: AccountDTO; onDone: () 
         </Field>
         <Field>
           <Label>Data</Label>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <Input type="date" value={date} onChange={(e) => handleDateChange(e.target.value)} />
         </Field>
       </div>
-      {invoiceMonth && <p className="text-xs opacity-70">Aparece na fatura de {formatMonthLabel(invoiceMonth)}.</p>}
+      <Field>
+        <Label>Fatura</Label>
+        <Input
+          type="month"
+          value={competenceMonth}
+          onChange={(e) => { setCompetenceMonth(e.target.value); setCompetenceManuallyEdited(true); }}
+        />
+        <p className="mt-1 text-[11px] opacity-50">
+          Sugerida pela data e pelo fechamento do cartão. Mude se o crédito caiu em outra fatura (ex.: fechamento num fim de semana).
+        </p>
+      </Field>
       <Field>
         <Label>Descrição</Label>
         <Input value={description} placeholder={`Crédito no cartão ${card.name}`} onChange={(e) => setDescription(e.target.value)} />

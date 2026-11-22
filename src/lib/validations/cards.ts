@@ -50,6 +50,9 @@ export const cardCreditSchema = z.object({
   creditCardId: z.string().uuid(),
   amount: z.number().positive("Valor deve ser maior que zero"),
   date: z.string().min(1, "Data é obrigatória"),
+  // "YYYY-MM" — the invoice the credit lands on. Defaults (server-side) to the invoice open on
+  // `date`; the user can override it, like a purchase's "Mês da 1ª parcela".
+  competenceMonth: z.string().regex(/^\d{4}-\d{2}$/, "Fatura inválida").optional(),
   description: z.string().max(500).optional().nullable(),
 });
 export type CardCreditInput = z.infer<typeof cardCreditSchema>;

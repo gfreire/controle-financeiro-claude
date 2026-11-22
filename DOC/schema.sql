@@ -399,7 +399,8 @@ CREATE TABLE public.card_refunds (
   credit_card_id uuid NOT NULL,
   category_id uuid NOT NULL,
   amount numeric(14,2) NOT NULL CHECK (amount > 0),
-  refund_date date NOT NULL,
+  refund_date date NOT NULL,      -- data real do crédito
+  competence date NOT NULL CHECK (extract(day from competence) = 1), -- 0041 — fatura em que o crédito cai (editável); posiciona o crédito em toda conta do cartão e no dashboard
   description text, -- 0040 — detalhe do crédito avulso
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT card_refunds_pkey PRIMARY KEY (id),
@@ -612,6 +613,7 @@ CREATE INDEX IF NOT EXISTS reservoirs_user_id_idx ON public.reservoirs (user_id)
 -- NOVO (0019)
 CREATE INDEX IF NOT EXISTS card_refunds_credit_card_id_idx ON public.card_refunds (credit_card_id);
 CREATE INDEX IF NOT EXISTS card_refunds_refund_date_idx ON public.card_refunds (refund_date);
+CREATE INDEX IF NOT EXISTS card_refunds_card_competence_idx ON public.card_refunds (credit_card_id, competence); -- 0041
 CREATE INDEX IF NOT EXISTS transactions_refund_of_transaction_id_idx ON public.transactions (refund_of_transaction_id) WHERE refund_of_transaction_id IS NOT NULL;
 
 -- ============================================================
