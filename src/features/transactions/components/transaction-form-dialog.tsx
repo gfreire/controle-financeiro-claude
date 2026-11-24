@@ -11,6 +11,7 @@ import { AccountSelect, AccountBalanceHint } from "@/components/ui/account-selec
 import { Plus, Pencil } from "lucide-react";
 import { BalanceAdjustForm } from "@/features/accounts/components/balance-adjust-dialog";
 import { InterestForm } from "@/features/accounts/components/interest-dialog";
+import { PaymentForm } from "@/features/cards/components/payment-form-dialog";
 import { createTransactionAction, updateTransactionAction } from "../actions";
 import { transactionSchema, type TransactionType } from "@/lib/validations/transactions";
 import { todayIso } from "@/lib/utils/date";
@@ -18,22 +19,34 @@ import type { AccountDTO, CategoryDTO, TransactionViewDTO } from "@/types/dto";
 
 const NONE = "NONE";
 
-type MovementKind = "TRANSACTION" | "YIELD" | "INTEREST" | "RECONCILE";
+type MovementKind = "TRANSACTION" | "YIELD" | "INTEREST" | "RECONCILE" | "CARD_PAYMENT";
 
 const KIND_LABEL: Record<MovementKind, string> = {
   TRANSACTION: "Movimentação",
   YIELD: "Informar Rendimento",
   INTEREST: "Lançar Juros",
   RECONCILE: "Ajustar Saldo",
+  CARD_PAYMENT: "Pagar Fatura",
 };
+
+/** Accounts each shortcut accepts — the same rule as the account card's menu: "Informar
+ * Rendimento"/"Lançar Juros" are BANK-only, "Ajustar Saldo" is CASH + BANK, "Pagar Fatura" picks a card. */
+function eligibleAccounts(kind: MovementKind, accounts: AccountDTO[]): AccountDTO[] {
+  if (kind === "RECONCILE") return accounts.filter((a) => a.type === "CASH" || a.type === "BANK");
+  if (kind === "CARD_PAYMENT") return accounts.filter((a) => a.type === "CREDIT_CARD");
+  return accounts.filter((a) => a.type === "BANK");
+}
 
 export function TransactionFormDialog({
   accounts,
   categories: initialCategories,
   transaction,
+  statementBalances = {},
 }: {
   accounts: AccountDTO[];
   categories: CategoryDTO[];
+  /** cardId -> getCardBalanceThroughMonth(cardId, today's month) — the "Pagar Fatura" suggestion (create mode only). */
+  statementBalances?: Record<string, number>;
   /** When set, the dialog edits this transaction instead of creating a new one — trigger becomes a pencil icon on the row. */
   transaction?: TransactionViewDTO;
 }) {
@@ -43,9 +56,7 @@ export function TransactionFormDialog({
   const [accountId, setAccountId] = useState("");
   const close = () => setOpen(false);
 
-  // Accounts each shortcut accepts — the same rule as the account card's menu: "Informar
-  // Rendimento"/"Lançar Juros" are BANK-only, "Ajustar Saldo" is CASH + BANK.
-  const kindAccounts = kind === "RECONCILE" ? accounts.filter((a) => a.type === "CASH" || a.type === "BANK") : accounts.filter((a) => a.type === "BANK");
+  const kindAccounts = eligibleAccounts(kind, accounts);
   const selectedAccount = kindAccounts.find((a) => a.id === accountId);
 
   function handleOpenChange(next: boolean) {
@@ -55,8 +66,7 @@ export function TransactionFormDialog({
 
   function handleKindChange(next: MovementKind) {
     setKind(next);
-    const eligible = next === "RECONCILE" ? accounts.filter((a) => a.type === "CASH" || a.type === "BANK") : accounts.filter((a) => a.type === "BANK");
-    setAccountId(eligible[0]?.id ?? "");
+    setAccountId(eligibleAccounts(next, accounts)[0]?.id ?? "");
   }
 
   return (
@@ -90,7 +100,7 @@ export function TransactionFormDialog({
 
         {kind !== "TRANSACTION" && (
           <Field>
-            <Label>Conta</Label>
+            <Label>{kind === "CARD_PAYMENT" ? "Cartão" : "Conta"}</Label>
             <AccountSelect accounts={kindAccounts} value={accountId} onChange={setAccountId} />
             {kindAccounts.length === 0 && <p className="mt-1 text-[11px] opacity-50">Nenhuma conta elegível.</p>}
           </Field>
@@ -101,6 +111,15 @@ export function TransactionFormDialog({
         {kind === "YIELD" && selectedAccount && <BalanceAdjustForm key={selectedAccount.id} account={selectedAccount} mode="yield" onDone={close} />}
         {kind === "INTEREST" && selectedAccount && <InterestForm key={selectedAccount.id} account={selectedAccount} onDone={close} />}
         {kind === "RECONCILE" && selectedAccount && <BalanceAdjustForm key={selectedAccount.id} account={selectedAccount} mode="reconcile" onDone={close} />}
+        {kind === "CARD_PAYMENT" && selectedAccount && (
+          <PaymentForm
+            key={selectedAccount.id}
+            card={selectedAccount}
+            payerAccounts={accounts.filter((a) => a.type !== "CREDIT_CARD")}
+            statementBalance={statementBalances[selectedAccount.id] ?? 0}
+            onDone={close}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -183,7 +202,7 @@ function TransactionForm({
               <SelectItem value="TRANSFER">Transferência</SelectItem>
             </SelectContent>
           </Select>
-          <p className="mt-1 text-[11px] opacity-50">Pagar fatura de cartão fica na tela de Cartões, pra não duplicar o fluxo.</p>
+          {!isEdit && <p className="mt-1 text-[11px] opacity-50">Pra pagar fatura de cartão, escolha &quot;Pagar Fatura&quot; no Tipo de movimentação acima.</p>}
         </Field>
 
         <div className="grid grid-cols-2 gap-2">

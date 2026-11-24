@@ -108,10 +108,11 @@ sums both sides regardless of type) cancelled the expense out. Partial edits wit
 **Dashboard analytics only ever read from `transactions` (`type in ('INCOME','EXPENSE')`) and
 `card_installments`.**
 
-**`CREDIT_CARD_PAYMENT` has exactly one entry point**: the Cards page's "Pagar fatura"
+**`CREDIT_CARD_PAYMENT` has exactly one flow**: "Pagar fatura" / `PaymentForm`
 (`cards.service.ts#registerCardPayment`), which creates the `transactions` row and the linked
-`card_payments` metadata row together. The manual transaction form only offers
-`EXPENSE`/`INCOME`/`TRANSFER`. "Pagar fatura" suggests the statement balance due through
+`card_payments` metadata row together. Reachable from the Cards page ("Fatura ▾" and "Nova
+movimentação") and from `/transactions`' "Nova movimentação" → "Pagar Fatura" — always the same
+form, never the plain transaction form, which only offers `EXPENSE`/`INCOME`/`TRANSFER`. "Pagar fatura" suggests the statement balance due through
 today's real month (`getCardBalanceThroughMonth`), not the lifetime balance.
 
 `registerCardPayment` defaults the description to `"Pagamento da fatura do cartão {nome}"` and
@@ -545,7 +546,9 @@ the remaining installments scheduled), a bank reimbursement, cashback.
   "Lançar Crédito" / "Pagar Fatura"; the last three add a card picker.
 - **`/transactions`** (`TransactionFormDialog`, create mode only): "Movimentação" (default — the
   INCOME/EXPENSE/TRANSFER form) / "Informar Rendimento" / "Lançar Juros" (BANK accounts) /
-  "Ajustar Saldo" (CASH + BANK); the last three add an account picker.
+  "Ajustar Saldo" (CASH + BANK) / "Pagar Fatura" (`PaymentForm`, card picker; suggestion =
+  `getCardBalanceThroughMonth(card, todayMonth)` computed on the page, same as `/cards`); the last
+  four add an account/card picker.
 - Pure shortcuts: each option renders the same form body as the existing menu dialog
   (`PurchaseForm`, `InterestForm`, `CardCreditForm`, `PaymentForm`, `BalanceAdjustForm`) — every
   such dialog is a thin `Dialog` wrapper around an exported `XForm` with an `onDone` prop. No new

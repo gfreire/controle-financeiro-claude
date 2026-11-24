@@ -64,8 +64,8 @@ not to rediscover whether a feature exists.
   sub-line.
 - **Transactions** (`/transactions`) — month-scoped like Cards/Dashboard; create/edit/delete;
   "Nova movimentação" opens with a type picker (Movimentação / Informar Rendimento / Lançar
-  Juros / Ajustar Saldo + an account picker for the last three);
-  no manual "pay card bill". `CREDIT_CARD_PAYMENT` rows show a fixed "Pagamento de Cartão"
+  Juros / Ajustar Saldo / Pagar Fatura + an account/card picker for the last four);
+  "Pagar Fatura" reuses the Cards `PaymentForm` (`registerCardPayment`), never the plain form. `CREDIT_CARD_PAYMENT` rows show a fixed "Pagamento de Cartão"
   label (also the `is_system` category they carry, migration `0031`). `RESERVE`/`REDEEM` rows
   are read-only ("Edite pela tela de Metas").
 - **Accounts** — create (institution-first naming, no institution for `CASH`; initial balance
@@ -161,8 +161,9 @@ the dated reasoning is in `DOC/HISTORY.md`. Current state:
 - **`profiles.onboarding_completed`** (`0004`) + the `on_auth_user_created` trigger (`0003`,
   updated `0025` to also create the "Carteira" account).
 - **The `is_system` category seed lives only in `seed.sql`**, not duplicated in `schema.sql`.
-- **The manual transaction form never offers `CREDIT_CARD_PAYMENT`** — it's created only
-  through "Pagar fatura" (`registerCardPayment`).
+- **The plain transaction form never offers `CREDIT_CARD_PAYMENT`** — it's created only
+  through "Pagar fatura" (`PaymentForm` → `registerCardPayment`), reachable from `/cards` and
+  from `/transactions`' "Nova movimentação" picker.
 - **`is_system` categories are never form-selectable** — `CategorySelect` filters
   `!c.isSystem`; each is applied only by its own dedicated flow. The filter dropdowns still
   list them.
