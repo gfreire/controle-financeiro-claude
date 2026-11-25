@@ -1290,7 +1290,10 @@ to the reservoirs feature (`/reservoirs`). All internal identifiers stay `recurr
 - **Period** (`period_preset`, `resolvePeriodPreset` in `src/lib/utils/date.ts`): `month`,
   `lastMonth`, `last3`/`last6`/`last12` (always include the current month), `year` / `lastYear`
   (calendar years, Jan 1–Dec 31 even mid-year — so future installments of the year show),
-  `all` (earliest → latest analytic row, which may be in the future), `custom` (two dates).
+  `all` (earliest analytic row → the latest of: last transaction / purchase / installment /
+  card credit, the end of the current month, and the last competence of every open
+  `INSTALLMENT_PLAN` — so a parcelled debt's remaining installments are inside the period),
+  `custom` (two dates).
   **Relative presets are re-resolved on every open** — "últimos 3 meses" keeps meaning that.
 - **Card basis — the user's call per report** (`card_basis`): `competence` (default; each
   installment in its invoice month — "o impacto mês a mês", same as the dashboard) or
@@ -1316,9 +1319,16 @@ to the reservoirs feature (`/reservoirs`). All internal identifiers stay `recurr
   (future card installments by competence, future-dated transactions) plus every projected unpaid
   obligation, netted (green/red) with "a pagar"/"a receber" lines. It's a slice **already inside**
   the other three totals, never added on top — the user wanted the full period's result unchanged
-  and the not-yet-paid part singled out (e.g. a poker debt still owing R$ 1.000); Evolução mensal over the period (the "Guardado
+  and the not-yet-paid part singled out (e.g. a poker debt still owing R$ 1.000).
+- **Time charts** (`getReportChartSeries` → `ReportCharts`): leading/trailing months with no data
+  at all are **trimmed** (a "Poker" report over "Todo o período" shouldn't draw two years of empty
+  bars; empty months *between* data stay — a zero month is information). The series comes in three
+  granularities — Mês / Trimestre / Ano, a shared toggle over both charts, shown when there's more
+  than 12 months; default = month ≤ 18 months, quarter ≤ 60, else year. Each bar is at least 56px
+  wide: past what fits, the chart **scrolls horizontally** and opens scrolled to the most recent
+  bars. Aggregation per bucket happens in the service, the toggle only picks a series. Evolução over the period (the "Guardado
   (metas)" bar is zeroed when a category/subcategory/description filter is active — it carries no
-  category); "Resultado acumulado" (monthly result bars + running total line, `getReportResultSeries`);
+  category); "Resultado acumulado" (result bars + running total line);
   expense/income donuts (empty side hidden under a category filter, like the dashboard); Explorer
   (under `purchase` basis one row per purchase, full amount). Clicking a donut slice sets
   `?categories=` — a temporary drill-down that never changes the saved report.

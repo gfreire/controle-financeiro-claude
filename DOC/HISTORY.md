@@ -676,3 +676,11 @@ future (e.g. a poker debt with R$ 1.000 left to pay) — "na maioria das vezes n
 entries dated after today + every projected unpaid obligation (an obligation of the current month
 is still "to pay" even though its projection is dated the 1st). Shown only when non-empty.
 
+Follow-up (2026-11-25): report charts showed long runs of empty months (a "Poker" report over
+"Todo o período" drew Jan/25–Jul/27 with data in only 4 months). User asked for "uma inteligência
+melhor", scroll and zoom when there's a lot of data. Done as: trim leading/trailing empty months,
+Mês/Trimestre/Ano grouping (auto default by span), and horizontal scroll with a minimum bar width.
+While testing, found "Todo o período" ended at the last real row — cutting off the current month's
+projections and an open installment plan's remaining months, which emptied "Ainda a realizar";
+the end is now extended to today's month and every open INSTALLMENT_PLAN's last competence.
+

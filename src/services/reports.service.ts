@@ -1,10 +1,20 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUser } from "@/lib/auth/getUser";
-import { addMoney, subtractMoney } from "@/lib/utils/money";
-import { addMonthsToIsoDate, endOfMonth, monthKey, resolvePeriodPreset, startOfMonth, todayIso } from "@/lib/utils/date";
+import { addMoney, subtractMoney, sumMoney } from "@/lib/utils/money";
+import { addMonthsToIsoDate, endOfMonth, formatMonthLabel, monthKey, resolvePeriodPreset, startOfMonth, todayIso } from "@/lib/utils/date";
+import { getDebts } from "./debts.service";
 import type { ReportInput } from "@/lib/validations/reports";
 import type { ReportRow } from "@/types/database";
-import type { DashboardFilters, MonthlyEvolutionDTO, ReportDTO, ReportPeriodPreset, ReportResultPointDTO } from "@/types/dto";
+import type {
+  DashboardFilters,
+  DebtDTO,
+  MonthlyEvolutionDTO,
+  ReportChartPointDTO,
+  ReportChartSeriesDTO,
+  ReportDTO,
+  ReportGranularity,
+  ReportPeriodPreset,
+} from "@/types/dto";
 
 /**
  * Relatórios salvos (/reports, migration 0042). The table only stores a filter definition; every
@@ -94,13 +104,16 @@ export async function deleteReport(id: string): Promise<void> {
 
 /**
  * "Todo o período" bounds: from the user's earliest analytic row to the latest one — which can be
- * in the future (installments by competence). Looks at transactions, card purchase dates and
- * installment competences; falls back to the current month when the user has no data at all.
+ * in the future (installments / card credits by competence). The end is never before the end of
+ * the current month (so this month's unpaid projections count) nor before the last competence of
+ * any still-open Parcelamento Programado (so its remaining installments show as "ainda a
+ * realizar" — the "dívida parcelada que ainda falta pagar" case). Falls back to the current month
+ * when the user has no data at all.
  */
 async function getAllTimeBounds(): Promise<{ periodStart: string; periodEnd: string }> {
   const supabase = await createClient();
   const user = await getUser();
-  const edge = async (table: "transactions" | "card_purchases" | "card_installments", column: string, ascending: boolean) => {
+  const edge = async (table: "transactions" | "card_purchases" | "card_installments" | "card_refunds", column: string, ascending: boolean) => {
     let query = supabase.from(table).select(column).order(column, { ascending }).limit(1);
     if (table !== "card_installments") query = query.eq("user_id", user.id);
     if (table === "transactions") query = query.in("type", ["INCOME", "EXPENSE"]);
@@ -109,18 +122,33 @@ async function getAllTimeBounds(): Promise<{ periodStart: string; periodEnd: str
     const row = (data as unknown as Array<Record<string, string>> | null)?.[0];
     return row?.[column];
   };
-  const [txMin, txMax, purchaseMin, purchaseMax, instMin, instMax] = await Promise.all([
+  const [txMin, txMax, purchaseMin, purchaseMax, instMin, instMax, refundMin, refundMax, debts] = await Promise.all([
     edge("transactions", "date", true),
     edge("transactions", "date", false),
     edge("card_purchases", "purchase_date", true),
     edge("card_purchases", "purchase_date", false),
     edge("card_installments", "competence", true),
     edge("card_installments", "competence", false),
+    edge("card_refunds", "competence", true),
+    edge("card_refunds", "competence", false),
+    getDebts(),
   ]);
-  const mins = [txMin, purchaseMin, instMin].filter((v): v is string => Boolean(v)).sort();
-  const maxes = [txMax, purchaseMax, instMax].filter((v): v is string => Boolean(v)).sort();
+  const mins = [txMin, purchaseMin, instMin, refundMin].filter((v): v is string => Boolean(v)).sort();
   if (!mins.length) return resolvePeriodPreset("month");
+  const planEnds = debts.filter((d) => d.kind === "INSTALLMENT_PLAN" && d.monthlyAmount).map(installmentPlanLastMonth);
+  const maxes = [txMax, purchaseMax, instMax, refundMax, todayIso(), ...planEnds]
+    .filter((v): v is string => Boolean(v))
+    .sort();
   return { periodStart: startOfMonth(mins[0]), periodEnd: endOfMonth(maxes[maxes.length - 1]) };
+}
+
+/** Last competence ("YYYY-MM-01") an open Parcelamento Programado still has to be paid in. */
+function installmentPlanLastMonth(debt: DebtDTO): string {
+  const nextOpen = debt.paidThroughCompetence
+    ? addMonthsToIsoDate(`${debt.paidThroughCompetence}-01`, 1)
+    : `${debt.startCompetence ?? monthKey(todayIso())}-01`;
+  const remaining = Math.max(1, Math.ceil(debt.remainingBalance / (debt.monthlyAmount ?? debt.remainingBalance)));
+  return addMonthsToIsoDate(nextOpen, remaining - 1);
 }
 
 /** The concrete dates a report covers today — relative presets are re-resolved on every open. */
@@ -174,14 +202,74 @@ export function getReportProjectionMonths(report: ReportDTO, period: { periodSta
   return months;
 }
 
-/** Monthly result (income − expense) and its running total — "quanto já ganhei/perdi até aqui". */
-export function getReportResultSeries(evolution: MonthlyEvolutionDTO[]): ReportResultPointDTO[] {
-  let cumulative = 0;
-  return evolution.map((point) => {
-    const result = subtractMoney(point.income, point.expense);
-    cumulative = addMoney(cumulative, result);
-    return { month: point.month, result, cumulative };
-  });
+/** Month-key → short labels per granularity: "Nov/26", "T4/26", "2026". */
+function compactMonthLabel(key: string): string {
+  return formatMonthLabel(key, true).replace(/\/(\d{2})(\d{2})$/, "/$2");
+}
+function bucketKey(key: string, granularity: ReportGranularity): string {
+  if (granularity === "month") return key;
+  const year = key.slice(0, 4);
+  if (granularity === "year") return year;
+  return `T${Math.ceil(Number(key.slice(5, 7)) / 3)}/${year.slice(2)}`;
+}
+
+/**
+ * Every chart series a report needs, ready to draw — per granularity (mês / trimestre / ano), each
+ * point with income/expense/reserved, the period result and its running total ("quanto já
+ * ganhei/perdi até aqui"). `evolution` is getMonthlyEvolution's output over `period`, one entry per
+ * month from period.periodStart.
+ *
+ * Leading and trailing months with nothing at all are trimmed — "Todo o período" spans the user's
+ * whole history, but a "Poker" report only has data in a few of those months; a run of empty bars
+ * around it is noise. Empty months *between* data stay (a zero month is information). The running
+ * total is unaffected (trimmed months are all zero).
+ *
+ * `defaultGranularity` picks a readable bar count: month up to 18 months, quarter up to 60, else year.
+ */
+export function getReportChartSeries(
+  evolution: MonthlyEvolutionDTO[],
+  period: { periodStart: string }
+): ReportChartSeriesDTO {
+  const firstMonth = `${monthKey(period.periodStart)}-01`;
+  const months = evolution.map((point, i) => ({ ...point, key: monthKey(addMonthsToIsoDate(firstMonth, i)) }));
+  const hasData = (p: MonthlyEvolutionDTO) => p.income !== 0 || p.expense !== 0 || p.reserved !== 0;
+  const first = months.findIndex(hasData);
+  const last = months.length - 1 - [...months].reverse().findIndex(hasData);
+  const trimmed = first === -1 ? months.slice(-1) : months.slice(first, last + 1);
+
+  const build = (granularity: ReportGranularity): ReportChartPointDTO[] => {
+    const buckets = new Map<string, { label: string; income: number[]; expense: number[]; reserved: number[] }>();
+    for (const m of trimmed) {
+      const key = bucketKey(m.key, granularity);
+      const bucket = buckets.get(key) ?? {
+        label: granularity === "month" ? compactMonthLabel(m.key) : key,
+        income: [],
+        expense: [],
+        reserved: [],
+      };
+      bucket.income.push(m.income);
+      bucket.expense.push(m.expense);
+      bucket.reserved.push(m.reserved);
+      buckets.set(key, bucket);
+    }
+    let cumulative = 0;
+    return [...buckets.values()].map((b) => {
+      const income = sumMoney(b.income);
+      const expense = sumMoney(b.expense);
+      const result = subtractMoney(income, expense);
+      cumulative = addMoney(cumulative, result);
+      return { month: b.label, income, expense, reserved: sumMoney(b.reserved), result, cumulative };
+    });
+  };
+
+  const monthCount = trimmed.length;
+  return {
+    month: build("month"),
+    quarter: build("quarter"),
+    year: build("year"),
+    monthCount,
+    defaultGranularity: monthCount <= 18 ? "month" : monthCount <= 60 ? "quarter" : "year",
+  };
 }
 
 /**

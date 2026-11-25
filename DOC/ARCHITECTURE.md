@@ -372,7 +372,9 @@ src
  │  │   "Cancelar pagamento"; also a "Já lancei isso manualmente" link-existing mode])
  │  ├ reports/components (report-form-dialog [create+edit — every filter; custom period opens two
  │  │   date fields; card-basis segmented toggle; projections switch], delete-report-button,
- │  │   report-summary-cards, report-result-chart [monthly result bars + cumulative line]);
+ │  │   report-summary-cards, report-charts [client — Mês/Trimestre/Ano toggle over MonthlyChart +
+ │  │   report-result-chart, both horizontally scrollable via useChartScroll],
+ │  │   report-result-chart [result bars + cumulative line]);
  │  │   reports/period-labels.ts (preset labels, describeReportPeriod)
  │  ├ recurring-incomes/components (recurring-incomes-section [block on /budgets],
  │  │   recurring-income-form-dialog [create+edit], register-receipt-dialog [branches on
@@ -393,7 +395,8 @@ src
   │   once an account is chosen], month-picker
  │  │   [click-anywhere-on-label showPicker(); shared by Dashboard/Cards/Transactions],
  │  │   loading-overlay [full-screen "Carregando…"], chart-tooltip [chartTooltipStyle],
- │  │   chart-month-labels.tsx [compactMonth, MonthLabelsOverlay, useResponsiveLabelFont —
+ │  │   chart-month-labels.tsx [compactMonth, MonthLabelsOverlay, useResponsiveLabelFont,
+ │  │   useChartScroll (min px per bar → horizontal scroll, opens at the end; reports only) —
  │  │   the per-month value-labels-above-bars + responsive-font mechanics shared by the
  │  │   dashboard's monthly-chart and the Cards page's card-evolution-chart, so both read
  │  │   as one visual system], category-checkbox-filter [generic additive multi-select popover; optional
@@ -843,12 +846,17 @@ getReports() → ReportDTO[] / getReport(id) → ReportDTO | null
 createReport(input) → id / updateReport(id, input) / deleteReport(id)   -- hard delete
 resolveReportPeriod(report) → { periodStart, periodEnd }
   -- relative presets re-resolved on every open (resolvePeriodPreset); "all" = earliest → latest
-  -- of transactions.date / card_purchases.purchase_date / card_installments.competence.
+  -- of transactions.date / card_purchases.purchase_date / card_installments.competence /
+  -- card_refunds.competence, extended to at least the end of today's month and the last
+  -- competence of every open INSTALLMENT_PLAN (getDebts).
 buildReportFilters(report, period, drillCategoryIds?) → DashboardFilters
   -- drillCategoryIds (?categories= from a donut click) replaces the saved categories for that view.
 getReportProjectionMonths(report, period) → string[]
   -- [] when include_projections is off; else months >= today's month whose 1st day is in the period.
-getReportResultSeries(evolution) → ReportResultPointDTO[]   -- monthly result + running total
+getReportChartSeries(evolution, period) → ReportChartSeriesDTO
+  -- trims leading/trailing all-zero months, then builds month / quarter / year buckets (income,
+  -- expense, reserved, result, running cumulative) + defaultGranularity (month ≤ 18 months,
+  -- quarter ≤ 60, else year). ReportCharts (client) only picks one via the Mês/Trimestre/Ano toggle.
 -- dashboard.service#getFutureSummary(filters, obligationsMonth?) → FutureSummaryDTO — the
 --   report's "Ainda a realizar" box: fetchPeriodEntries filtered to date > today OR projected
 --   (Entry.projected, set on fetchUnpaidObligationEntries' output). A slice of the summary, not extra.
@@ -1097,7 +1105,9 @@ type ReportDTO = {
   categoryIds: string[]; subcategoryIds: string[]; accountIds: string[]   // [] = no restriction
   descriptionSearch?: string
 }
-type ReportResultPointDTO = { month: string; result: number; cumulative: number }
+type ReportGranularity = "month" | "quarter" | "year"
+type ReportChartPointDTO = { month: string /* bucket label: "Nov/26" | "T4/26" | "2026" */; income: number; expense: number; reserved: number; result: number; cumulative: number }
+type ReportChartSeriesDTO = { month: ReportChartPointDTO[]; quarter: ReportChartPointDTO[]; year: ReportChartPointDTO[]; monthCount: number; defaultGranularity: ReportGranularity }
 type FutureSummaryDTO = { income: number; expense: number; result: number; count: number }   // count 0 ⇒ box hidden
 
 type AccountDTO = {

@@ -5,7 +5,7 @@ import {
   buildReportFilters,
   getReport,
   getReportProjectionMonths,
-  getReportResultSeries,
+  getReportChartSeries,
   prepareReportEvolution,
   resolveReportPeriod,
 } from "@/services/reports.service";
@@ -22,13 +22,12 @@ import { formatDate } from "@/lib/utils/date";
 import { Badge } from "@/components/ui/badge";
 import { HelpButton } from "@/components/ui/help-button";
 import { HelpHint } from "@/components/ui/help-hint";
-import { MonthlyChart } from "@/features/dashboard/components/monthly-chart";
 import { CategoryPie } from "@/features/dashboard/components/category-pie";
 import { TransactionExplorer } from "@/features/dashboard/components/transaction-explorer";
 import { ReportFormDialog } from "@/features/reports/components/report-form-dialog";
 import { DeleteReportButton } from "@/features/reports/components/delete-report-button";
 import { ReportSummaryCards } from "@/features/reports/components/report-summary-cards";
-import { ReportResultChart } from "@/features/reports/components/report-result-chart";
+import { ReportCharts } from "@/features/reports/components/report-charts";
 import { CARD_BASIS_LABELS, describeReportPeriod } from "@/features/reports/period-labels";
 import type { DashboardFilters } from "@/types/dto";
 
@@ -62,7 +61,7 @@ export default async function ReportPage({
     getCategories(),
   ]);
   const monthlyEvolution = prepareReportEvolution(evolution, filters);
-  const resultSeries = getReportResultSeries(monthlyEvolution);
+  const chartSeries = getReportChartSeries(monthlyEvolution, period);
 
   const categoryName = new Map(categories.map((c) => [c.id, `${c.icon ?? ""} ${c.name}`.trim()]));
   const subcategoryName = new Map(categories.flatMap((c) => c.subcategories.map((s) => [s.id, s.name] as const)));
@@ -113,18 +112,7 @@ export default async function ReportPage({
 
       <ReportSummaryCards summary={summary} future={future} />
 
-      <MonthlyChart
-        data={monthlyEvolution}
-        helpId="reports.monthly-evolution"
-        help={
-          <>
-            <p>Receitas (verde) e despesas (vermelho) de cada mês do período do relatório.</p>
-            <p>Com “Parcelas por mês”, cada parcela do cartão cai no mês da fatura; com “Compra pelo valor cheio”, a compra inteira cai no mês em que foi feita.</p>
-          </>
-        }
-      />
-
-      {resultSeries.length > 1 && <ReportResultChart data={resultSeries} />}
+      <ReportCharts series={chartSeries} />
 
       {(showExpensePie || showIncomePie) && (
         <div className={showExpensePie && showIncomePie ? "grid grid-cols-1 gap-4 lg:grid-cols-2" : "grid grid-cols-1 gap-4"}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePlotArea, useXAxisScale } from "recharts";
 import { formatCurrency } from "@/lib/utils/currency";
 
@@ -66,7 +66,12 @@ export function MonthLabelsOverlay<T>({
  * (floor ~7.5px), grows on desktop where there's room (ceiling 13px), via a `ResizeObserver` on
  * `wrapRef`'s element — so the widest formatted value always fits its month's column.
  */
-export function useResponsiveLabelFont<T>(data: T[], values: (d: T) => number[]) {
+export function useResponsiveLabelFont<T>(
+  data: T[],
+  values: (d: T) => number[],
+  /** When the chart scrolls horizontally, its real width can exceed the container's visible width. */
+  minChartWidth = 0
+) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [font, setFont] = useState(9);
 
@@ -74,7 +79,7 @@ export function useResponsiveLabelFont<T>(data: T[], values: (d: T) => number[])
     const el = wrapRef.current;
     if (!el) return;
     const measure = () => {
-      const plotWidth = el.clientWidth - 52 /* eixo Y */ - 8 /* margem direita */;
+      const plotWidth = Math.max(el.clientWidth, minChartWidth) - 52 /* eixo Y */ - 8 /* margem direita */;
       if (plotWidth <= 0 || data.length === 0) return;
       const bandWidth = plotWidth / data.length;
       const longest = Math.max(6, ...data.flatMap((d) => values(d).map((v) => bareValue(v).length)));
@@ -88,7 +93,23 @@ export function useResponsiveLabelFont<T>(data: T[], values: (d: T) => number[])
     // `values` reads fixed fields off `d`; re-measuring only on `data` changes (not every render,
     // since `values` is typically a fresh inline arrow) is intentional here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, minChartWidth]);
 
   return { wrapRef, font };
+}
+
+/**
+ * Horizontal scroll for charts with many bars (reports): each bar gets at least `minBandWidth` px,
+ * so past a point the chart is wider than the screen and scrolls instead of squeezing every bar
+ * into an unreadable sliver. Starts scrolled to the end (the most recent bars). Without
+ * `minBandWidth` it's a no-op and the chart just fits its container (the dashboard's behavior).
+ */
+export function useChartScroll(count: number, minBandWidth?: number) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const minWidth = minBandWidth ? count * minBandWidth + 60 : 0;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && minWidth) el.scrollLeft = el.scrollWidth;
+  }, [count, minWidth]);
+  return { scrollRef, minWidth, scrollClassName: minBandWidth ? "overflow-x-auto overscroll-x-contain" : undefined };
 }

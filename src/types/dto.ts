@@ -473,6 +473,19 @@ export type ReportDTO = {
 };
 /** Reports only — the not-yet-realized slice of the period (future-dated entries + unpaid projections). Already inside FinancialSummaryDTO's totals. */
 export type FutureSummaryDTO = { income: number; expense: number; result: number; count: number };
-/** Monthly result of a report + its running total ("quanto já ganhei/perdi até aqui"). */
-export type ReportResultPointDTO = { month: string; result: number; cumulative: number };
+export type ReportGranularity = "month" | "quarter" | "year";
+/**
+ * One bar of a report chart. `month` is the display label of the bucket ("Nov/26", "T4/26",
+ * "2026") — named `month` so it plugs straight into MonthlyChart. `cumulative` = running total of
+ * `result` ("quanto já ganhei/perdi até aqui").
+ */
+export type ReportChartPointDTO = { month: string; income: number; expense: number; reserved: number; result: number; cumulative: number };
+/** Report chart series per granularity, empty leading/trailing months trimmed. `monthCount` = months after trimming. */
+export type ReportChartSeriesDTO = {
+  month: ReportChartPointDTO[];
+  quarter: ReportChartPointDTO[];
+  year: ReportChartPointDTO[];
+  monthCount: number;
+  defaultGranularity: ReportGranularity;
+};
 

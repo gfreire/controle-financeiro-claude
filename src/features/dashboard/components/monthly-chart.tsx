@@ -6,15 +6,15 @@ import { Card } from "@/components/ui/card";
 import { CardTitleWithHelp } from "@/components/ui/help-hint";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils/currency";
 import { chartTooltipStyle } from "@/components/ui/chart-tooltip";
-import { compactMonth, MonthLabelsOverlay, useResponsiveLabelFont } from "@/components/ui/chart-month-labels";
+import { compactMonth, MonthLabelsOverlay, useChartScroll, useResponsiveLabelFont } from "@/components/ui/chart-month-labels";
 import type { MonthlyEvolutionDTO } from "@/types/dto";
 
-function ValuesTable({ data, showReserved }: { data: MonthlyEvolutionDTO[]; showReserved: boolean }) {
+function ValuesTable({ data, showReserved, bucketLabel }: { data: MonthlyEvolutionDTO[]; showReserved: boolean; bucketLabel: string }) {
   return (
     <table className="w-full text-right text-xs tabular-nums sm:text-sm">
       <thead>
         <tr className="text-text/50">
-          <th className="py-1 text-left font-medium">Mês</th>
+          <th className="py-1 text-left font-medium">{bucketLabel}</th>
           <th className="py-1 font-medium">
             <span className="inline-flex items-center gap-1"><span className="size-1.5 rounded-full bg-success-500" />Receitas</span>
           </th>
@@ -46,8 +46,19 @@ export function MonthlyChart({
   data,
   helpId = "dashboard.monthly-evolution",
   help,
+  title = "Evolução mensal",
+  bucketLabel = "Mês",
+  minBandWidth,
+  headerExtra,
 }: {
   data: MonthlyEvolutionDTO[];
+  title?: string;
+  /** First column header of the "Exibir lista" table ("Mês", "Trimestre", "Ano"). */
+  bucketLabel?: string;
+  /** Reports: minimum px per bar — beyond what fits, the chart scrolls horizontally (see useChartScroll). */
+  minBandWidth?: number;
+  /** Rendered at the right of the title row (reports put the Mês/Trimestre/Ano toggle here). */
+  headerExtra?: React.ReactNode;
   /** Reports reuse this chart over their own period — they pass their own help text/id. */
   helpId?: string;
   help?: React.ReactNode;
@@ -57,13 +68,15 @@ export function MonthlyChart({
 
   // Fonte do bloco de valores adapta à largura: aperta no celular (piso ~7.5px),
   // cresce no desktop onde sobra espaço (teto 13px) — ver useResponsiveLabelFont.
-  const { wrapRef, font: labelFont } = useResponsiveLabelFont(data, (d) => [d.income, d.expense, d.reserved]);
+  const { scrollRef, minWidth, scrollClassName } = useChartScroll(data.length, minBandWidth);
+  const { wrapRef, font: labelFont } = useResponsiveLabelFont(data, (d) => [d.income, d.expense, d.reserved], minWidth);
 
   const lineGap = labelFont + 3;
   const topPad = (showReserved ? 3 : 2) * lineGap + 11;
 
   return (
     <Card elevation="sm" className="min-h-[320px]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
       <CardTitleWithHelp
         id={helpId}
         helpTitle="Evolução mensal"
@@ -76,14 +89,17 @@ export function MonthlyChart({
           </>
         }
       >
-        Evolução mensal
+        {title}
       </CardTitleWithHelp>
+      {headerExtra}
+      </div>
 
+      <div ref={scrollRef} className={scrollClassName}>
       <div ref={wrapRef} className="h-72 w-full">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minWidth={minWidth || undefined}>
           <BarChart data={data} margin={{ top: topPad, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke="var(--color-divider)" />
-            <XAxis dataKey="month" tickFormatter={compactMonth} tick={{ fontSize: 11, fill: "var(--color-text)" }} axisLine={{ stroke: "var(--color-divider)" }} tickLine={false} />
+            <XAxis dataKey="month" interval={minBandWidth ? 0 : undefined} tickFormatter={compactMonth} tick={{ fontSize: 11, fill: "var(--color-text)" }} axisLine={{ stroke: "var(--color-divider)" }} tickLine={false} />
             <YAxis
               tickFormatter={(v) => formatCompactCurrency(v)}
               tick={{ fontSize: 11, fill: "var(--color-text)" }}
@@ -112,6 +128,7 @@ export function MonthlyChart({
           </BarChart>
         </ResponsiveContainer>
       </div>
+      </div>
 
       <button
         type="button"
@@ -122,7 +139,7 @@ export function MonthlyChart({
       </button>
       {listOpen && (
         <div className="mt-1">
-          <ValuesTable data={data} showReserved={showReserved} />
+          <ValuesTable data={data} showReserved={showReserved} bucketLabel={bucketLabel} />
         </div>
       )}
     </Card>
