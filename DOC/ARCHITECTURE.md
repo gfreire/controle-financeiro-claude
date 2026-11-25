@@ -117,7 +117,8 @@ not to rediscover whether a feature exists.
 - **Relatórios** (`/reports`, migration 0042) — saved, named filters (period preset or custom
   dates, categories, subcategories, accounts/cards, "descrição contém", card basis
   competence/purchase, projections toggle) rendered as a dashboard over the period: summary
-  cards, Evolução mensal, "Resultado acumulado", donuts, Explorer. See `AI_CONTEXT.md` →
+  cards (+ "Ainda a realizar" when part of the period is still future/unpaid), Evolução mensal,
+  "Resultado acumulado", donuts, Explorer. See `AI_CONTEXT.md` →
   "Relatórios".
 - **Per-screen help** — a page-level `HelpButton` ("?") in every header, plus granular `HelpHint`
   ("?") on every chart (and, planned, on the trickier form fields). A `HelpHint` auto-opens once
@@ -848,6 +849,9 @@ buildReportFilters(report, period, drillCategoryIds?) → DashboardFilters
 getReportProjectionMonths(report, period) → string[]
   -- [] when include_projections is off; else months >= today's month whose 1st day is in the period.
 getReportResultSeries(evolution) → ReportResultPointDTO[]   -- monthly result + running total
+-- dashboard.service#getFutureSummary(filters, obligationsMonth?) → FutureSummaryDTO — the
+--   report's "Ainda a realizar" box: fetchPeriodEntries filtered to date > today OR projected
+--   (Entry.projected, set on fetchUnpaidObligationEntries' output). A slice of the summary, not extra.
 prepareReportEvolution(evolution, filters)   -- zeroes `reserved` under a category/description filter
 ```
 dashboard.service: `getFinancialSummary`/`getCategoryDistribution`/`getMonthlyEvolution` take
@@ -1094,6 +1098,7 @@ type ReportDTO = {
   descriptionSearch?: string
 }
 type ReportResultPointDTO = { month: string; result: number; cumulative: number }
+type FutureSummaryDTO = { income: number; expense: number; result: number; count: number }   // count 0 ⇒ box hidden
 
 type AccountDTO = {
   id: string; type: AccountType; name: string; color: string | null; active: boolean

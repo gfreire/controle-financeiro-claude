@@ -670,3 +670,9 @@ Editing is a dialog ("Editar filtros") rather than live URL-driven filters with 
 simpler, and the saved definition is always what the page shows (donut clicks are the only
 unsaved, temporary narrowing).
 
+Follow-up (2026-11-25): a fourth summary box, "Ainda a realizar". User: on "todo o período" the
+accumulated result should stay the whole thing, but a separate box should show what's still
+future (e.g. a poker debt with R$ 1.000 left to pay) — "na maioria das vezes negativo". Defined as
+entries dated after today + every projected unpaid obligation (an obligation of the current month
+is still "to pay" even though its projection is dated the 1st). Shown only when non-empty.
+

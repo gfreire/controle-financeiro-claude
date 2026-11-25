@@ -471,6 +471,8 @@ export type ReportDTO = {
   accountIds: string[];
   descriptionSearch?: string;
 };
+/** Reports only — the not-yet-realized slice of the period (future-dated entries + unpaid projections). Already inside FinancialSummaryDTO's totals. */
+export type FutureSummaryDTO = { income: number; expense: number; result: number; count: number };
 /** Monthly result of a report + its running total ("quanto já ganhei/perdi até aqui"). */
 export type ReportResultPointDTO = { month: string; result: number; cumulative: number };
 

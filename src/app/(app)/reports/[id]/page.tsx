@@ -12,6 +12,7 @@ import {
 import {
   getCategoryDistribution,
   getFinancialSummary,
+  getFutureSummary,
   getMonthlyEvolution,
   getTransactionsFiltered,
 } from "@/services/dashboard.service";
@@ -50,8 +51,9 @@ export default async function ReportPage({
   const expenseFilters: DashboardFilters = { ...filters, transactionType: "EXPENSE" };
   const incomeFilters: DashboardFilters = { ...filters, transactionType: "INCOME" };
 
-  const [summary, evolution, expenseDistribution, incomeDistribution, transactions, accounts, categories] = await Promise.all([
+  const [summary, future, evolution, expenseDistribution, incomeDistribution, transactions, accounts, categories] = await Promise.all([
     getFinancialSummary(filters, projectionMonths),
+    getFutureSummary(filters, projectionMonths),
     getMonthlyEvolution(filters, projectionMonths),
     getCategoryDistribution(expenseFilters, projectionMonths),
     getCategoryDistribution(incomeFilters, projectionMonths),
@@ -109,7 +111,7 @@ export default async function ReportPage({
         </div>
       </div>
 
-      <ReportSummaryCards summary={summary} />
+      <ReportSummaryCards summary={summary} future={future} />
 
       <MonthlyChart
         data={monthlyEvolution}

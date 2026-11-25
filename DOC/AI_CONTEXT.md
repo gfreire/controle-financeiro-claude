@@ -1311,7 +1311,12 @@ to the reservoirs feature (`/reservoirs`). All internal identifiers stay `recurr
 - **Ids are `uuid[]` with no FK** (deliberate): a saved filter isn't history, and `RESTRICT`
   would drag reports into the guided category-deletion flow. A deleted id just matches nothing;
   the editor drops unknown ids on the next save.
-- **View**: Receitas/Despesas/Resultado cards; Evolução mensal over the period (the "Guardado
+- **View**: Receitas/Despesas/Resultado cards + a fourth **"Ainda a realizar"** card, shown only
+  when part of those totals hasn't happened yet (`getFutureSummary`): entries dated after today
+  (future card installments by competence, future-dated transactions) plus every projected unpaid
+  obligation, netted (green/red) with "a pagar"/"a receber" lines. It's a slice **already inside**
+  the other three totals, never added on top — the user wanted the full period's result unchanged
+  and the not-yet-paid part singled out (e.g. a poker debt still owing R$ 1.000); Evolução mensal over the period (the "Guardado
   (metas)" bar is zeroed when a category/subcategory/description filter is active — it carries no
   category); "Resultado acumulado" (monthly result bars + running total line, `getReportResultSeries`);
   expense/income donuts (empty side hidden under a category filter, like the dashboard); Explorer

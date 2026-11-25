@@ -16,6 +16,7 @@ import type {
   TransactionViewDTO,
   MonthObligationItemDTO,
   MonthObligationsDTO,
+  FutureSummaryDTO,
 } from "@/types/dto";
 import type { AccountType } from "@/types/database";
 
@@ -27,6 +28,8 @@ type Entry = {
   categoryName: string;
   categoryColor: string;
   categoryIcon: string | null;
+  /** Set only on the unpaid-obligation projections — "still to pay", whatever their date. */
+  projected?: boolean;
 };
 
 /** `descrição contém` → an ILIKE pattern with the user's own `%`/`_`/`\\` escaped. */
@@ -535,6 +538,7 @@ async function fetchUnpaidObligationEntries(
       categoryName: cat?.name ?? "Sem categoria",
       categoryColor: cat?.color ?? "#98989b",
       categoryIcon: cat?.icon ?? null,
+      projected: true,
     };
   });
 }
@@ -618,6 +622,28 @@ export async function getFinancialSummary(
     refundAmount: refundTotal,
     reservedTotal,
   };
+}
+
+/**
+ * Reports only — the part of the period's figures that hasn't happened yet: entries dated after
+ * today (future card installments by competence, future-dated transactions) plus every projected
+ * unpaid obligation (an obligation is "still to pay" even when its month is the current one).
+ * Already included in getFinancialSummary's totals — this just singles it out ("ainda vai
+ * entrar / sair R$ X"). Same filters/projection months as the report's summary.
+ */
+export async function getFutureSummary(
+  filters: DashboardFilters,
+  obligationsMonth?: string | string[]
+): Promise<FutureSummaryDTO> {
+  const supabase = await createClient();
+  const user = await getUser();
+  const today = todayIso();
+  const entries = (await fetchPeriodEntries(supabase, user.id, filters, toMonthList(obligationsMonth))).filter(
+    (e) => e.projected || e.date > today
+  );
+  const income = sumMoney(entries.filter((e) => e.type === "INCOME").map((e) => e.amount));
+  const expense = sumMoney(entries.filter((e) => e.type === "EXPENSE").map((e) => e.amount));
+  return { income, expense, result: subtractMoney(income, expense), count: entries.length };
 }
 
 export async function getMonthlyEvolution(
