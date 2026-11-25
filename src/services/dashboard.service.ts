@@ -731,7 +731,18 @@ export async function getCategoryDistribution(
     .sort((a, b) => b.total - a.total);
 }
 
-export async function getTransactionsFiltered(filters: DashboardFilters): Promise<TransactionViewDTO[]> {
+export async function getTransactionsFiltered(
+  filters: DashboardFilters,
+  options: {
+    /**
+     * Which date a card-installment row shows (and sorts by). "purchase" (dashboard — one month,
+     * so every installment row is a different purchase) = the real purchase date. "due" (reports —
+     * many months, where the same purchase's installments would all repeat the purchase date and
+     * look duplicated) = the installment's own invoice due date (competence month + card due_day).
+     */
+    installmentDate?: "purchase" | "due";
+  } = {}
+): Promise<TransactionViewDTO[]> {
   const supabase = await createClient();
   const user = await getUser();
 
@@ -796,7 +807,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
 
   let purchaseQuery = supabase
     .from("card_purchases")
-    .select("id, amount, description, purchase_date, category_id, subcategory_id, credit_card_id, categories(name), subcategories(name), accounts(name)")
+    .select("id, amount, description, purchase_date, installments, category_id, subcategory_id, credit_card_id, categories(name), subcategories(name), accounts(name)")
     .eq("user_id", user.id);
   if (filters.uncategorizedOnly) purchaseQuery = purchaseQuery.is("category_id", null);
   else if (filters.categories?.length) purchaseQuery = purchaseQuery.in("category_id", filters.categories);
@@ -813,6 +824,7 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
     amount: number;
     description: string | null;
     purchase_date: string;
+    installments: number;
     category_id: string | null;
     subcategory_id: string | null;
     credit_card_id: string;
@@ -857,14 +869,52 @@ export async function getTransactionsFiltered(filters: DashboardFilters): Promis
   if (installmentError) throw new Error(installmentError.message);
 
   const purchaseById = new Map(purchases.map((p) => [p.id, p]));
-  for (const row of installments ?? []) {
+  const periodInstallments = installments ?? [];
+
+  // "N/total": numbered over ALL the purchase's installments ordered by competence (never just
+  // the ones inside the period — see AI_CONTEXT "installment_number is not a stored column").
+  const multiPurchaseIds = [
+    ...new Set(periodInstallments.map((i) => i.purchase_id).filter((id) => (purchaseById.get(id)?.installments ?? 1) > 1)),
+  ];
+  const installmentNumber = new Map<string, number>();
+  if (multiPurchaseIds.length) {
+    const { data: allInstallments, error: allError } = await supabase
+      .from("card_installments")
+      .select("id, purchase_id, competence")
+      .in("purchase_id", multiPurchaseIds)
+      .order("competence", { ascending: true })
+      .order("id", { ascending: true });
+    if (allError) throw new Error(allError.message);
+    const counter = new Map<string, number>();
+    for (const inst of allInstallments ?? []) {
+      const n = (counter.get(inst.purchase_id) ?? 0) + 1;
+      counter.set(inst.purchase_id, n);
+      installmentNumber.set(inst.id, n);
+    }
+  }
+
+  const dueDayByCard = new Map<string, number>();
+  if (options.installmentDate === "due") {
+    const cardIds = [...new Set(periodInstallments.map((i) => purchaseById.get(i.purchase_id)?.credit_card_id).filter(Boolean))] as string[];
+    if (cardIds.length) {
+      const { data: cards, error: cardsError } = await supabase.from("credit_cards").select("account_id, due_day").in("account_id", cardIds);
+      if (cardsError) throw new Error(cardsError.message);
+      for (const c of cards ?? []) dueDayByCard.set(c.account_id as string, c.due_day as number);
+    }
+  }
+
+  for (const row of periodInstallments) {
     const purchase = purchaseById.get(row.purchase_id);
     if (!purchase) continue;
+    const dueDay = dueDayByCard.get(purchase.credit_card_id);
+    const total = purchase.installments ?? 1;
     results.push({
       id: row.id,
-      // The installment is still selected by competence (it belongs to this month's invoice),
-      // but the row shows — and sorts by — the real purchase date, not the competence.
-      date: purchase.purchase_date,
+      // Selected by competence (it belongs to that month's invoice). Dashboard: the row shows —
+      // and sorts by — the real purchase date. Reports: the installment's invoice due date.
+      date: dueDay ? `${row.competence.slice(0, 7)}-${String(dueDay).padStart(2, "0")}` : purchase.purchase_date,
+      installmentNumber: total > 1 ? installmentNumber.get(row.id) : undefined,
+      totalInstallments: total > 1 ? total : undefined,
       description: purchase.description ?? "",
       type: "EXPENSE",
       categoryId: purchase.category_id,

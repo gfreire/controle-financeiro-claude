@@ -538,9 +538,13 @@ getMonthlyEvolution(filters, obligationsMonth?) → MonthlyEvolutionDTO[]
 getCategoryDistribution(filters, obligationsMonth?) → CategoryDistributionDTO[]
   -- filters.source ("liquid"/"cards") narrows fetchPeriodEntries to one query — expense
   -- donut's account-type toggle only.
-getTransactionsFiltered(filters) → TransactionViewDTO[]
-  -- newest first by `date`. Card installments are SELECTED by competence (this month's invoice)
-  -- but their row `date` is the purchase's real `purchase_date`, which also drives the order.
+getTransactionsFiltered(filters, { installmentDate?: "purchase" | "due" }) → TransactionViewDTO[]
+  -- newest first by `date`. Card installments are SELECTED by competence. Their row `date` is the
+  -- real `purchase_date` by default (dashboard, one month); reports pass installmentDate "due" →
+  -- the installment's invoice due date (competence month + card due_day), so a parcelled purchase
+  -- over many months doesn't repeat one date N times. Multi-installment rows carry
+  -- installmentNumber/totalInstallments (numbered over ALL the purchase's installments by competence)
+  -- → Explorer badge "cartão · parcela 3/8".
 getCurrentMonthObligations(month?) → MonthObligationsDTO
   -- "Despesas de {mês}" card. `month` = the dashboard's viewed month
   -- (monthKey(filters.periodEnd)); no arg = today's real month. INSTALLMENT_PLAN gated by
@@ -943,6 +947,8 @@ type TransactionViewDTO = {
                      //   inline-edited from either place via purchaseId
   purchaseId?: string          // set only for source === "installment" — the id inline edits must target
   paidBeforeSystem?: boolean   // set only for source === "installment"
+  installmentNumber?: number   // multi-installment card rows only — "parcela N/total" badge
+  totalInstallments?: number
   originAccountId?: string | null       // set only for source === "transaction" — the full-edit dialog needs both sides (e.g. a TRANSFER)
   destinationAccountId?: string | null  // set only for source === "transaction"
   destinationAccount?: string           // set only when the row has BOTH sides (TRANSFER, CREDIT_CARD_PAYMENT) —

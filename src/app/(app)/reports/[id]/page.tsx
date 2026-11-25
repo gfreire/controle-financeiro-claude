@@ -56,7 +56,7 @@ export default async function ReportPage({
     getMonthlyEvolution(filters, projectionMonths),
     getCategoryDistribution(expenseFilters, projectionMonths),
     getCategoryDistribution(incomeFilters, projectionMonths),
-    getTransactionsFiltered(filters),
+    getTransactionsFiltered(filters, { installmentDate: "due" }),
     getAccounts(),
     getCategories(),
   ]);

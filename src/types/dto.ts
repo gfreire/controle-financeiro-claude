@@ -117,6 +117,9 @@ export type TransactionViewDTO = {
   source: "transaction" | "installment";
   purchaseId?: string; // set only when source === "installment" — the category/subcategory live on card_purchases, not the installment row, so edits must target this id
   paidBeforeSystem?: boolean; // set only when source === "installment" — backfilled/retroactive purchase installment already paid outside the system, see AI_CONTEXT.md "Compras retroativas"
+  /** Set only for a multi-installment card row — "parcela N/total", numbered over all the purchase's installments by competence. */
+  installmentNumber?: number;
+  totalInstallments?: number;
   originAccountId?: string | null; // set only when source === "transaction" — accountId/account above merge origin+destination for display; full edit (TransactionFormDialog edit mode) needs both sides distinguished
   destinationAccountId?: string | null; // set only when source === "transaction"
   destinationAccount?: string; // set only when the row has BOTH sides (TRANSFER, CREDIT_CARD_PAYMENT) — `account` is then the origin, this the destination, shown stacked in the Conta column

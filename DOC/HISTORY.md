@@ -684,3 +684,9 @@ While testing, found "Todo o período" ended at the last real row — cutting of
 projections and an open installment plan's remaining months, which emptied "Ainda a realizar";
 the end is now extended to today's month and every open INSTALLMENT_PLAN's last competence.
 
+### 2026-11-25 — Relatórios: data da parcela no Explorer
+No relatório (vários meses), as parcelas de uma compra apareciam todas com a data da compra —
+parecia lançamento duplicado (ex.: 8 linhas "Bruna 12/08/2026 -R$ 1.250"). Agora o relatório usa
+a data de vencimento da fatura de cada parcela (`getTransactionsFiltered(…, { installmentDate: "due" })`)
+e toda linha parcelada ganha o selo "parcela N/total" (dashboard também). O dashboard continua com a
+data da compra: é um mês só, não repete.

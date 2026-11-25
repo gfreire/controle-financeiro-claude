@@ -1330,7 +1330,7 @@ to the reservoirs feature (`/reservoirs`). All internal identifiers stay `recurr
   (metas)" bar is zeroed when a category/subcategory/description filter is active — it carries no
   category); "Resultado acumulado" (result bars + running total line);
   expense/income donuts (empty side hidden under a category filter, like the dashboard); Explorer
-  (under `purchase` basis one row per purchase, full amount). Clicking a donut slice sets
+  (under `purchase` basis one row per purchase, full amount; under `competence` each installment row is dated on its invoice due date — competence month + card `due_day` — not the purchase date, which would repeat N times over a multi-month period; every parcelled row shows "parcela N/total"). Clicking a donut slice sets
   `?categories=` — a temporary drill-down that never changes the saved report.
 - Hard delete (`deleteReport`) — nothing references a report.
 
