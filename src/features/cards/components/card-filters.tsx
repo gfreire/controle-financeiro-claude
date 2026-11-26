@@ -26,6 +26,7 @@ export function CardFilters({ cards, categories }: { cards: AccountDTO[]; catego
   const activeCard = searchParams.get("cardId") ?? "";
   const activeCategory = searchParams.get("categoryId") ?? "";
   const activeSubcategory = searchParams.get("subcategoryId") ?? "";
+  const activePurchaseType = searchParams.get("purchaseType") ?? "";
   const selectedCategory = categories.find((c) => c.id === activeCategory);
 
   // Mirrors the "q" URL param into local state so typing can be debounced before it hits the URL
@@ -83,15 +84,25 @@ export function CardFilters({ cards, categories }: { cards: AccountDTO[]; catego
         </Select>
       )}
 
+      <Select value={activePurchaseType || "ALL"} onValueChange={(v) => setParam("purchaseType", v === "ALL" ? null : v)}>
+        <SelectTrigger className="w-40"><SelectValue placeholder="Tipo de compra" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="ALL">Todas as compras</SelectItem>
+          <SelectItem value="single">À vista</SelectItem>
+          <SelectItem value="installment">Parceladas</SelectItem>
+        </SelectContent>
+      </Select>
+
       <Input placeholder="Buscar..." value={q} onChange={(e) => setQ(e.target.value)} className="h-9 w-40" />
 
-      {(activeCard || activeCategory || activeSubcategory || q) && (
+      {(activeCard || activeCategory || activeSubcategory || activePurchaseType || q) && (
         <button
           onClick={() => {
             const params = new URLSearchParams(searchParams.toString());
             params.delete("cardId");
             params.delete("categoryId");
             params.delete("subcategoryId");
+            params.delete("purchaseType");
             params.delete("q");
             navigate(`${pathname}?${params.toString()}`);
           }}

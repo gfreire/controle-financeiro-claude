@@ -278,6 +278,13 @@ the now-current installments, the user still uses "Pagar fatura" afterward. Does
 `remainingInstallmentsCount > 0` and the purchase isn't refunded; the "how many" field
 accepts 1..`remainingInstallmentsCount`.
 
+## Cards page list filters
+
+`CardFilters` (URL params): cartão, categoria/subcategoria, tipo de compra (`?purchaseType=` —
+absent = "Todas as compras" (default), `single` = "À vista" (1x), `installment` = "Parceladas"
+(2x+), by `card_purchases.installments`), and "Buscar". All of them only filter the per-card
+invoice list — never the card summary figures, the evolution chart or the donut.
+
 ## Cards page empty state
 
 `/cards` with zero cards → "Criar cartão de crédito" navigates to
@@ -540,7 +547,7 @@ the remaining installments scheduled), a bank reimbursement, cashback.
 - **Shown on the invoice list in green (`+R$`)** on `/cards` — via `getCardCredits(cardId,
   month)`, every `card_refunds` (standalone and full refunds) whose `competence` is the viewed
   invoice. Hidden under a
-  category/subcategory filter. Presentation only — the invoice figures keep coming from
+  category/subcategory filter or a purchase-type filter. Presentation only — the invoice figures keep coming from
   `getCardSummary`.
 - **Deletable** (`deleteCardCredit`) only when standalone; a full purchase refund still has no
   undo.

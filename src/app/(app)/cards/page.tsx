@@ -28,10 +28,15 @@ import { HelpButton } from "@/components/ui/help-button";
 export default async function CardsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; cardId?: string; categoryId?: string; subcategoryId?: string; q?: string; evoCategories?: string }>;
+  searchParams: Promise<{ month?: string; cardId?: string; categoryId?: string; subcategoryId?: string; q?: string; purchaseType?: string; evoCategories?: string }>;
 }) {
   const resolvedSearchParams = await searchParams;
   const { cardId, categoryId, subcategoryId, q, evoCategories } = resolvedSearchParams;
+  // "Todas as compras" (absent) / "À vista" (single, 1x) / "Parceladas" (installment, 2x+).
+  // List-only filter, like categoryId/q — never changes the invoice figures or charts.
+  const purchaseType = resolvedSearchParams.purchaseType === "single" || resolvedSearchParams.purchaseType === "installment"
+    ? resolvedSearchParams.purchaseType
+    : undefined;
 
   const [month, accounts, categories] = await Promise.all([
     resolvedSearchParams.month ? Promise.resolve(resolvedSearchParams.month) : getDefaultCardsMonth(),
@@ -117,6 +122,8 @@ export default async function CardsPage({
                 const purchase = purchaseById.get(r.purchaseId);
                 if (categoryId && purchase?.categoryId !== categoryId) return false;
                 if (subcategoryId && purchase?.subcategoryId !== subcategoryId) return false;
+                if (purchaseType === "single" && r.totalInstallments > 1) return false;
+                if (purchaseType === "installment" && r.totalInstallments <= 1) return false;
                 if (q) {
                   const description = r.description || purchase?.subcategoryName || purchase?.categoryName || "";
                   if (!textIncludes(description, q)) return false;
@@ -124,8 +131,8 @@ export default async function CardsPage({
                 return true;
               });
               // Credits (standalone "Lançar crédito" + full purchase refunds) on this invoice — shown
-              // in green. A category/subcategory filter hides them (they aren't spending categories).
-              const credits = categoryId || subcategoryId ? [] : creditsRaw.filter((c) => !q || textIncludes(c.description, q));
+              // in green. A category/subcategory or purchase-type filter hides them (they aren't purchases).
+              const credits = categoryId || subcategoryId || purchaseType ? [] : creditsRaw.filter((c) => !q || textIncludes(c.description, q));
               // Against-the-limit usage must include future not-yet-due installments too — see
               // `getCardTotalCommitted`'s comment for why `usedThroughCurrentMonth` alone undercounts it.
               const usagePercent = summary.creditLimit ? toPercentage(summary.totalCommitted, summary.creditLimit) : null;
