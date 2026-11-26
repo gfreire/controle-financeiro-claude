@@ -305,7 +305,7 @@ src
  ├ lib
  │  ├ supabase (client.ts, server.ts, proxy.ts — session refresh, called from src/proxy.ts)
  │  ├ auth (getUser.ts — getUser() redirects, getOptionalUser() doesn't; both cached())
- │  ├ utils (cn, currency, date [incl. installment-competence math, daysUntilDueThisMonth,
+ │  ├ utils (cn, currency, transaction-labels [displayDescription / installmentBadgeLabel], date [incl. installment-competence math, daysUntilDueThisMonth,
  │  │        month-preset resolution — resolvePeriodPreset unused, kept for a future reports
  │  │        tab], id, money [cents-safe arithmetic + calculateGrossNetSplit], normalize,
  │  │        number, string)

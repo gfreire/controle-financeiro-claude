@@ -105,6 +105,12 @@ Without it, switching INCOME → EXPENSE kept the old destination and `getAccoun
 sums both sides regardless of type) cancelled the expense out. Partial edits without `type`
 (the Explorer's inline edit) stay partial.
 
+**Row labels** (`src/lib/utils/transaction-labels.ts`, display only — the stored description stays
+empty): a row with no description shows its subcategory name, else its category name
+(`displayDescription`, same fallback as the Cards invoice list) — in the Explorer and the
+`/budgets` per-box list. A card-installment row's badge is "cartão" (1x) or "cartão · parcela N/total"
+(`installmentBadgeLabel`).
+
 **Dashboard analytics only ever read from `transactions` (`type in ('INCOME','EXPENSE')`) and
 `card_installments`.**
 

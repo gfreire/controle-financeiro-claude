@@ -690,3 +690,7 @@ parecia lançamento duplicado (ex.: 8 linhas "Bruna 12/08/2026 -R$ 1.250"). Agor
 a data de vencimento da fatura de cada parcela (`getTransactionsFiltered(…, { installmentDate: "due" })`)
 e toda linha parcelada ganha o selo "parcela N/total" (dashboard também). O dashboard continua com a
 data da compra: é um mês só, não repete.
+Mesmo dia: a lista de lançamentos por caixa em `/budgets` (e o Explorer) passou a mostrar a
+subcategoria (senão a categoria) quando o lançamento não tem descrição, em vez de "Sem
+descrição", e o selo "parcela N/total" igual ao relatório. Helpers compartilhados em
+`src/lib/utils/transaction-labels.ts`.

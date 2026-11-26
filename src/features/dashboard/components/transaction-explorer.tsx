@@ -6,6 +6,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils/currency";
+import { displayDescription, installmentBadgeLabel } from "@/lib/utils/transaction-labels";
 import { formatDate } from "@/lib/utils/date";
 import { textIncludes } from "@/lib/utils/normalize";
 import { EditableCategoryCell } from "./editable-category-cell";
@@ -29,11 +30,6 @@ function amountDisplay(t: TransactionViewDTO): { sign: string; className: string
 }
 
 /** Rows with both sides (TRANSFER, CREDIT_CARD_PAYMENT) show origin on top and "→ destination" below. */
-/** "cartão" for a 1x purchase; "cartão · parcela 3/8" for one installment of a parcelled purchase. */
-function installmentBadge(t: TransactionViewDTO): string {
-  return t.installmentNumber && t.totalInstallments ? `cartão · parcela ${t.installmentNumber}/${t.totalInstallments}` : "cartão";
-}
-
 function AccountLabel({ t }: { t: TransactionViewDTO }) {
   if (!t.account) return null;
   return (
@@ -103,11 +99,11 @@ export function TransactionExplorer({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">
                     <span className="tabular-nums opacity-60">{formatDate(t.date)}</span>{" "}
-                    {t.description || <span className="opacity-40">Sem descrição</span>}
+                    {displayDescription(t) || <span className="opacity-40">Sem descrição</span>}
                   </p>
                   <p className="flex flex-wrap items-center gap-1.5 text-xs opacity-60">
                     <AccountLabel t={t} />
-                    {t.source === "installment" && <Badge variant="neutral">{installmentBadge(t)}</Badge>}
+                    {t.source === "installment" && <Badge variant="neutral">{installmentBadgeLabel(t)}</Badge>}
                     {t.paidBeforeSystem && <Badge variant="outline">paga antes do sistema</Badge>}
                     {t.type === "EXPENSE" && t.category === "Estorno" && <Badge variant="accent">estornado</Badge>}
                   </p>
@@ -143,9 +139,9 @@ export function TransactionExplorer({
               <TableRow key={`${t.source}-${t.id}`}>
                 <TableCell className="whitespace-nowrap text-xs opacity-70">{formatDate(t.date)}</TableCell>
                 <TableCell className="max-w-[220px] truncate">
-                  {t.description || <span className="opacity-40">Sem descrição</span>}
+                  {displayDescription(t) || <span className="opacity-40">Sem descrição</span>}
                   {t.source === "installment" && (
-                    <Badge variant="neutral" className="ml-2">{installmentBadge(t)}</Badge>
+                    <Badge variant="neutral" className="ml-2">{installmentBadgeLabel(t)}</Badge>
                   )}
                   {t.paidBeforeSystem && (
                     <Badge variant="outline" className="ml-2">paga antes do sistema</Badge>

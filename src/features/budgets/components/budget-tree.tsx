@@ -3,6 +3,7 @@ import { ProgressRow } from "./progress-row";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDate, formatMonthLabel } from "@/lib/utils/date";
+import { displayDescription, installmentBadgeLabel } from "@/lib/utils/transaction-labels";
 import type { BudgetTreeCategoryDTO, BudgetTreeSubcategoryDTO, FixedExpenseDTO, TransactionViewDTO } from "@/types/dto";
 
 /**
@@ -27,8 +28,8 @@ function BudgetTransactionsList({ transactions }: { transactions: TransactionVie
         {transactions.map((t) => (
           <li key={`${t.source}-${t.id}`} className="flex items-center justify-between gap-2 text-[12px]">
             <span className="min-w-0 truncate opacity-70">
-              {formatDate(t.date)} · {t.description || "Sem descrição"}
-              {t.source === "installment" && <Badge variant="neutral" className="ml-1">cartão</Badge>}
+              {formatDate(t.date)} · {displayDescription(t) || "Sem descrição"}
+              {t.source === "installment" && <Badge variant="neutral" className="ml-1">{installmentBadgeLabel(t)}</Badge>}
             </span>
             <span className="shrink-0 tabular-nums opacity-80">{formatCurrency(t.amount)}</span>
           </li>
